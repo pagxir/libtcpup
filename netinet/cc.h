@@ -63,8 +63,10 @@
  VNET_DECLARE(struct cc_algo *, default_cc_ptr);
  #define V_default_cc_ptr VNET(default_cc_ptr)
  
+#if 0
  /* Define the new net.inet.tcp.cc sysctl tree. */
  SYSCTL_DECL(_net_inet_tcp_cc);
+#endif
  
  /* CC housekeeping functions. */
  int     cc_register_algo(struct cc_algo *add_cc);
@@ -83,7 +85,9 @@
          int             type; /* Indicates which ptr is valid in ccvc. */
          union ccv_container {
                  struct tcpcb            *tcp;
+#if 0
                  struct sctp_nets        *sctp;
+#endif
          } ccvc;
  };
  
@@ -155,6 +159,7 @@
  /* Macro to obtain the system default CC algo's struct ptr. */
  #define CC_DEFAULT()    V_default_cc_ptr
  
+#if 0
  extern struct rwlock cc_list_lock;
  #define CC_LIST_LOCK_INIT()     rw_init(&cc_list_lock, "cc_list")
  #define CC_LIST_LOCK_DESTROY()  rw_destroy(&cc_list_lock)
@@ -163,5 +168,6 @@
  #define CC_LIST_WLOCK()         rw_wlock(&cc_list_lock)
  #define CC_LIST_WUNLOCK()       rw_wunlock(&cc_list_lock)
  #define CC_LIST_LOCK_ASSERT()   rw_assert(&cc_list_lock, RA_LOCKED)
+#endif
  
  #endif /* _NETINET_CC_H_ */

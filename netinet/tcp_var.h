@@ -596,11 +596,6 @@ struct  xtcpcb {
 #define TCPCTL_FINWAIT2_TIMEOUT        17
 
 #ifdef _KERNEL
-#ifdef SYSCTL_DECL
-SYSCTL_DECL(_net_inet_tcp);
-SYSCTL_DECL(_net_inet_tcp_sack);
-MALLOC_DECLARE(M_TCPLOG);
-#endif
 
 VNET_DECLARE(struct inpcbhead, tcb);            /* queue of active tcpcb's */
 VNET_DECLARE(struct inpcbinfo, tcbinfo);
