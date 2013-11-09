@@ -48,24 +48,15 @@
  *   http://caia.swin.edu.au/urp/newtcp/
  */
 
-#include <sys/cdefs.h>
+#include <tx_queue.h>
+#include <tx_network.h>
+#include "netinet/tcp.h"
 
-#include <sys/param.h>
-#include <sys/kernel.h>
-#include <sys/malloc.h>
-#include <sys/module.h>
-#include <sys/socket.h>
-#include <sys/socketvar.h>
-#include <sys/sysctl.h>
-#include <sys/systm.h>
+#include "netinet/cc.h"
+#include "netinet/tcp_seq.h"
+#include "netinet/tcp_var.h"
 
-#include <net/vnet.h>
-
-#include <netinet/cc.h>
-#include <netinet/tcp_seq.h>
-#include <netinet/tcp_var.h>
-
-#include <netinet/cc/cc_module.h>
+#include "netinet/cc/cc_module.h"
 
 static void     newreno_ack_received(struct cc_var *ccv, uint16_t type);
 static void     newreno_after_idle(struct cc_var *ccv);

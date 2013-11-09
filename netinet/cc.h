@@ -52,7 +52,7 @@
  #define _NETINET_CC_H_
  
  /* XXX: TCP_CA_NAME_MAX define lives in tcp.h for compat reasons. */
- #include <netinet/tcp.h>
+ #include "netinet/tcp.h"
  
  /* Global CC vars. */
  extern STAILQ_HEAD(cc_head, cc_algo) cc_list;

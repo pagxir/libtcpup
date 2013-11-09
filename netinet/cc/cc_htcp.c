@@ -49,17 +49,7 @@
 
 #include <sys/cdefs.h>
 
-#include <sys/param.h>
-#include <sys/kernel.h>
-#include <sys/limits.h>
-#include <sys/malloc.h>
-#include <sys/module.h>
-#include <sys/socket.h>
-#include <sys/socketvar.h>
-#include <sys/sysctl.h>
-#include <sys/systm.h>
-
-#include <net/vnet.h>
+#include <tx_network.h>
 
 #include <netinet/cc.h>
 #include <netinet/tcp_seq.h>

@@ -35,8 +35,6 @@
 
 #include <netinet/tcp.h>
 
-#ifdef _KERNEL
-#include <net/vnet.h>
 
 /*
  * Kernel variables for tcp.
@@ -44,7 +42,6 @@
 VNET_DECLARE(int, tcp_do_rfc1323);
 #define V_tcp_do_rfc1323        VNET(tcp_do_rfc1323)
 
-#endif /* _KERNEL */
 
 /* TCP segment queue entry */
 struct tseg_qent {
@@ -515,9 +512,6 @@ struct  tcpstat {
         uint64_t _pad[12];              /* 6 UTO, 6 TBD */
 };
 
-#ifdef _KERNEL
-#include <sys/counter.h>
-
 VNET_PCPUSTAT_DECLARE(struct tcpstat, tcpstat); /* tcp statistics */
 /*
  * In-kernel consumers can use these accessor macros directly to update
@@ -549,7 +543,6 @@ struct tcp_hhook_data {
         int             tso;
         tcp_seq         curack;
 };
-#endif
 
 /*
  * TCB structure exported to user-land via sysctl(3).
@@ -595,7 +588,6 @@ struct  xtcpcb {
 #define TCPCTL_MAXID            16
 #define TCPCTL_FINWAIT2_TIMEOUT        17
 
-#ifdef _KERNEL
 
 VNET_DECLARE(struct inpcbhead, tcb);            /* queue of active tcpcb's */
 VNET_DECLARE(struct inpcbinfo, tcbinfo);
@@ -731,7 +723,6 @@ u_long   tcp_seq_subtract(u_long, u_long );
 
 void    cc_cong_signal(struct tcpcb *tp, struct tcphdr *th, uint32_t type);
 
-#endif /* _KERNEL */
 
 #endif /* _NETINET_TCP_VAR_H_ */
 

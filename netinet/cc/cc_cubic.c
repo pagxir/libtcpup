@@ -47,24 +47,15 @@
 
 #include <sys/cdefs.h>
 
-#include <sys/param.h>
-#include <sys/kernel.h>
-#include <sys/malloc.h>
-#include <sys/module.h>
-#include <sys/socket.h>
-#include <sys/socketvar.h>
-#include <sys/sysctl.h>
-#include <sys/systm.h>
+#include "tx_network.h"
 
-#include <net/vnet.h>
+#include "netinet/cc.h"
+#include "netinet/tcp_seq.h"
+#include "netinet/tcp_timer.h"
+#include "netinet/tcp_var.h"
 
-#include <netinet/cc.h>
-#include <netinet/tcp_seq.h>
-#include <netinet/tcp_timer.h>
-#include <netinet/tcp_var.h>
-
-#include <netinet/cc/cc_cubic.h>
-#include <netinet/cc/cc_module.h>
+#include "netinet/cc/cc_cubic.h"
+#include "netinet/cc/cc_module.h"
 
 static void     cubic_ack_received(struct cc_var *ccv, uint16_t type);
 static void     cubic_cb_destroy(struct cc_var *ccv);
@@ -97,8 +88,10 @@ struct cubic {
         int             t_last_cong;
 };
 
+#if 0
 static MALLOC_DEFINE(M_CUBIC, "cubic data",
     "Per connection data required for the CUBIC congestion control algorithm");
+#endif
 
 struct cc_algo cubic_cc_algo = {
         .name = "cubic",
@@ -194,7 +187,7 @@ cubic_cb_destroy(struct cc_var *ccv)
 {
 
         if (ccv->cc_data != NULL)
-                free(ccv->cc_data, M_CUBIC);
+                free(ccv->cc_data);//, M_CUBIC);
 }
 
 static int
@@ -202,10 +195,10 @@ cubic_cb_init(struct cc_var *ccv)
 {
         struct cubic *cubic_data;
 
-        cubic_data = malloc(sizeof(struct cubic), M_CUBIC, M_NOWAIT|M_ZERO);
+        cubic_data = malloc(sizeof(struct cubic)); //, M_CUBIC, M_NOWAIT|M_ZERO);
 
         if (cubic_data == NULL)
-                return (ENOMEM);
+                return -1; //(ENOMEM);
 
         /* Init some key variables with sensible defaults. */
         cubic_data->t_last_cong = ticks;

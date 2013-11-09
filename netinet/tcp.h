@@ -36,7 +36,6 @@
 #include <sys/cdefs.h>
 #include <sys/types.h>
 
-#if __BSD_VISIBLE
 
 typedef u_int32_t tcp_seq;
 
@@ -146,7 +145,6 @@ struct tcphdr {
 #define TCP_MAXHLEN     (0xf<<2)        /* max length of header in bytes */
 #define TCP_MAXOLEN     (TCP_MAXHLEN - sizeof(struct tcphdr))
                                         /* max space left for options */
-#endif /* __BSD_VISIBLE */
 
 /*
  * User-settable options (used with setsockopt).  These are discrete
@@ -154,7 +152,6 @@ struct tcphdr {
  * bitmasks for historical reasons.
  */
 #define TCP_NODELAY     1       /* don't delay send to coalesce packets */
-#if __BSD_VISIBLE
 #define TCP_MAXSEG      2       /* set maximum segment size */
 #define TCP_NOPUSH      4       /* don't push last block of write */
 #define TCP_NOOPT       8       /* don't use TCP options */
@@ -242,7 +239,6 @@ struct tcp_info {
         /* Padding to grow without breaking ABI. */
         u_int32_t       __tcpi_pad[26];         /* Padding. */
 };
-#endif
 
 #endif /* !_NETINET_TCP_H_ */
 
