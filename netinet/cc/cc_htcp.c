@@ -162,8 +162,10 @@ static VNET_DEFINE(u_int, htcp_rtt_scaling) = 0;
 #define V_htcp_adaptive_backoff    VNET(htcp_adaptive_backoff)
 #define V_htcp_rtt_scaling    VNET(htcp_rtt_scaling)
 
+#if 0
 static MALLOC_DEFINE(M_HTCP, "htcp data",
     "Per connection data required for the HTCP congestion control algorithm");
+#endif
 
 struct cc_algo htcp_cc_algo = {
         .name = "htcp",
@@ -227,7 +229,7 @@ htcp_cb_destroy(struct cc_var *ccv)
 {
 
         if (ccv->cc_data != NULL)
-                free(ccv->cc_data, M_HTCP);
+                free(ccv->cc_data);//, M_HTCP;
 }
 
 static int
@@ -235,7 +237,7 @@ htcp_cb_init(struct cc_var *ccv)
 {
         struct htcp *htcp_data;
 
-        htcp_data = malloc(sizeof(struct htcp), M_HTCP, M_NOWAIT);
+        htcp_data = malloc(sizeof(struct htcp));//, M_HTCP, M_NOWAIT;
 
         if (htcp_data == NULL)
                 return (ENOMEM);
@@ -498,6 +500,7 @@ htcp_ssthresh_update(struct cc_var *ccv)
 }
 
 
+#if 0
 SYSCTL_DECL(_net_inet_tcp_cc_htcp);
 SYSCTL_NODE(_net_inet_tcp_cc, OID_AUTO, htcp, CTLFLAG_RW,
     NULL, "H-TCP related settings");
@@ -505,6 +508,7 @@ SYSCTL_VNET_UINT(_net_inet_tcp_cc_htcp, OID_AUTO, adaptive_backoff, CTLFLAG_RW,
     &VNET_NAME(htcp_adaptive_backoff), 0, "enable H-TCP adaptive backoff");
 SYSCTL_VNET_UINT(_net_inet_tcp_cc_htcp, OID_AUTO, rtt_scaling, CTLFLAG_RW,
     &VNET_NAME(htcp_rtt_scaling), 0, "enable H-TCP RTT scaling");
+#endif
 
 DECLARE_CC_MODULE(htcp, &htcp_cc_algo);
 
