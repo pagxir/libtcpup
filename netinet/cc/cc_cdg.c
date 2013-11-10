@@ -60,8 +60,6 @@
 
 #include <netinet/khelp/h_ertt.h>
 
-#include <vm/uma.h>
-
 #define CDG_VERSION "0.1"
 
 #define CAST_PTR_INT(X) (*((int*)(X)))
@@ -334,6 +332,7 @@ cdg_cb_destroy(struct cc_var *ccv)
         free(ccv->cc_data, M_CDG);
 }
 
+#if 0
 static int
 cdg_beta_handler(SYSCTL_HANDLER_ARGS)
 {
@@ -354,6 +353,7 @@ cdg_exp_backoff_scale_handler(SYSCTL_HANDLER_ARGS)
 
         return (vnet_sysctl_handle_uint(oidp, arg1, arg2, req));
 }
+#endif
 
 static inline unsigned long
 cdg_window_decrease(struct cc_var *ccv, unsigned long owin, unsigned int beta)
@@ -628,6 +628,7 @@ cdg_ack_received(struct cc_var *ccv, uint16_t ack_type)
 }
 
 /* When a vnet is created and being initialised, init the per-stack CDG vars. */
+#if 0
 VNET_SYSINIT(cdg_init_vnet, SI_SUB_PROTO_BEGIN, SI_ORDER_FIRST,
     cdg_init_vnet, NULL);
 
@@ -678,5 +679,6 @@ SYSCTL_VNET_UINT(_net_inet_tcp_cc_cdg, OID_AUTO, loss_compete_hold_backoff,
 DECLARE_CC_MODULE(cdg, &cdg_cc_algo);
 
 MODULE_DEPEND(cdg, ertt, 1, 1, 1);
+#endif
 
 

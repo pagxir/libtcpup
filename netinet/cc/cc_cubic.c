@@ -88,10 +88,8 @@ struct cubic {
         int             t_last_cong;
 };
 
-#if 0
 static MALLOC_DEFINE(M_CUBIC, "cubic data",
     "Per connection data required for the CUBIC congestion control algorithm");
-#endif
 
 struct cc_algo cubic_cc_algo = {
         .name = "cubic",
@@ -187,7 +185,7 @@ cubic_cb_destroy(struct cc_var *ccv)
 {
 
         if (ccv->cc_data != NULL)
-                free(ccv->cc_data);//, M_CUBIC);
+                free(ccv->cc_data, M_CUBIC);
 }
 
 static int
@@ -195,7 +193,7 @@ cubic_cb_init(struct cc_var *ccv)
 {
         struct cubic *cubic_data;
 
-        cubic_data = malloc(sizeof(struct cubic)); //, M_CUBIC, M_NOWAIT|M_ZERO);
+        cubic_data = malloc(sizeof(struct cubic), M_CUBIC, M_NOWAIT|M_ZERO);
 
         if (cubic_data == NULL)
                 return -1; //(ENOMEM);

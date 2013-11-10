@@ -53,7 +53,7 @@
 
 #include <netinet/cc.h>
 #include <netinet/in.h>
-#include <netinet/in_pcb.h>
+/* #include <netinet/in_pcb.h> */
 #include <netinet/tcp_var.h>
 
 #include <netinet/cc/cc_module.h>
@@ -64,11 +64,14 @@
  */
 struct cc_head cc_list = STAILQ_HEAD_INITIALIZER(cc_list);
 
+#if 0
 /* Protects the cc_list TAILQ. */
 struct rwlock cc_list_lock;
+#endif
 
 VNET_DEFINE(struct cc_algo *, default_cc_ptr) = &newreno_cc_algo;
 
+#if 0
 /*
  * Sysctl handler to show and change the default CC algorithm.
  */
@@ -309,3 +312,4 @@ SYSCTL_VNET_PROC(_net_inet_tcp_cc, OID_AUTO, algorithm, CTLTYPE_STRING|CTLFLAG_R
 SYSCTL_PROC(_net_inet_tcp_cc, OID_AUTO, available, CTLTYPE_STRING|CTLFLAG_RD,
     NULL, 0, cc_list_available, "A",
     "list available congestion control algorithms");
+#endif

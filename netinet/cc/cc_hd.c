@@ -165,6 +165,7 @@ hd_mod_init(void)
         return (0);
 }
 
+#if 0
 static int
 hd_pmax_handler(SYSCTL_HANDLER_ARGS)
 {
@@ -239,3 +240,4 @@ SYSCTL_VNET_PROC(_net_inet_tcp_cc_hd, OID_AUTO, queue_min,
 
 DECLARE_CC_MODULE(hd, &hd_cc_algo);
 MODULE_DEPEND(hd, ertt, 1, 1, 1);
+#endif

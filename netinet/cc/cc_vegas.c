@@ -241,6 +241,7 @@ vegas_mod_init(void)
         return (0);
 }
 
+#if 0
 static int
 vegas_alpha_handler(SYSCTL_HANDLER_ARGS)
 {
@@ -293,3 +294,4 @@ SYSCTL_VNET_PROC(_net_inet_tcp_cc_vegas, OID_AUTO, beta,
 
 DECLARE_CC_MODULE(vegas, &vegas_cc_algo);
 MODULE_DEPEND(vegas, ertt, 1, 1, 1);
+#endif

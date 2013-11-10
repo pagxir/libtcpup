@@ -53,6 +53,7 @@
 #include <sys/cdefs.h>
 
 #include <tx_queue.h>
+#include <tx_network.h>
 
 #include <netinet/cc.h>
 #include <netinet/tcp_seq.h>
@@ -398,6 +399,7 @@ chd_mod_init(void)
         return (0);
 }
 
+#if 0
 static int
 chd_loss_fair_handler(SYSCTL_HANDLER_ARGS)
 {
@@ -480,3 +482,4 @@ SYSCTL_VNET_UINT(_net_inet_tcp_cc_chd,  OID_AUTO, use_max,
 
 DECLARE_CC_MODULE(chd, &chd_cc_algo);
 MODULE_DEPEND(chd, ertt, 1, 1, 1);
+#endif
