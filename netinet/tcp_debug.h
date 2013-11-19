@@ -43,7 +43,7 @@ struct  tcp_debug {
          * Co-existense of td_ti and td_ti6 below is ugly, but it is necessary
          * to achieve backword compatibility to some extent.
          */
-        struct  tcpiphdr td_ti;
+        /* struct  tcpiphdr td_ti; */
         struct {
 #define IP6_HDR_LEN     40      /* sizeof(struct ip6_hdr) */
 #if !defined(_KERNEL) && defined(INET6)
@@ -71,10 +71,5 @@ static const char       *tanames[] =
 
 #define TCP_NDEBUG 100
 
-#ifndef _KERNEL
-/* XXX common variables for broken applications. */
-struct  tcp_debug tcp_debug[TCP_NDEBUG];
-int     tcp_debx;
-#endif
 
 #endif /* !_NETINET_TCP_DEBUG_H_ */

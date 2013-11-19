@@ -36,10 +36,12 @@
 /*
  * Tcp+ip header, after ip options removed.
  */
+#if 0
 struct tcpiphdr {
         struct  ipovly ti_i;            /* overlaid ip structure */
         struct  tcphdr ti_t;            /* tcp header */
 };
+#endif
 #define ti_x1           ti_i.ih_x1
 #define ti_pr           ti_i.ih_pr
 #define ti_len          ti_i.ih_len

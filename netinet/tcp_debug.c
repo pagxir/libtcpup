@@ -44,28 +44,16 @@
  #define TANAMES
  #endif
  
- #include <sys/param.h>
- #include <sys/systm.h>
- #include <sys/kernel.h>
- #include <sys/lock.h>
- #include <sys/mbuf.h>
- #include <sys/mutex.h>
- #include <sys/protosw.h>
  #include <sys/socket.h>
  
  #include <netinet/in.h>
- #include <netinet/in_systm.h>
- #include <netinet/ip.h>
- #ifdef INET6
- #include <netinet/ip6.h>
- #endif
- #include <netinet/ip_var.h>
- #include <netinet/tcp.h>
- #include <netinet/tcp_fsm.h>
- #include <netinet/tcp_timer.h>
- #include <netinet/tcp_var.h>
- #include <netinet/tcpip.h>
- #include <netinet/tcp_debug.h>
+ #include "tx_network.h"
+ #include "netinet/tcp.h"
+ #include "netinet/tcp_fsm.h"
+ #include "netinet/tcp_timer.h"
+ #include "netinet/tcp_var.h"
+ #include "netinet/tcpip.h"
+ #include "netinet/tcp_debug.h"
  
  #ifdef TCPDEBUG
  static int              tcpconsdebug = 0;
@@ -85,8 +73,8 @@
   * two parts, one of which saves connection and other state into the global
   * array (locked by tcp_debug_mtx).
   */
- struct mtx              tcp_debug_mtx;
- MTX_SYSINIT(tcp_debug_mtx, &tcp_debug_mtx, "tcp_debug_mtx", MTX_DEF);
+ /* struct mtx              tcp_debug_mtx; */
+ /* MTX_SYSINIT(tcp_debug_mtx, &tcp_debug_mtx, "tcp_debug_mtx", MTX_DEF); */
  
  /*
   * Save TCP state at a given moment; optionally, both tcpcb and TCP packet
@@ -103,7 +91,7 @@
          int len, flags;
          struct tcp_debug *td;
  
-         mtx_lock(&tcp_debug_mtx);
+         /* mtx_lock(&tcp_debug_mtx); */
          td = &tcp_debug[tcp_debx++];
          if (tcp_debx == TCP_NDEBUG)
                  tcp_debx = 0;
@@ -153,7 +141,7 @@
                  }
          }
          td->td_req = req;
-         mtx_unlock(&tcp_debug_mtx);
+         /* mtx_unlock(&tcp_debug_mtx); */
  #ifdef TCPDEBUG
          if (tcpconsdebug == 0)
                  return;
