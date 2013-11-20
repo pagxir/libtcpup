@@ -49,76 +49,20 @@
 
 #include <sys/cdefs.h>
 
-#include "opt_ipfw.h"           /* for ipfw_fwd */
-#include "opt_inet.h"
-#include "opt_inet6.h"
-#include "opt_ipsec.h"
-#include "opt_kdtrace.h"
+#include "tx_network.h"
 #include "opt_tcpdebug.h"
-
-#include <sys/param.h>
-#include <sys/kernel.h>
-#include <sys/hhook.h>
-#include <sys/malloc.h>
-#include <sys/mbuf.h>
-#include <sys/proc.h>           /* for proc0 declaration */
-#include <sys/protosw.h>
-#include <sys/sdt.h>
-#include <sys/signalvar.h>
-#include <sys/socket.h>
-#include <sys/socketvar.h>
-#include <sys/sysctl.h>
-#include <sys/syslog.h>
-#include <sys/systm.h>
-
-#include <machine/cpu.h>        /* before tcp_seq.h, for tcp_random18() */
-
-#include <vm/uma.h>
-
-#include <net/if.h>
-#include <net/route.h>
-#include <net/vnet.h>
 
 #define TCPSTATES               /* for logging */
 
-#include <netinet/cc.h>
-#include <netinet/in.h>
-#include <netinet/in_kdtrace.h>
-#include <netinet/in_pcb.h>
-#include <netinet/in_systm.h>
-#include <netinet/in_var.h>
-#include <netinet/ip.h>
-#include <netinet/ip_icmp.h>    /* required for icmp_var.h */
-#include <netinet/icmp_var.h>   /* for ICMP_BANDLIM */
-#include <netinet/ip_var.h>
-#include <netinet/ip_options.h>
-#include <netinet/ip6.h>
-#include <netinet/icmp6.h>
-#include <netinet6/in6_pcb.h>
-#include <netinet6/ip6_var.h>
-#include <netinet6/nd6.h>
-#include <netinet/tcp_fsm.h>
-#include <netinet/tcp_seq.h>
-#include <netinet/tcp_timer.h>
-#include <netinet/tcp_var.h>
-#include <netinet6/tcp6_var.h>
-#include <netinet/tcpip.h>
-#include <netinet/tcp_syncache.h>
+#include "netinet/cc.h"
+#include "netinet/tcp_fsm.h"
+#include "netinet/tcp_seq.h"
+#include "netinet/tcp_timer.h"
+#include "netinet/tcp_var.h"
+#include "netinet/tcpip.h"
 #ifdef TCPDEBUG
-#include <netinet/tcp_debug.h>
+#include "netinet/tcp_debug.h"
 #endif /* TCPDEBUG */
-#ifdef TCP_OFFLOAD
-#include <netinet/tcp_offload.h>
-#endif
-
-#ifdef IPSEC
-#include <netipsec/ipsec.h>
-#include <netipsec/ipsec6.h>
-#endif /*IPSEC*/
-
-#include <machine/in_cksum.h>
-
-#include <security/mac/mac_framework.h>
 
 const int tcprexmtthresh = 3;
 
@@ -214,9 +158,9 @@ SYSCTL_VNET_INT(_net_inet_tcp, OID_AUTO, recvbuf_max, CTLFLAG_RW,
     &VNET_NAME(tcp_autorcvbuf_max), 0,
     "Max size of automatic receive buffer");
 
-VNET_DEFINE(struct inpcbhead, tcb);
+/* VNET_DEFINE(struct inpcbhead, tcb); */
 #define tcb6    tcb  /* for KAME src sync over BSD*'s */
-VNET_DEFINE(struct inpcbinfo, tcbinfo);
+/* VNET_DEFINE(struct inpcbinfo, tcbinfo); */
 
 static void      tcp_dooptions(struct tcpopt *, u_char *, int, int);
 static void      tcp_do_segment(struct mbuf *, struct tcphdr *,
@@ -245,9 +189,11 @@ static void inline      hhook_run_tcp_est_in(struct tcpcb *tp,
  * TCP statistics are stored in an "array" of counter(9)s.
  */
 VNET_PCPUSTAT_DEFINE(struct tcpstat, tcpstat);
+#if 0
 VNET_PCPUSTAT_SYSINIT(tcpstat);
 SYSCTL_VNET_PCPUSTAT(_net_inet_tcp, TCPCTL_STATS, stats, struct tcpstat,
     tcpstat, "TCP statistics (struct tcpstat, netinet/tcp_var.h)");
+#endif
 
 #ifdef VIMAGE
 VNET_PCPUSTAT_SYSUNINIT(tcpstat);
@@ -256,12 +202,14 @@ VNET_PCPUSTAT_SYSUNINIT(tcpstat);
  * Kernel module interface for updating tcpstat.  The argument is an index
  * into tcpstat treated as an array.
  */
+#if 0
 void
 kmod_tcpstat_inc(int statnum)
 {
 
         counter_u64_add(VNET(tcpstat)[statnum], 1);
 }
+#endif
 
 /*
  * Wrapper for the TCP established input helper hook.
@@ -269,6 +217,7 @@ kmod_tcpstat_inc(int statnum)
 static void inline
 hhook_run_tcp_est_in(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 {
+#if 0
         struct tcp_hhook_data hhook_data;
 
         if (V_tcp_hhh[HHOOK_TCP_EST_IN]->hhh_nhooks > 0) {
@@ -279,6 +228,7 @@ hhook_run_tcp_est_in(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
                 hhook_run_hooks(V_tcp_hhh[HHOOK_TCP_EST_IN], &hhook_data,
                     tp->osd);
         }
+#endif
 }
 
 /*
@@ -323,9 +273,11 @@ cc_conn_init(struct tcpcb *tp)
         struct inpcb *inp = tp->t_inpcb;
         int rtt;
 
+#if 0
         INP_WLOCK_ASSERT(tp->t_inpcb);
 
         tcp_hc_get(&inp->inp_inc, &metrics);
+#endif
 
         if (tp->t_srtt == 0 && (rtt = metrics.rmx_rtt)) {
                 tp->t_srtt = rtt;
@@ -553,6 +505,7 @@ tcp6_input(struct mbuf **mp, int *offp, int proto)
 }
 #endif /* INET6 */
 
+#if 000000000000000000
 void
 tcp_input(struct mbuf *m, int off0)
 {
@@ -1449,6 +1402,7 @@ drop:
         if (m != NULL)
                 m_freem(m);
 }
+#endif
 
 static void
 tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
@@ -1472,7 +1426,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
         short ostate = 0;
 #endif
         thflags = th->th_flags;
-        inc = &tp->t_inpcb->inp_inc;
+        inc = NULL; //&tp->t_inpcb->inp_inc;
         tp->sackhint.last_sack_ack = 0;
 
         /*
@@ -1483,9 +1437,11 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
          */
         if ((thflags & (TH_SYN | TH_FIN | TH_RST)) != 0 ||
             tp->t_state != TCPS_ESTABLISHED) {
+#if 0
                 KASSERT(ti_locked == TI_WLOCKED, ("%s ti_locked %d for "
                     "SYN/FIN/RST/!EST", __func__, ti_locked));
                 INP_INFO_WLOCK_ASSERT(&V_tcbinfo);
+#endif
         } else {
 #ifdef INVARIANTS
                 if (ti_locked == TI_WLOCKED)
@@ -1525,6 +1481,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
         if (tp->t_flags & TF_ECN_PERMIT) {
                 if (thflags & TH_CWR)
                         tp->t_flags &= ~TF_ECN_SND_ECE;
+#if 0
                 switch (iptos & IPTOS_ECN_MASK) {
                 case IPTOS_ECN_CE:
                         tp->t_flags |= TF_ECN_SND_ECE;
@@ -1537,6 +1494,7 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
                         TCPSTAT_INC(tcps_ecn_ect1);
                         break;
                 }
+#endif
                 /* Congestion experienced. */
                 if (thflags & TH_ECE) {
                         cc_cong_signal(tp, th, CC_ECN);
@@ -1567,8 +1525,10 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
          */
         if ((tp->t_flags & TF_RCVD_TSTMP) && !(to.to_flags & TOF_TS)) {
                 if ((s = tcp_log_addrs(inc, th, NULL, NULL))) {
+#if 0
                         log(LOG_DEBUG, "%s; %s: Timestamp missing, "
                             "no action\n", s, __func__);
+#endif
                         free(s, M_TCPLOG);
                 }
         }
@@ -1658,9 +1618,11 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
                                 /*
                                  * This is a pure ack for outstanding data.
                                  */
+#if 0
                                 if (ti_locked == TI_WLOCKED)
                                         INP_INFO_WUNLOCK(&V_tcbinfo);
                                 ti_locked = TI_UNLOCKED;
+#endif
 
                                 TCPSTAT_INC(tcps_predack);
 
@@ -1762,9 +1724,11 @@ tcp_do_segment(struct mbuf *m, struct tcphdr *th, struct socket *so,
                          * nothing on the reassembly queue and we have enough
                          * buffer space to take it.
                          */
+#if 0
                         if (ti_locked == TI_WLOCKED)
                                 INP_INFO_WUNLOCK(&V_tcbinfo);
                         ti_locked = TI_UNLOCKED;
+#endif
 
                         /* Clean receiver SACK report if present */
                         if ((tp->t_flags & TF_SACK_PERMIT) && tp->rcv_numsacks)
@@ -3134,6 +3098,7 @@ static void
 tcp_dropwithreset(struct mbuf *m, struct tcphdr *th, struct tcpcb *tp,
     int tlen, int rstreason)
 {
+#if 0
 #ifdef INET
         struct ip *ip;
 #endif
@@ -3188,6 +3153,7 @@ tcp_dropwithreset(struct mbuf *m, struct tcphdr *th, struct tcpcb *tp,
         return;
 drop:
         m_freem(m);
+#endif
 }
 
 /*
@@ -3281,6 +3247,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
         }
 }
 
+#if 0
 /*
  * Pull out of band byte out of a segment so
  * it doesn't appear in the user's data queue.
@@ -3315,6 +3282,7 @@ tcp_pulloutofband(struct socket *so, struct tcphdr *th, struct mbuf *m,
         }
         panic("tcp_pulloutofband");
 }
+#endif
 
 /*
  * Collect new round-trip time estimate
@@ -3397,6 +3365,7 @@ tcp_xmit_timer(struct tcpcb *tp, int rtt)
         tp->t_softerror = 0;
 }
 
+#if 0
 /*
  * Determine a reasonable value for maxseg size.
  * If the route is known, check route for mtu.
@@ -3690,6 +3659,7 @@ tcp_mssopt(struct in_conninfo *inc)
 
         return (mss);
 }
+#endif
 
 
 /*
