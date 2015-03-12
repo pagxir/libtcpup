@@ -14,6 +14,15 @@
 #define TF_SHUT0      16 
 #define TF_SHUT1      32
 
+#ifndef WIN32
+#include <errno.h>
+#include <unistd.h>
+#define closesocket close
+#define tx_get_error() errno
+#else
+#define tx_get_error WSAGetLastError
+#endif
+
 class pstcp_channel {
    	public:
 		pstcp_channel(struct tcpcb *tp);
@@ -28,9 +37,9 @@ class pstcp_channel {
 		int m_flags;
 
 	private:
-		struct waitcb m_rwait;
-		struct waitcb m_wwait;
-		struct sockcb *m_sockcbp;
+		struct tx_task_t m_rwait;
+		struct tx_task_t m_wwait;
+		struct tx_aiocb m_sockcbp;
 
 	private:
 		int m_woff;
@@ -43,9 +52,9 @@ class pstcp_channel {
 		char m_rbuf[4096];
 
 	private:
-		struct waitcb r_evt_peer;
-		struct waitcb w_evt_peer;
 		struct tcpcb *m_peer;
+		struct tx_task_t r_evt_peer;
+		struct tx_task_t w_evt_peer;
 };
 
 u_short _forward_port = 1080;
@@ -57,25 +66,27 @@ pstcp_channel::pstcp_channel(struct tcpcb *tp)
 	m_peer = tp;
 	m_file = socket(AF_INET, SOCK_STREAM, 0);
 	assert(m_file != -1);
-	m_sockcbp = sock_attach(m_file);
+	tx_loop_t *loop = tx_loop_default();
+	tx_aiocb_init(&m_sockcbp, loop, m_file);
 
 	m_roff = m_rlen = 0;
 	m_woff = m_wlen = 0;
-	waitcb_init(&m_rwait, tc_callback, this);
-	waitcb_init(&m_wwait, tc_callback, this);
-	waitcb_init(&r_evt_peer, tc_callback, this);
-	waitcb_init(&w_evt_peer, tc_callback, this);
+
+	tx_task_init(&m_rwait, loop, tc_callback, this);
+	tx_task_init(&m_wwait, loop, tc_callback, this);
+	tx_task_init(&r_evt_peer, loop, tc_callback, this);
+	tx_task_init(&w_evt_peer, loop, tc_callback, this);
 }
 
 pstcp_channel::~pstcp_channel()
 {
-	waitcb_clean(&m_wwait);
-	waitcb_clean(&m_rwait);
-	waitcb_clean(&r_evt_peer);
-	waitcb_clean(&w_evt_peer);
+	tx_task_drop(&m_wwait);
+	tx_task_drop(&m_rwait);
+	tx_task_drop(&r_evt_peer);
+	tx_task_drop(&r_evt_peer);
 
 	fprintf(stderr, "pstcp_channel::~pstcp_channel\n");
-	sock_detach(m_sockcbp);
+	tx_aiocb_fini(&m_sockcbp);
 	closesocket(m_file);
 	tcp_soclose(m_peer);
 }
@@ -86,13 +97,14 @@ int pstcp_channel::run(void)
 	int error = -1;
 	struct sockaddr_in name;
 
+#if 0
 	if ((m_flags & TF_CONNECT) == 0) {
 		name.sin_family = AF_INET;
 		name.sin_port   = htons(_forward_port);
 		name.sin_addr.s_addr = htonl(_forward_addr);
 	   	error = connect(m_file, (struct sockaddr *)&name, sizeof(name));
 		m_flags |= TF_CONNECT;
-		if (error == -1 && WSAGetLastError() == EINPROGRESS) {
+		if (error == -1 && tx_get_error() == EINPROGRESS) {
 			sock_write_wait(m_sockcbp, &m_wwait);
 			m_flags |= TF_CONNECTING;
 			return 1;
@@ -119,7 +131,7 @@ reread:
 		   	m_rlen += len;
 		else if (len == 0)
 			m_flags |= TF_EOF1;
-		else if (WSAGetLastError() != WSAEWOULDBLOCK)
+		else if (tx_get_error() != WSAEWOULDBLOCK)
 			return 0;
 		waitcb_clear(&m_rwait);
 	}
@@ -139,7 +151,7 @@ reread:
 			len = send(m_file, m_wbuf + m_woff, m_wlen - m_woff, 0);
 			if (len > 0)
 				m_woff += len;
-			else if (WSAGetLastError() == WSAEWOULDBLOCK)
+			else if (tx_get_error() == WSAEWOULDBLOCK)
 				waitcb_clear(&m_wwait);
 			else
 				return 0;
@@ -201,6 +213,8 @@ reread:
 	}
 
 	return error;
+#endif
+	return 0;
 }
 
 void pstcp_channel::tc_callback(void *context)

@@ -4,82 +4,17 @@
 #include <stdlib.h>
 #include <signal.h>
 
-#include <wait/module.h>
-#include <wait/platform.h>
-#include <wait/slotwait.h>
+#include <txall.h>
 
 #include <tcpup/tcp_device.h>
 #include "tcp_channel.h"
 
-extern struct module_stub timer_mod;
-extern struct module_stub slotsock_mod;
 extern struct module_stub tcp_timer_mod;
 extern struct module_stub tcp_device_mod;
 extern struct module_stub tcp_listen_mod;
 struct module_stub *modules_list[] = {
-	&timer_mod, &slotsock_mod, &tcp_device_mod, 
-	&tcp_timer_mod, &tcp_listen_mod, NULL
+	&tcp_device_mod, &tcp_timer_mod, &tcp_listen_mod, NULL
 };
-
-static int get_target_address(struct tcpip_info *info, const char *address)
-{
-	const char *last;
-
-#define FLAG_HAVE_DOT    1
-#define FLAG_HAVE_ALPHA  2
-#define FLAG_HAVE_NUMBER 4
-#define FLAG_HAVE_SPLIT  8
-
-	int flags = 0;
-	char host[128] = {};
-
-	for (last = address; *last; last++) {
-		if (isdigit(*last)) flags |= FLAG_HAVE_NUMBER;
-		else if (*last == ':') flags |= FLAG_HAVE_SPLIT;
-		else if (*last == '.') flags |= FLAG_HAVE_DOT;
-		else if (isalpha(*last)) flags |= FLAG_HAVE_ALPHA;
-		else { fprintf(stderr, "get target address failure!\n"); return -1;}
-	}
-
-	if (flags == FLAG_HAVE_NUMBER) {
-		info->port = htons(atoi(address));
-		return 0;
-	}
-
-	if (flags == (FLAG_HAVE_NUMBER| FLAG_HAVE_DOT)) {
-		info->address = inet_addr(address);
-		return 0;
-	}
-
-	struct hostent *host0 = NULL;
-	if ((flags & ~FLAG_HAVE_NUMBER) == (FLAG_HAVE_ALPHA | FLAG_HAVE_DOT)) {
-		host0 = gethostbyname(address);
-		if (host0 != NULL)
-			memcpy(&info->address, host0->h_addr, 4);
-		return 0;
-	}
-
-	if (flags & FLAG_HAVE_SPLIT) {
-		const char *split = strchr(address, ':');
-		info->port = htons(atoi(split + 1));
-
-		if (strlen(address) < sizeof(host)) {
-			strncpy(host, address, sizeof(host));
-			host[split - address] = 0;
-
-			if (flags & FLAG_HAVE_ALPHA) {
-				 host0 = gethostbyname(host);
-				 if (host0 != NULL)
-					 memcpy(&info->address, host0->h_addr, 4);
-				 return 0;
-			}
-
-			info->address = inet_addr(host);
-		}
-	}
-
-	return 0;
-}
 
 int main(int argc, char *argv[])
 {
@@ -118,7 +53,12 @@ int main(int argc, char *argv[])
 	tcp_set_device_address(&out_address);
 	set_tcp_listen_address(&listen_address);
 
-	slotwait_held(0);
+	tx_loop_t *loop = tx_loop_default();
+    tx_epoll_init(loop);
+    tx_kqueue_init(loop);
+    tx_completion_port_init(loop);
+    tx_timer_ring_get(loop);
+
 	initialize_modules(modules_list);
 	if (proxy_address.address == 0 || proxy_address.port == 0) {
 		fprintf(stderr, "could not parse proxy address info\n");
@@ -127,8 +67,7 @@ int main(int argc, char *argv[])
 
 	tcp_channel_forward(&proxy_address);
 
-	slotwait_start();
-	while (slotwait_step());
+	tx_loop_main(loop);
 
 	cleanup_modules(modules_list);
 #ifdef WIN32

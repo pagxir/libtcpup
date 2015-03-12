@@ -1,36 +1,37 @@
 #include <stdio.h>
 #include <assert.h>
 
-#include <wait/module.h>
-#include <wait/platform.h>
-#include <wait/slotwait.h>
+#include <txall.h>
 
 #include <utx/socket.h>
 #include "pstcp_socks.h"
 #include "pstcp_channel.h"
 
-static struct waitcb _event;
-static struct waitcb _runstop;
-static struct waitcb _runstart;
+static struct tx_task_t _event;
+static struct tx_task_t _runstop;
+static struct tx_task_t _runstart;
 
 static void accept_statecb(void *ignore);
 static void accept_callback(void *context);
 
 static void module_init(void)
 {
-	waitcb_init(&_event, accept_callback, NULL);
-	waitcb_init(&_runstop, accept_statecb, (void *)0);
-	waitcb_init(&_runstart, accept_statecb, (void *)1);
+	tx_loop_t *loop = tx_loop_default();
+	tx_task_init(&_event, loop, accept_callback, NULL);
+	tx_task_init(&_runstop, loop, accept_statecb, (void *)0);
+	tx_task_init(&_runstart, loop, accept_statecb, (void *)1);
 
-	slotwait_atstart(&_runstart);
+	tx_task_active(&_runstart);
+#if 0
 	slotwait_atstop(&_runstop);
+#endif
 }
 
 static void module_clean(void)
 {
-	waitcb_clean(&_event);
-	waitcb_clean(&_runstop);
-	waitcb_clean(&_runstart);
+	tx_task_drop(&_event);
+	tx_task_drop(&_runstop);
+	tx_task_drop(&_runstart);
 
 	fprintf(stderr, "tcp_listen: exiting\n");
 }
@@ -43,7 +44,7 @@ static void accept_statecb(void *ignore)
 	state = (int)(long)ignore;
 	if (state == 0) {
 		fprintf(stderr, "listen_stop\n");
-		waitcb_cancel(&_event);
+		tx_task_drop(&_event);
 		return;
 	}
 

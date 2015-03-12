@@ -1,17 +1,20 @@
 #include <stdio.h>
+#include <errno.h>
 #include <assert.h>
 
-#include <wait/module.h>
-#include <wait/platform.h>
-#include <wait/slotwait.h>
-#include <wait/slotsock.h>
+#include <txall.h>
 
 #include "tcp_channel.h"
 
+#ifndef WIN32
+#include <unistd.h>
+#define closesocket(s) close(s)
+#endif
+
 static int _lenfile = -1;
-static struct sockcb *_sockcbp = 0;
+static struct tx_aiocb _sockcbp;
 static struct sockaddr_in _lenaddr;
-static struct waitcb _event, _runstart, _runstop;
+static struct tx_task_t _event, _runstart, _runstop;
 
 static void listen_statecb(void *ignore);
 static void listen_callback(void *context);
@@ -29,13 +32,14 @@ static void module_init(void)
 
 	_lenaddr.sin_family = AF_INET;
 	if (_lenaddr.sin_port == 0) {
-		_lenaddr.sin_port   = htons(443);
+		_lenaddr.sin_port   = htons(4430);
 		_lenaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	}
 
-	waitcb_init(&_event, listen_callback, NULL);
-	waitcb_init(&_runstop, listen_statecb, (void *)0);
-	waitcb_init(&_runstart, listen_statecb, (void *)1);
+	tx_loop_t *loop = tx_loop_default();
+	tx_task_init(&_event, loop, listen_callback, NULL);
+	tx_task_init(&_runstop, loop, listen_statecb, (void *)0);
+	tx_task_init(&_runstart, loop, listen_statecb, (void *)1);
 
 	_lenfile = socket(AF_INET, SOCK_STREAM, 0);
 	assert(_lenfile != -1);
@@ -52,18 +56,20 @@ static void module_init(void)
 	error = listen(_lenfile, 5);
 	assert(error == 0);
 
-	_sockcbp = sock_attach(_lenfile);
-	slotwait_atstart(&_runstart);
+	tx_aiocb_init(&_sockcbp, loop, _lenfile);
+	tx_task_active(&_runstart);
+/*
 	slotwait_atstop(&_runstop);
+*/
 }
 
 static void module_clean(void)
 {
-	sock_detach(_sockcbp);
+	tx_aiocb_fini(&_sockcbp);
 	closesocket(_lenfile);
-	waitcb_clean(&_event);
-	waitcb_clean(&_runstop);
-	waitcb_clean(&_runstart);
+	tx_task_drop(&_event);
+	tx_task_drop(&_runstop);
+	tx_task_drop(&_runstart);
 
 	fprintf(stderr, "tcp_listen: exiting\n");
 }
@@ -76,14 +82,13 @@ void listen_statecb(void *ignore)
 	state = (int)(long)ignore;
 	if (state == 0) {
 		fprintf(stderr, "listen_stop\n");
-		waitcb_cancel(&_event);
+		tx_task_drop(&_event);
 		return;
 	}
 
 	if (state == 1) {
 		fprintf(stderr, "listen_start\n");
-		error = sock_read_wait(_sockcbp, &_event);
-		assert(error == 0);
+		tx_aincb_active(&_sockcbp, &_event);
 	}
 }
 
@@ -101,8 +106,7 @@ void listen_callback(void *context)
 		new_tcp_channel(newfd);
 	}
 
-	error = sock_read_wait(_sockcbp, &_event);
-	assert(error == 0);
+	tx_aincb_active(&_sockcbp, &_event);
 }
 
 struct module_stub tcp_listen_mod = {

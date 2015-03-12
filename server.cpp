@@ -9,15 +9,13 @@
 #include "tcp_channel.h"
 #include "pstcp_channel.h"
 
-extern struct module_stub timer_mod;
-extern struct module_stub slotsock_mod;
 extern struct module_stub tcp_timer_mod;
 extern struct module_stub tcp_device_mod;
 extern struct module_stub pstcp_listen_mod;
 
 struct module_stub *modules_list[] = {
-	&slotsock_mod, &tcp_timer_mod, &tcp_device_mod,
-   	&timer_mod, &pstcp_listen_mod, NULL
+	&tcp_timer_mod, &tcp_device_mod,
+   	&pstcp_listen_mod, NULL
 };
 
 int main(int argc, char *argv[])
@@ -52,9 +50,15 @@ int main(int argc, char *argv[])
 	pstcp_channel_forward(&forward_address);
 
 	tcp_set_device_address(&listen_address);
-	initialize_modules(modules_list);
 
 	tx_loop_t *loop = tx_loop_default();
+    tx_epoll_init(loop);
+    tx_kqueue_init(loop);
+    tx_completion_port_init(loop);
+    tx_timer_ring_get(loop);
+
+	initialize_modules(modules_list);
+
 	tx_loop_main(loop);
 
 	cleanup_modules(modules_list);

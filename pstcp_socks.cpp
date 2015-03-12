@@ -2,14 +2,16 @@
 #include <assert.h>
 #include <string.h>
 
-#include <wait/module.h>
-#include <wait/platform.h>
-#include <wait/slotwait.h>
-#include <wait/slotsock.h>
+#include <txall.h>
 
 #include <utx/socket.h>
 
 #include "pstcp_socks.h"
+
+#ifndef WIN32
+#include <unistd.h>
+#define closesocket(s) close(s)
+#endif
 
 #define TF_CONNECT    1
 #define TF_CONNECTING 2
@@ -35,9 +37,9 @@ class pstcp_socks {
 		int m_flags;
 
 	private:
-		struct waitcb m_rwait;
-		struct waitcb m_wwait;
-		struct sockcb *m_sockcbp;
+		struct tx_task_t m_rwait;
+		struct tx_task_t m_wwait;
+		struct tx_aiocb  m_sockcbp;
 
 	private:
 		int m_woff;
@@ -50,9 +52,9 @@ class pstcp_socks {
 		char m_rbuf[8192];
 
 	private:
-		struct waitcb r_evt_peer;
-		struct waitcb w_evt_peer;
 		struct tcpcb *m_peer;
+		struct tx_task_t r_evt_peer;
+		struct tx_task_t w_evt_peer;
 };
 
 pstcp_socks::pstcp_socks(struct tcpcb *tp)
@@ -64,22 +66,24 @@ pstcp_socks::pstcp_socks(struct tcpcb *tp)
 	
 	m_roff = m_rlen = 0;
 	m_woff = m_wlen = 0;
-	m_sockcbp = sock_attach(m_file);
-	waitcb_init(&m_rwait, tc_callback, this);
-	waitcb_init(&m_wwait, tc_callback, this);
-	waitcb_init(&r_evt_peer, tc_callback, this);
-	waitcb_init(&w_evt_peer, tc_callback, this);
+
+	tx_loop_t *loop = tx_loop_default();
+	tx_aiocb_init(&m_sockcbp, loop, m_file);
+	tx_task_init(&m_rwait, loop, tc_callback, this);
+	tx_task_init(&m_wwait, loop, tc_callback, this);
+	tx_task_init(&r_evt_peer, loop, tc_callback, this);
+	tx_task_init(&w_evt_peer, loop, tc_callback, this);
 }
 
 pstcp_socks::~pstcp_socks()
 {
-	waitcb_clean(&m_rwait);
-	waitcb_clean(&m_wwait);
-	waitcb_clean(&r_evt_peer);
-	waitcb_clean(&w_evt_peer);
+	tx_task_drop(&m_rwait);
+	tx_task_drop(&m_wwait);
+	tx_task_drop(&r_evt_peer);
+	tx_task_drop(&w_evt_peer);
 
 	fprintf(stderr, "pstcp_socks::~pstcp_socks\n");
-	sock_detach(m_sockcbp);
+	tx_aiocb_fini(&m_sockcbp);
 	closesocket(m_file);
 	tcp_soclose(m_peer);
 }
@@ -93,6 +97,7 @@ int pstcp_socks::run(void)
 	socklen_t addr_len1;
 	struct sockaddr_in addr_in1;
 
+#if 0
 	while ((TF_SOCKS & m_flags) == 0) {
 		int need_restart = 0;
 
@@ -370,6 +375,7 @@ reread:
 		error = 1;
 	}
 
+#endif
 	return error;
 }
 

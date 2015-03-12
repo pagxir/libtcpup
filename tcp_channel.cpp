@@ -3,13 +3,15 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#include <wait/module.h>
-#include <wait/platform.h>
-#include <wait/slotwait.h>
-#include <wait/slotsock.h>
+#include <txall.h>
 
 #include <utx/socket.h>
 #include "tcp_channel.h"
+
+#ifndef WIN32
+#include <unistd.h>
+#define closesocket(s) close(s)
+#endif
 
 #define TF_CONNECT    1
 #define TF_CONNECTING 2
@@ -32,9 +34,9 @@ class tcp_channel {
 		int m_flags;
 
 	private:
-		struct waitcb m_wwait;
-		struct waitcb m_rwait;
-		struct sockcb *m_sockcbp;
+		struct tx_task_t m_wwait;
+		struct tx_task_t m_rwait;
+		struct tx_aiocb  m_sockcbp;
 
 	private:
 		int m_woff;
@@ -47,8 +49,8 @@ class tcp_channel {
 		char m_rbuf[4096];
 
 	private:
-		struct waitcb r_evt_peer;
-		struct waitcb w_evt_peer;
+		struct tx_task_t r_evt_peer;
+		struct tx_task_t w_evt_peer;
 		struct tcpcb *m_peer;
 };
 
@@ -64,22 +66,23 @@ tcp_channel::tcp_channel(int file)
 	m_roff = m_rlen = 0;
 	m_woff = m_wlen = 0;
 
-	m_sockcbp = sock_attach(file);
-	waitcb_init(&m_wwait, tc_callback, this);
-	waitcb_init(&m_rwait, tc_callback, this);
-	waitcb_init(&r_evt_peer, tc_callback, this);
-	waitcb_init(&w_evt_peer, tc_callback, this);
+	tx_loop_t *loop = tx_loop_default();
+	tx_aiocb_init(&m_sockcbp, loop, file);
+	tx_task_init(&m_wwait, loop, tc_callback, this);
+	tx_task_init(&m_rwait, loop, tc_callback, this);
+	tx_task_init(&r_evt_peer, loop, tc_callback, this);
+	tx_task_init(&w_evt_peer, loop, tc_callback, this);
 }
 
 tcp_channel::~tcp_channel()
 {
-	waitcb_clean(&m_rwait);
-	waitcb_clean(&m_wwait);
-	waitcb_clean(&r_evt_peer);
-	waitcb_clean(&w_evt_peer);
+	tx_task_drop(&m_rwait);
+	tx_task_drop(&m_wwait);
+	tx_task_drop(&r_evt_peer);
+	tx_task_drop(&w_evt_peer);
 
 	fprintf(stderr, "tcp_channel::~tcp_channel\n");
-	sock_detach(m_sockcbp);
+	tx_aiocb_fini(&m_sockcbp);
 	closesocket(m_file);
 	tcp_soclose(m_peer);
 }
@@ -90,6 +93,7 @@ int tcp_channel::run(void)
 	int error = 0;
 	struct sockaddr_in name;
 
+#if 0
 	if ((m_flags & TF_CONNECT) == 0) {
 		name.sin_family = AF_INET;
 		name.sin_port   = (_forward_port);
@@ -108,7 +112,7 @@ int tcp_channel::run(void)
 		}
 	}
 
-	if ( waitcb_completed(&w_evt_peer) ) {
+	if ( tx_task_completed(&w_evt_peer) ) {
 		m_flags &= ~TF_CONNECTING;
 	}
 
@@ -117,7 +121,7 @@ int tcp_channel::run(void)
 	}
 
 reread:
-	if (waitcb_completed(&m_rwait) && m_rlen < (int)sizeof(m_rbuf)) {
+	if (tx_task_completed(&m_rwait) && m_rlen < (int)sizeof(m_rbuf)) {
 		len = recv(m_file, m_rbuf + m_rlen, sizeof(m_rbuf) - m_rlen, 0);
 	   	if (len > 0)
 		   	m_rlen += len;
@@ -125,37 +129,37 @@ reread:
 			m_flags |= TF_EOF1;
 		else if (WSAGetLastError() != WSAEWOULDBLOCK)
 			return 0;
-		waitcb_clear(&m_rwait);
+		tx_task_clear(&m_rwait);
 	}
 
-	if (waitcb_completed(&r_evt_peer) && m_wlen < (int)sizeof(m_wbuf)) {
+	if (tx_task_completed(&r_evt_peer) && m_wlen < (int)sizeof(m_wbuf)) {
 		len = tcp_read(m_peer, m_wbuf + m_wlen, sizeof(m_wbuf) - m_wlen);
 		if (len == -1 || len == 0) {
 			m_flags |= TF_EOF0;
 			len = 0;
 		}
-		waitcb_clear(&r_evt_peer);
+		tx_task_clear(&r_evt_peer);
 		m_wlen += len;
 	}
 
-	if (waitcb_completed(&m_wwait) && m_woff < m_wlen) {
+	if (tx_task_completed(&m_wwait) && m_woff < m_wlen) {
 		do {
 			len = send(m_file, m_wbuf + m_woff, m_wlen - m_woff, 0);
 			if (len > 0) {
 				m_woff += len;
 			} else if (WSAGetLastError() == WSAEWOULDBLOCK) {
-				waitcb_clear(&m_wwait);
+				tx_task_clear(&m_wwait);
 			} else {
 				return 0;
 			}
 		} while (len > 0 && m_woff < m_wlen);
 	}
 
-	if (waitcb_completed(&w_evt_peer) && m_roff < m_rlen) {
+	if (tx_task_completed(&w_evt_peer) && m_roff < m_rlen) {
 		len = tcp_write(m_peer, m_rbuf + m_roff, m_rlen - m_roff);
 		if (len == -1)
 			return 0;
-		waitcb_clear(&w_evt_peer);
+		tx_task_clear(&w_evt_peer);
 		m_roff += len;
 	}
 
@@ -169,7 +173,7 @@ reread:
 			tcp_shutdown(m_peer);
 			m_flags |= TF_SHUT1;
 		} else {
-			if (waitcb_completed(&m_rwait))
+			if (tx_task_completed(&m_rwait))
 				goto reread;
 		}
 	}
@@ -204,6 +208,7 @@ reread:
 		tcp_poll(m_peer, TCP_READ, &r_evt_peer);
 		error = 1;
 	}
+#endif
 
 	return error;
 }

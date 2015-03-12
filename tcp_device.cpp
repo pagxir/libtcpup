@@ -172,7 +172,9 @@ void tcpup_device::init()
 	}
 
 	tx_aiocb_init(&_sockcbp, loop, _file);
+#if 0
 	stun_client_init(_file);
+#endif
 
 #ifndef WIN32
 	int l = fcntl(_file, F_GETFL);

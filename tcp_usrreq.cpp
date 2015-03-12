@@ -19,12 +19,19 @@
 extern int tcp_iss;
 int tcp_rexmit_min = TCPTV_MIN;
 struct tcpcb *tcp_last_tcpcb = 0;
+
+static int _accept_evt_init = 0;
 static tx_task_q _accept_evt_list;
 static int tcp_free(struct tcpcb *tp);
 
 void soisconnected(struct tcpcb *tp)
 {
 	struct rgnbuf *sndbuf;
+
+	if (_accept_evt_init == 0) {
+		LIST_INIT(&_accept_evt_list);
+		_accept_evt_init = 1;
+	}
 
 	if ((tp->t_flags & SS_NOFDREF)) {
 		tx_task_wakeup(&_accept_evt_list);
@@ -413,6 +420,11 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 	int limit = 0;
 
 	tx_task_drop(task);
+
+	if (_accept_evt_init == 0) {
+		LIST_INIT(&_accept_evt_list);
+		_accept_evt_init = 1;
+	}
 
    	switch (typ) {
 		case TCP_READ:
