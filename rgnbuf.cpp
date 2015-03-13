@@ -44,6 +44,7 @@ struct rgnbuf *rgn_create(int size)
 	rgn->rb_data = (char *)(base + sizeof(*rgn));
 
 	rgn->rb_frgcnt = 0;
+	rgn->rb_flags = 0;
 	rgn->rb_frgsize = (frgcnt * 2);
 	rgn->rb_fragments = (int *)(rgn->rb_data + size);
 	return rgn;
