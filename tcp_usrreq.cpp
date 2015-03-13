@@ -387,6 +387,31 @@ int tcp_write(struct tcpcb *tp, const void *buf, size_t count)
 	return min_len;
 }
 
+int tcp_connected(struct tcpcb *tp)
+{
+	return (tp->t_state >= TCPS_ESTABLISHED);
+}
+
+int tcp_writable(struct tcpcb *tp)
+{
+	if (tp->t_state == TCPS_ESTABLISHED ||
+			tp->t_state == TCPS_CLOSE_WAIT) {
+		return rgn_rest(tp->rgn_snd) > 0;
+	}
+
+	return 1;
+}
+
+int tcp_readable(struct tcpcb *tp)
+{
+	if (rgn_len(tp->rgn_rcv) > 0 || 
+			iscantrcvmore(tp->rgn_rcv)) {
+		return 1;
+	}
+
+	return 0;
+}
+
 int tcp_shutdown(struct tcpcb *tp)
 {
 	int len;

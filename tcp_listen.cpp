@@ -21,13 +21,14 @@ static void listen_callback(void *context);
 
 extern "C" void set_tcp_listen_address(struct tcpip_info *info)
 {
-	_lenaddr.sin_port   = info->port;
+	_lenaddr.sin_port = info->port;
 	_lenaddr.sin_addr.s_addr = info->address;
 	return;
 }
 
 static void module_init(void)
 {
+	int v = 1;
 	int error;
 
 	_lenaddr.sin_family = AF_INET;
@@ -44,10 +45,8 @@ static void module_init(void)
 	_lenfile = socket(AF_INET, SOCK_STREAM, 0);
 	assert(_lenfile != -1);
 
-	{
-		int v = 1;
-		setsockopt(_lenfile, SOL_SOCKET, SO_REUSEADDR, (const char *)&v, sizeof(v));
-	}
+	tx_setblockopt(_lenfile, 0);
+	setsockopt(_lenfile, SOL_SOCKET, SO_REUSEADDR, (const char *)&v, sizeof(v));
 
 	error = bind(_lenfile, (struct sockaddr *)&_lenaddr, sizeof(_lenaddr));
 	fprintf(stderr, "ipv4 address: %x %d\n", _lenaddr.sin_addr.s_addr, errno);
@@ -56,7 +55,7 @@ static void module_init(void)
 	error = listen(_lenfile, 5);
 	assert(error == 0);
 
-	tx_aiocb_init(&_sockcbp, loop, _lenfile);
+	tx_listen_init(&_sockcbp, loop, _lenfile);
 	tx_task_active(&_runstart);
 /*
 	slotwait_atstop(&_runstop);
@@ -65,9 +64,10 @@ static void module_init(void)
 
 static void module_clean(void)
 {
-	tx_aiocb_fini(&_sockcbp);
+	tx_listen_fini(&_sockcbp);
 	closesocket(_lenfile);
 	tx_task_drop(&_event);
+
 	tx_task_drop(&_runstop);
 	tx_task_drop(&_runstart);
 
@@ -77,7 +77,6 @@ static void module_clean(void)
 void listen_statecb(void *ignore)
 {
 	int state;
-	int error = -1;
 
 	state = (int)(long)ignore;
 	if (state == 0) {
@@ -88,25 +87,25 @@ void listen_statecb(void *ignore)
 
 	if (state == 1) {
 		fprintf(stderr, "listen_start\n");
-		tx_aincb_active(&_sockcbp, &_event);
+		tx_listen_active(&_sockcbp, &_event);
 	}
 }
 
 void listen_callback(void *context)
 {
 	int newfd;
-	int error;
 	struct sockaddr_in newaddr;
 	socklen_t newlen = sizeof(newaddr);
 
-	newfd = accept(_lenfile, (struct sockaddr *)&newaddr, &newlen);
+	newfd = tx_listen_accept(&_sockcbp, (struct sockaddr *)&newaddr, &newlen);
+	tx_listen_active(&_sockcbp, &_event);
+
 	if (newfd != -1) {
 		fprintf(stderr, "new client: %s:%u\n",
 				inet_ntoa(newaddr.sin_addr), ntohs(newaddr.sin_port));
+		tx_setblockopt(newfd, 0);
 		new_tcp_channel(newfd);
 	}
-
-	tx_aincb_active(&_sockcbp, &_event);
 }
 
 struct module_stub tcp_listen_mod = {

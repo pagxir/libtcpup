@@ -11,6 +11,7 @@
 #ifndef WIN32
 #include <unistd.h>
 #define closesocket(s) close(s)
+#define SD_BOTH SHUT_RDWR
 #endif
 
 #define TF_CONNECT    1
@@ -93,7 +94,6 @@ int tcp_channel::run(void)
 	int error = 0;
 	struct sockaddr_in name;
 
-#if 0
 	if ((m_flags & TF_CONNECT) == 0) {
 		name.sin_family = AF_INET;
 		name.sin_port   = (_forward_port);
@@ -112,7 +112,8 @@ int tcp_channel::run(void)
 		}
 	}
 
-	if ( tx_task_completed(&w_evt_peer) ) {
+	if ((m_flags & TF_CONNECTING)
+			&& tcp_connected(m_peer)) {
 		m_flags &= ~TF_CONNECTING;
 	}
 
@@ -121,45 +122,41 @@ int tcp_channel::run(void)
 	}
 
 reread:
-	if (tx_task_completed(&m_rwait) && m_rlen < (int)sizeof(m_rbuf)) {
+	if (tx_readable(&m_sockcbp) && m_rlen < (int)sizeof(m_rbuf) && (m_flags & TF_EOF1) == 0) {
 		len = recv(m_file, m_rbuf + m_rlen, sizeof(m_rbuf) - m_rlen, 0);
+		tx_aincb_update(&m_sockcbp, len);
+
 	   	if (len > 0)
 		   	m_rlen += len;
 		else if (len == 0)
 			m_flags |= TF_EOF1;
-		else if (WSAGetLastError() != WSAEWOULDBLOCK)
+		else if (tx_readable(&m_sockcbp)) // socket meet error condiction
 			return 0;
-		tx_task_clear(&m_rwait);
 	}
 
-	if (tx_task_completed(&r_evt_peer) && m_wlen < (int)sizeof(m_wbuf)) {
+	if (tcp_readable(m_peer) && m_wlen < (int)sizeof(m_wbuf) && (m_flags & TF_EOF0) == 0) {
 		len = tcp_read(m_peer, m_wbuf + m_wlen, sizeof(m_wbuf) - m_wlen);
 		if (len == -1 || len == 0) {
 			m_flags |= TF_EOF0;
 			len = 0;
 		}
-		tx_task_clear(&r_evt_peer);
 		m_wlen += len;
 	}
 
-	if (tx_task_completed(&m_wwait) && m_woff < m_wlen) {
+	if (tx_writable(&m_sockcbp) && m_woff < m_wlen) {
 		do {
-			len = send(m_file, m_wbuf + m_woff, m_wlen - m_woff, 0);
+			len = tx_outcb_write(&m_sockcbp, m_wbuf + m_woff, m_wlen - m_woff);
 			if (len > 0) {
 				m_woff += len;
-			} else if (WSAGetLastError() == WSAEWOULDBLOCK) {
-				tx_task_clear(&m_wwait);
-			} else {
+			} else if (tx_writable(&m_sockcbp)) {
 				return 0;
 			}
 		} while (len > 0 && m_woff < m_wlen);
 	}
 
-	if (tx_task_completed(&w_evt_peer) && m_roff < m_rlen) {
+	if (tcp_writable(m_peer) && m_roff < m_rlen) {
 		len = tcp_write(m_peer, m_rbuf + m_roff, m_rlen - m_roff);
-		if (len == -1)
-			return 0;
-		tx_task_clear(&w_evt_peer);
+		if (len == -1) return 0;
 		m_roff += len;
 	}
 
@@ -172,9 +169,8 @@ reread:
 		if ((m_flags & test_flags) == TF_EOF1) {
 			tcp_shutdown(m_peer);
 			m_flags |= TF_SHUT1;
-		} else {
-			if (tx_task_completed(&m_rwait))
-				goto reread;
+		} else if ((m_flags & TF_EOF1) != TF_EOF1) {
+			if (tx_readable(&m_sockcbp) ) { goto reread; }
 		}
 	}
 
@@ -193,13 +189,13 @@ reread:
 	}
 
 	if (m_woff < m_wlen) {
-	   	sock_write_wait(m_sockcbp, &m_wwait);
+		tx_outcb_prepare(&m_sockcbp, &m_wwait, 0);
 		error = 1;
 	}
 
 	if (m_rlen < (int)sizeof(m_rbuf) &&
 		(TF_EOF1 & m_flags) == 0) {
-	   	sock_read_wait(m_sockcbp, &m_rwait);
+	   	tx_aincb_active(&m_sockcbp, &m_rwait);
 		error = 1;
 	}
 
@@ -208,7 +204,6 @@ reread:
 		tcp_poll(m_peer, TCP_READ, &r_evt_peer);
 		error = 1;
 	}
-#endif
 
 	return error;
 }
