@@ -32,11 +32,12 @@ struct tcpup_device {
 public:
 	int _file;
 	int _offset;
+	int _dobind;
 	time_t _t_sndtime;
 	time_t _t_rcvtime;
 
 public:
-	void init();
+	void init(int dobind);
 	void fini();
 	void incoming();
 };
@@ -63,7 +64,7 @@ struct tcpcb *tcp_create(uint32_t conv)
 	int offset = (rand() % 0xF) << 1;
 	tcpup_device *this_device = _paging_devices[offset];
 
-	if (this_device != NULL) {
+	if (this_device != NULL && this_device->_dobind == 0) {
 		int idle, idleout;
 		time_t now = time(NULL);
 
@@ -85,7 +86,7 @@ struct tcpcb *tcp_create(uint32_t conv)
 
 	if (this_device == NULL) {
 		this_device = new tcpup_device;
-		this_device->init();
+		this_device->init(0);
 		this_device->_offset = offset;
 		tx_task_active(&this_device->_event);
 
@@ -145,7 +146,7 @@ static unsigned char dns_filling_byte[] = {
 
 #endif
 
-void tcpup_device::init()
+void tcpup_device::init(int dobind)
 {
 	int error;
 
@@ -159,10 +160,20 @@ void tcpup_device::init()
 	_file = socket(AF_INET, SOCK_DGRAM, 0);
 	assert(_file != -1);
 
-#if 0
-	error = bind(_file, (struct sockaddr *)&_addr_in, sizeof(_addr_in));
-	assert(error == 0);
-#endif
+	if (dobind) {
+		socklen_t addr_len;
+		struct sockaddr_in addr_in;
+
+		error = bind(_file, (struct sockaddr *)&_addr_in, sizeof(_addr_in));
+		assert(error == 0);
+
+		addr_len = sizeof(addr_in);
+		error = getsockname(_file, (struct sockaddr *)&addr_in, &addr_len);
+		fprintf(stderr, "bind!address(%d)# %s:%u\n", error,
+				inet_ntoa(addr_in.sin_addr), htons(addr_in.sin_port));
+		
+		_dobind = 1;
+	}
 
 	if (_addr_in.sin_port == 0) {
 		socklen_t addr_len = sizeof(_tcp_dev_addr);
@@ -201,25 +212,23 @@ static void module_init(void)
 static void listen_statecb(void *context)
 {
 	int state;
-	socklen_t addr_len;
-	struct sockaddr_in addr_in;
+	int offset = 0;
+	tcpup_device *this_device = _paging_devices[offset];
 
 	state = (int)(long)context;
 	switch (state) {
 		case 1:
-#if 0
-			addr_len = sizeof(addr_in);
-			getsockname(_file, (struct sockaddr *)&addr_in, &addr_len);
-			fprintf(stderr, "bind!address# %s:%u\n",
-				   	inet_ntoa(addr_in.sin_addr), htons(addr_in.sin_port));
-			waitcb_switch(&_event);
-#endif
+			if (this_device == NULL) {
+				this_device = new tcpup_device;
+				this_device->init(1);
+				this_device->_offset = offset;
+				tx_task_active(&this_device->_event);
+
+				_paging_devices[offset] = this_device;
+			}
 			break;
 
 		case 0:
-#if 0
-			waitcb_cancel(&_event);
-#endif
 			break;
 
 		default:

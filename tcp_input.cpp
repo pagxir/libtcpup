@@ -253,11 +253,6 @@ void tcp_input(struct tcpcb *tp, int dst,
 	tp->sackhint.last_sack_ack = 0;
 	TCP_DEBUG_TRACE(thflags & TH_FIN, "receive FIN: %x\n", tp->t_conv);
 
-	if (ticks > tp->t_rcvtime + 1000) {
-		memcpy(tp->dst_addr.name, from, namlen);
-		tp->dst_addr.namlen = namlen;
-	}
-
 	/*
 	 * Segment received on connection.
 	 * Reset idle time and keep-alive timer.
@@ -306,6 +301,13 @@ void tcp_input(struct tcpcb *tp, int dst,
 		tp->ts_recent = to.to_tsval;
 		tp->ts_recent_age = tcp_ts_getticks();
 	}
+
+
+       if (TSTMP_GEQ(to.to_tsval, tp->ts_recent)) {
+               memcpy(tp->dst_addr.name, from, namlen);
+               tp->dst_addr.namlen = namlen;
+       }
+
 
 	if (tp->t_state == TCPS_ESTABLISHED &&
 			th->th_seq == tp->rcv_nxt &&

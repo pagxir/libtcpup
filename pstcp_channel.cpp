@@ -18,9 +18,7 @@
 #include <errno.h>
 #include <unistd.h>
 #define closesocket close
-#define tx_get_error() errno
-#else
-#define tx_get_error WSAGetLastError
+#define SD_BOTH SHUT_RDWR
 #endif
 
 class pstcp_channel {
@@ -67,6 +65,7 @@ pstcp_channel::pstcp_channel(struct tcpcb *tp)
 	m_file = socket(AF_INET, SOCK_STREAM, 0);
 	assert(m_file != -1);
 	tx_loop_t *loop = tx_loop_default();
+	tx_setblockopt(m_file, 0);
 	tx_aiocb_init(&m_sockcbp, loop, m_file);
 
 	m_roff = m_rlen = 0;
@@ -97,72 +96,63 @@ int pstcp_channel::run(void)
 	int error = -1;
 	struct sockaddr_in name;
 
-#if 0
 	if ((m_flags & TF_CONNECT) == 0) {
 		name.sin_family = AF_INET;
 		name.sin_port   = htons(_forward_port);
 		name.sin_addr.s_addr = htonl(_forward_addr);
-	   	error = connect(m_file, (struct sockaddr *)&name, sizeof(name));
+		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, &m_wwait);
 		m_flags |= TF_CONNECT;
-		if (error == -1 && tx_get_error() == EINPROGRESS) {
-			sock_write_wait(m_sockcbp, &m_wwait);
+
+		if (error == -1) {
+			fprintf(stderr, "tcp connect error\n");
+			return 0;
+		} else if (error) {
 			m_flags |= TF_CONNECTING;
 			return 1;
 		}
-
-		if (error != 0) {
-			fprintf(stderr, "tcp connect error\n");
-			return 0;
-		}
 	}
 
-	if (waitcb_completed(&m_wwait)) {
+	if (tx_writable(&m_sockcbp)) {
 		m_flags &= ~TF_CONNECTING;
-	}
-
-	if (m_flags & TF_CONNECTING) {
+	} else if (m_flags & TF_CONNECTING) {
 		return 1;
 	}
 
 reread:
-	if (waitcb_completed(&m_rwait) && m_rlen < (int)sizeof(m_rbuf)) {
+	if (tx_readable(&m_sockcbp) && m_rlen < (int)sizeof(m_rbuf) && (m_flags & TF_EOF1) == 0) {
 		len = recv(m_file, m_rbuf + m_rlen, sizeof(m_rbuf) - m_rlen, 0);
+		tx_aincb_update(&m_sockcbp, len);
 		if (len > 0)
 		   	m_rlen += len;
 		else if (len == 0)
 			m_flags |= TF_EOF1;
-		else if (tx_get_error() != WSAEWOULDBLOCK)
+		else if (tx_readable(&m_sockcbp))
 			return 0;
-		waitcb_clear(&m_rwait);
 	}
 
-	if (waitcb_completed(&r_evt_peer) && m_wlen < (int)sizeof(m_wbuf)) {
+	if (tcp_readable(m_peer) && m_wlen < (int)sizeof(m_wbuf) && (m_flags & TF_EOF0) == 0) {
 		len = tcp_read(m_peer, m_wbuf + m_wlen, sizeof(m_wbuf) - m_wlen);
 		if (len == -1 || len == 0) {
 			m_flags |= TF_EOF0;
 			len = 0;
 		}
-		waitcb_clear(&r_evt_peer);
 		m_wlen += len;
 	}
 
-	if (waitcb_completed(&m_wwait) && m_woff < m_wlen) {
+	if (tx_writable(&m_sockcbp) && m_woff < m_wlen) {
 		do {
-			len = send(m_file, m_wbuf + m_woff, m_wlen - m_woff, 0);
-			if (len > 0)
+			len = tx_outcb_write(&m_sockcbp, m_wbuf + m_woff, m_wlen - m_woff);
+			if (len > 0) {
 				m_woff += len;
-			else if (tx_get_error() == WSAEWOULDBLOCK)
-				waitcb_clear(&m_wwait);
-			else
+			} else if (tx_writable(&m_sockcbp)) {
 				return 0;
+			}
 		} while (len > 0 && m_woff < m_wlen);
 	}
 
-	if (waitcb_completed(&w_evt_peer) && m_roff < m_rlen) {
+	if (tcp_writable(m_peer) && m_roff < m_rlen) {
 		len = tcp_write(m_peer, m_rbuf + m_roff, m_rlen - m_roff);
-		if (len == -1)
-			return 0;
-		waitcb_clear(&w_evt_peer);
+		if (len == -1) return 0;
 		m_roff += len;
 	}
 
@@ -175,9 +165,9 @@ reread:
 		if ((m_flags & test_flags) == TF_EOF1) {
 			test_flags |= TF_SHUT1;
 			tcp_shutdown(m_peer);
-		} else {
-			if (waitcb_completed(&m_rwait))
-				goto reread;
+               } else if ((m_flags & TF_EOF1) == 0) {
+			/* XXX */
+			if (tx_readable(&m_sockcbp)) { goto reread; }
 		}
 	}
 
@@ -196,13 +186,13 @@ reread:
 	}
 
 	if (m_woff < m_wlen) {
-	   	sock_write_wait(m_sockcbp, &m_wwait);
+	   	tx_outcb_prepare(&m_sockcbp, &m_wwait, 0);
 		error = 1;
 	}
 
 	if (m_rlen < (int)sizeof(m_rbuf) &&
 			(m_flags & TF_EOF1) == 0) {
-		sock_read_wait(m_sockcbp, &m_rwait);
+		tx_aincb_active(&m_sockcbp, &m_rwait);
 		error = 1;
 	}
 
@@ -213,8 +203,6 @@ reread:
 	}
 
 	return error;
-#endif
-	return 0;
 }
 
 void pstcp_channel::tc_callback(void *context)
