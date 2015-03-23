@@ -2,6 +2,7 @@
 #include <assert.h>
 
 #include <txall.h>
+#include <utx/utxpl.h>
 #include <utx/socket.h>
 
 #include "tcp_channel.h"

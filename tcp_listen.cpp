@@ -4,12 +4,8 @@
 
 #include <txall.h>
 
+#include <utx/utxpl.h>
 #include "tcp_channel.h"
-
-#ifndef WIN32
-#include <unistd.h>
-#define closesocket(s) close(s)
-#endif
 
 static int _lenfile = -1;
 static struct tx_aiocb _sockcbp;
@@ -95,7 +91,7 @@ void listen_callback(void *context)
 {
 	int newfd;
 	struct sockaddr_in newaddr;
-	socklen_t newlen = sizeof(newaddr);
+	size_t newlen = sizeof(newaddr);
 
 	newfd = tx_listen_accept(&_sockcbp, (struct sockaddr *)&newaddr, &newlen);
 	tx_listen_active(&_sockcbp, &_event);

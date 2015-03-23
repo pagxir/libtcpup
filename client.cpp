@@ -6,6 +6,7 @@
 
 #include <txall.h>
 
+#include <utx/utxpl.h>
 #include <tcpup/tcp_device.h>
 #include "tcp_channel.h"
 

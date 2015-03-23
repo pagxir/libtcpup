@@ -18,6 +18,14 @@ typedef unsigned int   u_int32_t;
 typedef unsigned long long u_int64_t;
 #endif
 
+#ifdef WIN32
+#include <winsock2.h>
+#define MSG_DONTWAIT 0
+#else
+#include <unistd.h>
+#define closesocket(s) close(s)
+#endif
+
 void __utxpl_assert(const char *expr, const char *path, size_t line);
 #define UTXPL_ASSERT(conf) if (! (conf)) __utxpl_assert(#conf, __FILE__, __LINE__)
 #define bcopy(s, d, l) memcpy(d, s, l)

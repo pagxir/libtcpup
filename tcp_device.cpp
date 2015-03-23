@@ -15,7 +15,6 @@
 #include <tcpup/tcp_subr.h>
 #include <tcpup/tcp_debug.h>
 
-#include <pstcp_stun.h>
 #include "tcp_channel.h"
 
 #ifndef WIN32

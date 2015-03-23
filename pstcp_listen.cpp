@@ -3,6 +3,7 @@
 
 #include <txall.h>
 
+#include <utx/utxpl.h>
 #include <utx/socket.h>
 #include "pstcp_socks.h"
 #include "pstcp_channel.h"
