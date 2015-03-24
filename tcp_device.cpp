@@ -160,21 +160,16 @@ void tcpup_device::init(int dobind)
 	assert(_file != -1);
 
 	if (dobind) {
-		socklen_t addr_len;
-		struct sockaddr_in addr_in;
-
 		error = bind(_file, (struct sockaddr *)&_addr_in, sizeof(_addr_in));
 		assert(error == 0);
-
-		addr_len = sizeof(addr_in);
-		error = getsockname(_file, (struct sockaddr *)&addr_in, &addr_len);
-		fprintf(stderr, "bind!address(%d)# %s:%u\n", error,
-				inet_ntoa(addr_in.sin_addr), htons(addr_in.sin_port));
-		
 		_dobind = 1;
+	} else {
+		_addr_in.sin_port = 0;
+		error = bind(_file, (struct sockaddr *)&_addr_in, sizeof(_addr_in));
+		assert(error == 0);
 	}
 
-	if (_addr_in.sin_port == 0) {
+	/* if (_addr_in.sin_port == 0) */ {
 		socklen_t addr_len = sizeof(_tcp_dev_addr);
 		getsockname(_file, (struct sockaddr *)&_tcp_dev_addr, &addr_len);
 		fprintf(stderr, "bind@address# %s:%u\n",
