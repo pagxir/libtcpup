@@ -17,10 +17,6 @@
 
 #include "tcp_channel.h"
 
-#ifndef WIN32
-#define closesocket close
-#endif
-
 struct tcpup_device {
 	struct tx_aiocb _sockcbp;
 
@@ -176,18 +172,16 @@ void tcpup_device::init(int dobind)
 				inet_ntoa(_tcp_dev_addr.sin_addr), htons(_tcp_dev_addr.sin_port));
 	}
 
-	tx_aiocb_init(&_sockcbp, loop, _file);
-#if 0
-	stun_client_init(_file);
-#endif
-
-#ifndef WIN32
-	int l = fcntl(_file, F_GETFL);
-	fcntl(_file, F_SETFL, l & ~O_NONBLOCK);
-#else
+#ifdef WIN32
     int bufsize = 1024 * 1024;
     setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
     setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
+#endif
+
+	tx_setblockopt(_file, 0);
+	tx_aiocb_init(&_sockcbp, loop, _file);
+#if 0
+	stun_client_init(_file);
 #endif
 }
 
@@ -320,12 +314,12 @@ void tcpup_device::fini()
 
 extern "C" void tcp_backwork(struct tcpip_info *info)
 {
+#if 0
 	struct sockaddr_in addr_in1;
 	addr_in1.sin_family = AF_INET;
 	addr_in1.sin_port   = info->port;
 	addr_in1.sin_addr.s_addr   = info->address;
 
-#if 0
 	sendto(_file, "HELO", 4, 0,
 			(struct sockaddr *)&addr_in1, sizeof(addr_in1));
 #endif
