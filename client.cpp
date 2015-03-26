@@ -19,9 +19,10 @@ struct module_stub *modules_list[] = {
 
 int main(int argc, char *argv[])
 {
-	struct tcpip_info out_address = {0};
 	struct tcpip_info proxy_address = {0};
+	struct tcpip_info outter_address = {0};
 	struct tcpip_info listen_address = {0};
+	struct tcpip_info interface_address = {0};
 
 #ifdef WIN32
 	WSADATA data;
@@ -34,13 +35,17 @@ int main(int argc, char *argv[])
 		if (strcmp(argv[i], "-h") == 0 && i + 1 < argc) {
 			fprintf(stderr, "%s [options] <PROXY-ADDRESS>!\n", argv[0]);
 			fprintf(stderr, "-h print this help!\n");
-			fprintf(stderr, "-o <OUTGOING-ADDRESS> out going address, local address use for send packet!\n");
+			fprintf(stderr, "-i <OUTGOING-ADDRESS> out going address, local address use for send packet!\n");
 			fprintf(stderr, "-l <LISTEN-ADDRESS> listening tcp address!\n");
 			fprintf(stderr, "all ADDRESS should use this format <HOST:PORT> OR <PORT>\n");
 			fprintf(stderr, "\n");
 			return 0;
 		} else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
-			get_target_address(&out_address, argv[i + 1]);
+			get_target_address(&outter_address, argv[i + 1]);
+			tcp_set_outter_address(&outter_address);
+			i++;
+		} else if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
+			get_target_address(&interface_address, argv[i + 1]);
 			i++;
 		} else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
 			get_target_address(&listen_address, argv[i + 1]);
@@ -51,7 +56,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	tcp_set_device_address(&out_address);
+	tcp_set_device_address(&interface_address);
 	set_tcp_listen_address(&listen_address);
 
 	tx_loop_t *loop = tx_loop_default();

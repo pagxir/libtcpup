@@ -37,6 +37,7 @@ public:
 	void incoming();
 };
 
+int _tcp_out_fd = -1;
 int _tcp_dev_busy = 0;
 static tx_task_q _dev_busy;
 
@@ -114,6 +115,26 @@ void tcp_devbusy(struct tcpcb *tp)
 #endif
 }
 
+static struct sockaddr_in _tcp_out_addr = { 0 };
+extern "C" void tcp_set_outter_address(struct tcpip_info *info)
+{
+	int error;
+	struct sockaddr *out_addr;
+
+	_tcp_out_addr.sin_family = AF_INET;
+	_tcp_out_addr.sin_port   = (info->port);
+	_tcp_out_addr.sin_addr.s_addr   = (info->address);
+	out_addr = (struct sockaddr *)&_tcp_out_addr;
+
+	_tcp_out_fd = socket(AF_INET, SOCK_DGRAM, 0);
+	assert(_tcp_out_fd != -1);
+
+	error = bind(_tcp_out_fd, out_addr, sizeof(_tcp_out_addr));
+	assert(error != -1);
+
+	return;
+}
+
 static struct sockaddr_in _tcp_dev_addr = { 0 };
 extern "C" void tcp_set_device_address(struct tcpip_info *info)
 {
@@ -144,6 +165,8 @@ static unsigned char dns_filling_byte[] = {
 void tcpup_device::init(int dobind)
 {
 	int error;
+	socklen_t alen;
+	struct sockaddr_in saddr;
 
 	memcpy(&_addr_in, &_tcp_dev_addr, sizeof(_addr_in));
 	_addr_in.sin_family = AF_INET;
@@ -165,12 +188,14 @@ void tcpup_device::init(int dobind)
 		assert(error == 0);
 	}
 
-	/* if (_addr_in.sin_port == 0) */ {
-		socklen_t addr_len = sizeof(_tcp_dev_addr);
-		getsockname(_file, (struct sockaddr *)&_tcp_dev_addr, &addr_len);
-		fprintf(stderr, "bind@address# %s:%u\n",
-				inet_ntoa(_tcp_dev_addr.sin_addr), htons(_tcp_dev_addr.sin_port));
-	}
+	alen = sizeof(saddr);
+	getsockname(_file, (struct sockaddr *)&saddr, &alen);
+	fprintf(stderr, "bind@address# %s:%u\n",
+			inet_ntoa(saddr.sin_addr), htons(saddr.sin_port));
+
+	_addr_in.sin_port = saddr.sin_port;
+	if (saddr.sin_addr.s_addr != 0)
+		_addr_in.sin_addr = saddr.sin_addr;
 
 #ifdef WIN32
     int bufsize = 1024 * 1024;
@@ -287,6 +312,17 @@ void tcpup_device::incoming(void)
 		int handled;
 		c_buf = _udp_buf;
 		for (int i = 0; i < count; i++) {
+
+#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
+			if (_dobind > 0 && (c_buf[7] || c_buf[6])) {
+				struct sockaddr_in newa;
+				memcpy(&newa.sin_addr, c_buf, 4);
+				memcpy(&newa.sin_port, c_buf + 6, 2);
+				addr_in.sin_addr = newa.sin_addr;
+				addr_in.sin_port = newa.sin_port;
+			}
+#endif
+
 			handled = tcpup_do_packet(_offset, c_buf + sizeof(dns_filling_byte), _udp_len[i] - sizeof(dns_filling_byte), &addr_in, addr_len);
 			TCP_DEBUG_TRACE(handled == 0, "error packet drop: %s:%d\n", inet_ntoa(addr_in.sin_addr), htons(addr_in.sin_port));
 			c_buf += _udp_len[i];
@@ -349,6 +385,16 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	
 	fd = _paging_devices[offset]->_file;
 	_paging_devices[offset]->_t_sndtime = time(NULL);
+
+#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
+	if (_tcp_out_fd >= 0) {
+		struct sockaddr_in _addr_in;
+		_addr_in = _paging_devices[offset]->_addr_in;
+		memcpy(dns_filling_byte, &_addr_in.sin_addr, sizeof(_addr_in.sin_addr));
+		memcpy(dns_filling_byte + 6, &_addr_in.sin_port, sizeof(_addr_in.sin_port));
+		fd = _tcp_out_fd;
+	}
+#endif
 
 #ifndef WIN32
 	struct iovec  iovecs[10];
@@ -432,7 +478,7 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 int utxpl_error()
 {
 #ifdef WIN32
-    return WSAGetLastError();
+	return WSAGetLastError();
 #else
 	return errno;
 #endif

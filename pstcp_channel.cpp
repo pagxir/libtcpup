@@ -18,7 +18,6 @@
 #ifndef WIN32
 #include <errno.h>
 #include <unistd.h>
-#define closesocket close
 #define SD_BOTH SHUT_RDWR
 #endif
 
