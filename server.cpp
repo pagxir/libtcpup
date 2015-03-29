@@ -9,6 +9,7 @@
 #include "tcp_channel.h"
 #include "pstcp_channel.h"
 
+void set_cc_algo(const char *name);
 extern struct module_stub tcp_timer_mod;
 extern struct module_stub tcp_device_mod;
 extern struct module_stub pstcp_listen_mod;
@@ -21,6 +22,7 @@ struct module_stub *modules_list[] = {
 int main(int argc, char *argv[])
 {
 	struct tcpip_info listen_address = {0};
+	struct tcpip_info outter_address = {0};
 	struct tcpip_info forward_address = {0};
 	struct tcpip_info interface_address = {0};
 
@@ -35,9 +37,20 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "%s [options] <FORWARD-ADDRESS>!\n", argv[0]);
 			fprintf(stderr, "-h print this help!\n");
 			fprintf(stderr, "-l <LISTEN-ADDRESS> listening tcp address!\n");
+			fprintf(stderr, "-i <INTERFACE-ADDRESS> interface to send/recv data!\n");
+#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
+			fprintf(stderr, "-o <OUTTER-ADDRESS> out going address, local address use for outgoing packet!\n");
+#endif
+			fprintf(stderr, "-cc.algo <CC-ALGO> algo to control send/recv data!\n");
 			fprintf(stderr, "all ADDRESS should use this format <HOST:PORT> OR <PORT>\n");
-			fprintf(stderr, "\n");
 			return 0;
+		} else if (strcmp(argv[i], "-cc.algo") == 0 && i + 1 < argc) {
+			set_cc_algo(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+			get_target_address(&outter_address, argv[i + 1]);
+			tcp_set_outter_address(&outter_address);
+			i++;
 		} else if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
 			get_target_address(&interface_address, argv[i + 1]);
 			i++;

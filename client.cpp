@@ -10,6 +10,7 @@
 #include <tcpup/tcp_device.h>
 #include "tcp_channel.h"
 
+void set_cc_algo(const char *name);
 extern struct module_stub tcp_timer_mod;
 extern struct module_stub tcp_device_mod;
 extern struct module_stub tcp_listen_mod;
@@ -35,11 +36,18 @@ int main(int argc, char *argv[])
 		if (strcmp(argv[i], "-h") == 0 && i + 1 < argc) {
 			fprintf(stderr, "%s [options] <PROXY-ADDRESS>!\n", argv[0]);
 			fprintf(stderr, "-h print this help!\n");
-			fprintf(stderr, "-i <OUTGOING-ADDRESS> out going address, local address use for send packet!\n");
+#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
+			fprintf(stderr, "-o <OUTTER-ADDRESS> out going address, local address use for outgoing packet!\n");
+#endif
+			fprintf(stderr, "-i <INTERFACE-ADDRESS> interface address, local address use for outgoing/incoming packet!\n");
 			fprintf(stderr, "-l <LISTEN-ADDRESS> listening tcp address!\n");
+			fprintf(stderr, "-cc.algo <CC-ALGO> algo to control send/recv data!\n");
 			fprintf(stderr, "all ADDRESS should use this format <HOST:PORT> OR <PORT>\n");
 			fprintf(stderr, "\n");
 			return 0;
+		} else if (strcmp(argv[i], "-cc.algo") == 0 && i + 1 < argc) {
+			set_cc_algo(argv[i + 1]);
+			i++;
 		} else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
 			get_target_address(&outter_address, argv[i + 1]);
 			tcp_set_outter_address(&outter_address);
