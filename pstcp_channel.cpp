@@ -79,15 +79,16 @@ pstcp_channel::pstcp_channel(struct tcpcb *tp)
 
 pstcp_channel::~pstcp_channel()
 {
+	tx_aiocb_fini(&m_sockcbp);
+	tcp_soclose(m_peer);
+
+	tx_task_drop(&w_evt_peer);
+	tx_task_drop(&r_evt_peer);
 	tx_task_drop(&m_wwait);
 	tx_task_drop(&m_rwait);
-	tx_task_drop(&r_evt_peer);
-	tx_task_drop(&r_evt_peer);
 
 	fprintf(stderr, "pstcp_channel::~pstcp_channel\n");
-	tx_aiocb_fini(&m_sockcbp);
 	closesocket(m_file);
-	tcp_soclose(m_peer);
 }
 
 int pstcp_channel::run(void)

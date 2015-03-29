@@ -275,8 +275,10 @@ void soisdisconnected(struct tcpcb *tp)
 	sorwakeup(tp);
 
 	tp->rgn_snd->rb_flags |= SBS_CANTSENDMORE;
+#if 0
 	len = rgn_len(tp->rgn_snd);
 	rgn_drop(tp->rgn_snd, len);
+#endif
 	sowwakeup(tp);
 	return;
 }
@@ -431,8 +433,10 @@ int tcp_shutdown(struct tcpcb *tp)
 
 		default:
 			tp->rgn_snd->rb_flags |= SBS_CANTSENDMORE;
+#if 0
 			len = rgn_len(tp->rgn_snd);
 			rgn_drop(tp->rgn_snd, len);
+#endif
 			break;
 	}
 
