@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
 #endif
 
 	for (int i = 1; i < argc; i++) {
-		if (strcmp(argv[i], "-h") == 0 && i + 1 < argc) {
+		if (strcmp(argv[i], "-h") == 0) {
 			fprintf(stderr, "%s [options] <PROXY-ADDRESS>!\n", argv[0]);
 			fprintf(stderr, "-h print this help!\n");
 #ifdef _FEATRUE_INOUT_TWO_INTERFACE_
