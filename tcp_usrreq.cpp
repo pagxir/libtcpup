@@ -275,11 +275,11 @@ void soisdisconnected(struct tcpcb *tp)
 	sorwakeup(tp);
 
 	tp->rgn_snd->rb_flags |= SBS_CANTSENDMORE;
+	tx_task_wakeup(&tp->w_event);
 #if 0
 	len = rgn_len(tp->rgn_snd);
 	rgn_drop(tp->rgn_snd, len);
 #endif
-	sowwakeup(tp);
 	return;
 }
 
