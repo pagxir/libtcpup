@@ -2,6 +2,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 
 #include <txall.h>
 
@@ -75,6 +76,9 @@ int main(int argc, char *argv[])
     tx_timer_ring_get(loop);
 
 	initialize_modules(modules_list);
+#ifndef WIN32
+	signal(SIGPIPE, SIG_IGN);
+#endif
 
 	tx_loop_main(loop);
 
