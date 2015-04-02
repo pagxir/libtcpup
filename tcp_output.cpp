@@ -103,8 +103,8 @@ int tcp_output(struct tcpcb *tp)
 	struct sackhole *p;
 	/* tcp_seq this_snd_nxt = 0; */
 	rgn_iovec iobuf[4] = {{0, 0}};
-	char th0_buf[sizeof(tcphdr) + 40];
-	struct tcpopt tcpopt = {0};
+	char th0_buf[sizeof(tcphdr) + 80];
+	struct tcpopt to = {0};
 	struct tcphdr *th = (struct tcphdr *)th0_buf;
 
 	iobuf[0].iov_base = th0_buf;
@@ -371,10 +371,26 @@ sendit:
 		tp->snd_nxt = tp->iss;
 	}
 
-	rcv_numsacks = tp->rcv_numsacks;
+	if (tp->rcv_numsacks > 0) {
+		to.to_flags |= TOF_SACK;
+		to.to_nsacks = tp->rcv_numsacks;
+		to.to_sacks = (u_char *)tp->sackblks;
+	}
+
+	optlen = tcp_addoptions(&to, (u_char *)(th + 1));
+	rcv_numsacks = (optlen >> 2);
+#if 0
 	optlen = TCPOLEN_SACK * rcv_numsacks;
+#endif
+
 	iobuf[0].iov_base = (char *)th;
 	iobuf[0].iov_len  = sizeof(*th) + optlen;
+
+	if (len + optlen > tp->t_maxseg) {
+		sendalot = 1;
+		flags &= ~TH_FIN;
+		len = tp->t_maxseg - optlen;
+	}
 
 	if (len) {
 		if ((tp->t_flags & TF_FORCEDATA) && len == 1) {
@@ -419,31 +435,18 @@ sendit:
 		tp->sackhint.sack_bytes_rexmit += len;
 	}
 
-    tcpopt.to_flags = TOF_TS;
-    tcpopt.to_tsval = htonl(tcp_snd_getticks);
-    tcpopt.to_tsecr = htonl(tp->ts_recent);
+	to.to_flags = TOF_TS;
+	to.to_tsval = htonl(tcp_snd_getticks);
+	to.to_tsecr = htonl(tp->ts_recent);
 
 	th->th_magic = MAGIC_UDP_TCP;
 	th->th_opten = rcv_numsacks;
 	th->th_ack = htonl(tp->rcv_nxt);
-	th->th_tsval = (tcpopt.to_tsval);
-	th->th_tsecr = (tcpopt.to_tsecr);
+	th->th_tsval = (to.to_tsval);
+	th->th_tsecr = (to.to_tsecr);
 	th->th_flags = flags;
 	th->th_conv  = htonl(tp->t_conv);
 	tilen   = (u_short)len;
-
-	{
-		tcp_seq sack_seq;
-		struct sackblk *sack = tp->sackblks;
-		tcp_seq *ptr = (tcp_seq *)(th + 1);
-
-		for (int i = 0; i < rcv_numsacks; i++) {
-			sack_seq = htonl(sack->start);
-			*ptr ++ = sack_seq;
-			sack_seq = htonl(sack->end);
-			*ptr ++ = sack_seq;
-		}
-	}
 
 	if (recwin < (long) rgn_size(tp->rgn_rcv) / 4 &&
 		recwin < (long) tp->t_maxseg)
@@ -456,7 +459,7 @@ sendit:
 	th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
 
 	/* Run HHOOK_TCP_ESTABLISHED_OUT helper hooks. */
-	hhook_run_tcp_est_out(tp, th, &tcpopt, tilen, 0);
+	hhook_run_tcp_est_out(tp, th, &to, tilen, 0);
 
 
 	int prev_snd_nxt = tp->snd_nxt;
@@ -597,5 +600,117 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, int tlen, int flags)
 	error = utxpl_output(tp->if_dev, &iov0, 1, &tp->dst_addr);
 	VAR_UNUSED(error);
 	return;
+}
+
+/*
+ * Insert TCP options according to the supplied parameters to the place
+ * optp in a consistent way. Can handle unaligned destinations.
+ *
+ * The order of the option processing is crucial for optimal packing and
+ * alignment for the scarce option space.
+ *
+ * The optimal order for a SYN/SYN-ACK segment is:
+ * MSS (4) + NOP (1) + Window scale (3) + SACK permitted (2) +
+ * Timestamp (10) + Signature (18) = 38 bytes out of a maximum of 40.
+ *
+ * The SACK options should be last. SACK blocks consume 8*n+2 bytes.
+ * So a full size SACK blocks option is 34 bytes (with 4 SACK blocks).
+ * At minimum we need 10 bytes (to generate 1 SACK block). If both
+ * TCP Timestamps (12 bytes) and TCP Signatures (18 bytes) are present,
+ * we only have 10 bytes for SACK options (40 - (12 + 18)).
+ */
+int tcp_addoptions(struct tcpopt *to, u_char *optp)
+{
+	u_int mask, optlen = 0;
+
+	for (mask = 1; mask < TOF_MAXOPT; mask <<= 1) {
+		if ((to->to_flags & mask) != mask)
+			continue;
+		if (optlen == TCP_MAXOLEN)
+			break;
+		switch (to->to_flags & mask) {
+			case TOF_MSS:
+				while (optlen % 4) {
+					optlen += TCPOLEN_NOP;
+					*optp++ = TCPOPT_NOP;
+				}
+				if (TCP_MAXOLEN - optlen < TCPOLEN_MAXSEG)
+					continue;
+				optlen += TCPOLEN_MAXSEG;
+				*optp++ = TCPOPT_MAXSEG;
+				*optp++ = TCPOLEN_MAXSEG;
+				to->to_mss = htons(to->to_mss);
+				bcopy((u_char *)&to->to_mss, optp, sizeof(to->to_mss));
+				optp += sizeof(to->to_mss);
+				break;
+			case TOF_SCALE:
+				while (!optlen || optlen % 2 != 1) {
+					optlen += TCPOLEN_NOP;
+					*optp++ = TCPOPT_NOP;
+				}
+				if (TCP_MAXOLEN - optlen < TCPOLEN_WINDOW)
+					continue;
+				optlen += TCPOLEN_WINDOW;
+				*optp++ = TCPOPT_WINDOW;
+				*optp++ = TCPOLEN_WINDOW;
+				*optp++ = to->to_wscale;
+				break;
+			case TOF_SACK:
+				{
+					int sackblks = 0;
+					struct sackblk *sack = (struct sackblk *)to->to_sacks;
+					tcp_seq sack_seq;
+
+					while (!optlen || optlen % 4 != 2) {
+						optlen += TCPOLEN_NOP;
+						*optp++ = TCPOPT_NOP;
+					}
+					if (TCP_MAXOLEN - optlen < TCPOLEN_SACKHDR + TCPOLEN_SACK)
+						continue;
+					optlen += TCPOLEN_SACKHDR;
+					*optp++ = TCPOPT_SACK;
+					sackblks = min(to->to_nsacks,
+							(TCP_MAXOLEN - optlen) / TCPOLEN_SACK);
+					*optp++ = TCPOLEN_SACKHDR + sackblks * TCPOLEN_SACK;
+					while (sackblks--) {
+						sack_seq = htonl(sack->start);
+						bcopy((u_char *)&sack_seq, optp, sizeof(sack_seq));
+						optp += sizeof(sack_seq);
+						sack_seq = htonl(sack->end);
+						bcopy((u_char *)&sack_seq, optp, sizeof(sack_seq));
+						optp += sizeof(sack_seq);
+						optlen += TCPOLEN_SACK;
+						sack++;
+					}
+					TCPSTAT_INC(tcps_sack_send_blocks);
+					break;
+				}
+			case TOF_TS:
+			case TOF_SACKPERM:
+				break;
+			default:
+				TX_PANIC(0, "unknown TCP option type");
+				break;
+		}
+	}
+
+	/* Terminate and pad TCP options to a 4 byte boundary. */
+	if (optlen % 4) {
+		optlen += TCPOLEN_EOL;
+		*optp++ = TCPOPT_EOL;
+	}
+	/*
+	 * According to RFC 793 (STD0007):
+	 * "The content of the header beyond the End-of-Option option
+	 * must be header padding (i.e., zero)."
+	 * and later: "The padding is composed of zeros."
+	 */
+	while (optlen % 4) {
+		optlen += TCPOLEN_PAD;
+		*optp++ = TCPOPT_PAD;
+	}
+
+	KASSERT(optlen <= TCP_MAXOLEN, ("%s: TCP options too long", __func__));
+	return (optlen);
 }
 

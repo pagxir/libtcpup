@@ -216,12 +216,86 @@ cc_post_recovery(struct tcpcb *tp, struct tcphdr *th)
 	tp->t_bytes_acked = 0;
 }
 
-int tcp_dooptions(struct tcpopt *to, u_char *opt, int cnt, int flags)
+/*
+ * Parse TCP options and place in tcpopt.
+ */
+static int
+tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 {
-	to->to_flags |= TOF_SACK;
-	to->to_nsacks = cnt;
-	to->to_sacks = (u_char *)opt;
-	return sizeof(tcphdr) + cnt * TCPOLEN_SACK;
+	static char _null_[] = {0};
+	int opt, optlen, oldcnt = cnt;
+	to->to_flags = 0;
+
+	for (; cnt > 0; cnt -= optlen, cp += optlen) {
+		opt = cp[0];
+		if (opt == TCPOPT_EOL)
+			break;
+		if (opt == TCPOPT_NOP)
+			optlen = 1;
+		else {
+			if (cnt < 2)
+				break;
+			optlen = cp[1];
+			if (optlen < 2 || optlen > cnt)
+				break;
+		}
+		switch (opt) {
+			case TCPOPT_MAXSEG:
+				if (optlen != TCPOLEN_MAXSEG)
+					continue;
+				if (!(flags & TO_SYN))
+					continue;
+				to->to_flags |= TOF_MSS;
+				bcopy((char *)cp + 2,
+						(char *)&to->to_mss, sizeof(to->to_mss));
+				to->to_mss = ntohs(to->to_mss);
+				break;
+#if 0
+			case TCPOPT_WINDOW:
+				if (optlen != TCPOLEN_WINDOW)
+					continue;
+				if (!(flags & TO_SYN))
+					continue;
+				to->to_flags |= TOF_SCALE;
+				to->to_wscale = min(cp[2], TCP_MAX_WINSHIFT);
+				break;
+			case TCPOPT_TIMESTAMP:
+				if (optlen != TCPOLEN_TIMESTAMP)
+					continue;
+				to->to_flags |= TOF_TS;
+				bcopy((char *)cp + 2,
+						(char *)&to->to_tsval, sizeof(to->to_tsval));
+				to->to_tsval = ntohl(to->to_tsval);
+				bcopy((char *)cp + 6,
+						(char *)&to->to_tsecr, sizeof(to->to_tsecr));
+				to->to_tsecr = ntohl(to->to_tsecr);
+				break;
+			case TCPOPT_SACK_PERMITTED:
+				if (optlen != TCPOLEN_SACK_PERMITTED)
+					continue;
+				if (!(flags & TO_SYN))
+					continue;
+				if (!V_tcp_do_sack)
+					continue;
+				to->to_flags |= TOF_SACKPERM;
+				break;
+#endif
+			case TCPOPT_SACK:
+				if (optlen <= 2 || (optlen - 2) % TCPOLEN_SACK != 0)
+					continue;
+				if (flags & TO_SYN)
+					continue;
+				to->to_flags |= TOF_SACK;
+				to->to_nsacks = (optlen - 2) / TCPOLEN_SACK;
+				to->to_sacks = cp + 2;
+				TCPSTAT_INC(tcps_sack_rcv_blocks);
+				break;
+			default:
+				continue;
+		}
+	}
+
+	return sizeof(tcphdr) + oldcnt;
 }
 
 void tcp_input(struct tcpcb *tp, int dst,
@@ -274,7 +348,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 	 * Parse options on any incoming segment.
 	 */
 	int hdrlen = tcp_dooptions(&to, (u_char *)(th + 1),
-			th->th_opten, (thflags & TH_SYN) ? TO_SYN : 0);
+			th->th_opten * 4, (thflags & TH_SYN) ? TO_SYN : 0);
 	to.to_flags |= TOF_TS;
 	to.to_tsval = htonl(th->th_tsval);
 	to.to_tsecr = htonl(th->th_tsecr);
@@ -332,7 +406,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 			if (SEQ_GT(th->th_ack, tp->snd_una) &&
 					SEQ_LEQ(th->th_ack, tp->snd_max) &&
 					!IN_RECOVERY(tp->t_flags) &&
-					th->th_opten == 0 &&
+					(to.to_flags & TOF_SACK) == 0 &&
 					TAILQ_EMPTY(&tp->snd_holes)) {
 				TCPSTAT_INC(tcps_predack);
 
@@ -983,7 +1057,7 @@ close:
 				goto dropafterack;
 			}
 
-			if (th->th_opten > 0 ||
+			if ((to.to_flags & TOF_SACK) ||
 				!TAILQ_EMPTY(&tp->snd_holes))
 				tcp_sack_doack(tp, &to, th->th_ack);
 

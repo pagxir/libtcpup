@@ -219,7 +219,7 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 	 * Append received valid SACK blocks to sack_blocks[], but only if we
 	 * received new blocks from the other side.
 	 */
-	{
+	if (to->to_flags & TOF_SACK) {
 		for (i = 0; i < to->to_nsacks; i++) {
 			bcopy((to->to_sacks + i * TCPOLEN_SACK),
 			    &sack, sizeof(sack));

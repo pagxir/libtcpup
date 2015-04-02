@@ -357,22 +357,13 @@ int sowunlock(struct tcpcb *tp, size_t len)
 int tcp_write(struct tcpcb *tp, const void *buf, size_t count)
 {
 	int min_len = min((int)count, rgn_rest(tp->rgn_snd));
-#if 0
-	int len_limit = (tp->snd_max - tp->snd_una) + 16384;
-
-	if (rgn_len(tp->rgn_snd) >= len_limit) {
-		tp->t_error = UTXEWOULDBLOCK;
-		return -1;
-	} else if (min_len > len_limit - rgn_len(tp->rgn_snd)) {
-		/* limit buffer size */
-		min_len = len_limit - rgn_len(tp->rgn_snd);
-	}
-#endif
 
 	switch (tp->t_state) {
 		case TCPS_ESTABLISHED:
 		case TCPS_CLOSE_WAIT:
 			rgn_put(tp->rgn_snd, buf, min_len);
+			if (min_len < count)
+				tp->t_flags |= TF_MORETOCOME;
 			tcp_output(tp);
 			break;
 
