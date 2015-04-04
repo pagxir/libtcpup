@@ -91,16 +91,72 @@ pstcp_channel::~pstcp_channel()
 	closesocket(m_file);
 }
 
+static int expend_relay(struct sockaddr *destination, struct tcpcb *tp, u_long defdest, u_short port)
+{
+    int len, typ;
+    char *p, relay[64];
+    struct sockaddr_in *dst4 =
+        (struct sockaddr_in *)destination;
+
+    struct sockaddr_in6 *dst6 =
+        (struct sockaddr_in6 *)destination;
+
+    p = relay;
+    len = tcp_relayget(tp, relay, sizeof(relay));
+
+    while (len > 4) {
+        int p0;
+        typ = *p++;
+        if (*p++ != 0) break;
+
+        memcpy(&p0, p, 2);
+        p += 2;
+
+        switch (typ) {
+            case 0x01:
+                /* IPv4 (8 byte): atyp=0x01 + 0x0 + port[2]+ addr[4]. */
+                if (len == 8) {
+                    dst4->sin_family = AF_INET;
+                    dst4->sin_port   = p0;
+                    memcpy(&dst4->sin_addr, p, 4);
+                    return 0;
+                }
+
+                break;
+
+            case 0x03:
+                /* FQDN (4 + x byte): atyp=0x01 + 0x0 + port[2] + fqdn[4]. */
+                break;
+
+            case 0x04:
+                /* IPv6 (8 byte): atyp=0x04 + 0x0 + port[2] + addr6[16]. */
+                if (len == 20) {
+                    dst6->sin6_family = AF_INET6;
+                    dst6->sin6_port   = p0;
+                    memcpy(&dst6->sin6_addr, p, 16);
+                    return 0;
+                }
+
+                break;
+        }
+
+		break;
+    }
+
+    dst4->sin_family = AF_INET;
+    dst4->sin_port   = htons(port);
+    dst4->sin_addr.s_addr = htonl(defdest);
+    return 0;
+}
+
 int pstcp_channel::run(void)
 {
 	int len = 0;
 	int error = -1;
-	struct sockaddr_in name;
+	struct sockaddr name;
 
 	if ((m_flags & TF_CONNECT) == 0) {
-		name.sin_family = AF_INET;
-		name.sin_port   = htons(_forward_port);
-		name.sin_addr.s_addr = htonl(_forward_addr);
+		expend_relay(&name, m_peer, _forward_addr, _forward_port);
 		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, &m_wwait);
 		m_flags |= TF_CONNECT;
 
@@ -163,13 +219,13 @@ reread:
 		int test_flags = (TF_EOF1 | TF_SHUT1);
 	   
 		m_roff = m_rlen = 0;
-		if ((m_flags & test_flags) == TF_EOF1) {
-			test_flags |= TF_SHUT1;
-			tcp_shutdown(m_peer);
-               } else if ((m_flags & TF_EOF1) == 0) {
-			/* XXX */
-			if (tx_readable(&m_sockcbp)) { goto reread; }
-		}
+        if ((m_flags & test_flags) == TF_EOF1) {
+            test_flags |= TF_SHUT1;
+            tcp_shutdown(m_peer);
+        } else if ((m_flags & TF_EOF1) == 0) {
+            /* XXX */
+            if (tx_readable(&m_sockcbp)) { goto reread; }
+        }
 	}
 
 	if (m_woff >= m_wlen) {

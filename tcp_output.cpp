@@ -367,8 +367,18 @@ just_return:
 	return 0;
 
 sendit:
+	to.to_flags = 0;
+	/* Maximum segment size. */
 	if (flags & TH_SYN) {
 		tp->snd_nxt = tp->iss;
+		to.to_mss = tp->t_maxseg;
+		to.to_flags |= TOF_MSS;
+	}
+
+	if ((flags & TH_SYN) && tp->relay_len > 0) {
+		to.to_flags |= TOF_DESTINATION;
+		to.to_dsaddr = tp->relay_target;
+		to.to_dslen = tp->relay_len;
 	}
 
 	if (tp->rcv_numsacks > 0) {
@@ -694,6 +704,19 @@ int tcp_addoptions(struct tcpopt *to, u_char *optp)
 					TCPSTAT_INC(tcps_sack_send_blocks);
 					break;
 				}
+            case TOF_DESTINATION:
+                while (!optlen || optlen % 2 != 1) {
+                    optlen += TCPOLEN_NOP;
+                    *optp++ = TCPOPT_NOP;
+                }
+                if (TCP_MAXOLEN - optlen < TCPOLEN_DESTINATION + to->to_dslen)
+                    continue;
+                optlen += (to->to_dslen + TCPOLEN_DESTINATION);
+                *optp++ = TCPOPT_DESTINATION;
+                *optp++ = (to->to_dslen + TCPOLEN_DESTINATION);
+                memcpy(optp, to->to_dsaddr, to->to_dslen);
+                optp += to->to_dslen;
+                break;
 			case TOF_TS:
 			case TOF_SACKPERM:
 				break;

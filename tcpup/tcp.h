@@ -128,6 +128,9 @@ struct tcphdr {
 #define TCPOPT_SIGNATURE        19              /* Keyed MD5: RFC 2385 */
 #define    TCPOLEN_SIGNATURE            18
 
+#define TCPOPT_DESTINATION      63              /* tcpup telay destination */
+#define    TCPOLEN_DESTINATION          2
+
 /* Miscellaneous constants */
 #define MAX_SACK_BLKS   6       /* Max # SACK blocks stored at receiver side */
 #define TCP_MAX_SACK    4       /* MAX # SACKs sent in any segment */
@@ -174,7 +177,10 @@ struct tcphdr {
 #define TCP_MAXBURST            4       /* maximum segments in a burst */
 
 #define TCP_MAXHLEN     (0xf<<2)        /* max length of header in bytes */
-#define TCP_MAXOLEN     (TCP_MAXHLEN - sizeof(struct tcphdr))
+/*
+ * #define TCP_MAXOLEN     (TCP_MAXHLEN - sizeof(struct tcphdr))
+ */
+#define TCP_MAXOLEN     (TCP_MAXHLEN)
                                         /* max space left for options */
 
 /*

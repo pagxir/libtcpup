@@ -280,6 +280,15 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 				to->to_flags |= TOF_SACKPERM;
 				break;
 #endif
+            case TCPOPT_DESTINATION:
+                if (optlen <= 2 || (optlen - 2) < 4)
+                    continue;
+                if (!(flags & TO_SYN))
+                    continue;
+                to->to_flags |= TOF_DESTINATION;
+                to->to_dslen = (optlen - 2);
+                to->to_dsaddr = cp + 2;
+                break;
 			case TCPOPT_SACK:
 				if (optlen <= 2 || (optlen - 2) % TCPOLEN_SACK != 0)
 					continue;
@@ -374,6 +383,12 @@ void tcp_input(struct tcpcb *tp, int dst,
 
 		tp->ts_recent = to.to_tsval;
 		tp->ts_recent_age = tcp_ts_getticks();
+
+		if ((to.to_flags & TOF_MSS) &&
+				to.to_mss >= 512 && to.to_mss < tp->t_maxseg) {
+			TCP_DEBUG_TRACE(1, "%x update mss from peer\n", tp->t_conv);
+			tp->t_maxseg = to.to_mss;
+		}
 	}
 
 	if (TSTMP_GEQ(to.to_tsval, tp->ts_recent)

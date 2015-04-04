@@ -157,6 +157,9 @@ struct tcpcb * tcp_newtcpcb(int if_fd, tcp_seq conv)
 	tp->t_rttupdated = 0;
 	tp->t_keepidle = 0;
 	tp->t_keepidle = 3 * hz;
+
+	tp->relay_len = 0;
+
 	tp->osd = (struct osd *)malloc(sizeof(*tp->osd));
 	ertt_uma_ctor(tp->osd, 0, NULL, 0);
 	tcp_setuptimers(tp);
@@ -398,6 +401,30 @@ int tcp_readable(struct tcpcb *tp)
 	}
 
 	return 0;
+}
+
+int tcp_relayto(struct tcpcb *tp, void *buf, size_t len)
+{
+	if (len < sizeof(tp->relay_target)) {
+		memcpy(tp->relay_target, buf, len);
+		tp->relay_len = len;
+		return 0;
+	}
+
+	return -1;
+}
+
+int tcp_relayget(struct tcpcb *tp, void *buf, int len)
+{
+	int cplen;
+
+	if (len >= tp->relay_len) {
+		cplen = tp->relay_len;
+		memcpy(buf, tp->relay_target, cplen);
+		return cplen;
+	}
+
+	return -1;
 }
 
 int tcp_shutdown(struct tcpcb *tp)

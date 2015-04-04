@@ -225,6 +225,9 @@ struct tcpcb {
 		struct rgnbuf *rgn_snd;
 		struct tcpup_addr dst_addr;
 
+		size_t relay_len;
+		u_char relay_target[60];
+
 		u_char cc_mem[40];
 		struct tx_task_q r_event;
 		struct tx_task_q w_event;
@@ -333,7 +336,8 @@ struct tcpopt {
 #define TOF_TS          0x0010          /* timestamp */
 #define TOF_SIGNATURE   0x0040          /* TCP-MD5 signature option (RFC2385) */
 #define TOF_SACK        0x0080          /* Peer sent SACK option */
-#define TOF_MAXOPT      0x0100
+#define TOF_DESTINATION 0x0100          /* Relay target option */
+#define TOF_MAXOPT      0x0200
         u_int32_t       to_tsval;       /* new timestamp */
         u_int32_t       to_tsecr;       /* reflected timestamp */
         u_char          *to_sacks;      /* pointer to the first SACK blocks */
@@ -342,6 +346,8 @@ struct tcpopt {
         u_int8_t        to_wscale;      /* window scaling */
         u_int8_t        to_nsacks;      /* number of SACK blocks */
         u_int32_t       to_spare;       /* UTO */
+        u_int16_t       to_dslen;       /* relay target to_dsaddr length */
+        u_char          *to_dsaddr;		/* relay target to_dsaddr pointer */
 };
 
 /*

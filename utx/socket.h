@@ -32,6 +32,9 @@ int tcp_soclose(struct tcpcb *tp);
 int tcp_listen(struct tcpcb *tp, u_long addr, u_short port);
 int tcp_soname(struct tcpcb *tp, u_long *addr, u_short *port);
 
+int tcp_relayget(struct tcpcb *tp, void *buf, int len);
+int tcp_relayto(struct tcpcb *tp, void *buf, size_t len);
+
 /* traditional socket function */
 int tcp_connect(struct tcpcb *tp,
 	   	const struct sockaddr_in *name, size_t namlen);
