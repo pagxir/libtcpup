@@ -156,6 +156,7 @@ struct tcpcb * tcp_newtcpcb(int if_fd, tcp_seq conv)
 
 	tp->t_rttupdated = 0;
 	tp->t_keepidle = 0;
+	tp->t_keepidle = 3 * hz;
 	tp->osd = (struct osd *)malloc(sizeof(*tp->osd));
 	ertt_uma_ctor(tp->osd, 0, NULL, 0);
 	tcp_setuptimers(tp);
@@ -269,17 +270,11 @@ int tcp_free(struct tcpcb *tp)
 
 void soisdisconnected(struct tcpcb *tp)
 {
-	size_t len;
-
 	tp->rgn_rcv->rb_flags |= SBS_CANTRCVMORE;
 	sorwakeup(tp);
 
 	tp->rgn_snd->rb_flags |= SBS_CANTSENDMORE;
 	tx_task_wakeup(&tp->w_event);
-#if 0
-	len = rgn_len(tp->rgn_snd);
-	rgn_drop(tp->rgn_snd, len);
-#endif
 	return;
 }
 
@@ -407,8 +402,6 @@ int tcp_readable(struct tcpcb *tp)
 
 int tcp_shutdown(struct tcpcb *tp)
 {
-	int len;
-
 	switch (tp->t_state) {
 		case TCPS_ESTABLISHED:
 			tp->t_state = TCPS_FIN_WAIT_1;
@@ -424,10 +417,6 @@ int tcp_shutdown(struct tcpcb *tp)
 
 		default:
 			tp->rgn_snd->rb_flags |= SBS_CANTSENDMORE;
-#if 0
-			len = rgn_len(tp->rgn_snd);
-			rgn_drop(tp->rgn_snd, len);
-#endif
 			break;
 	}
 

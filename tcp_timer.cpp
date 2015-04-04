@@ -11,6 +11,7 @@
 #include <tcpup/tcp.h>
 #include <tcpup/tcp_fsm.h>
 #include <tcpup/tcp_var.h>
+#include <tcpup/tcp_seq.h>
 #include <tcpup/tcp_timer.h>
 #include <tcpup/tcp_debug.h>
 
@@ -132,14 +133,22 @@ static void tcp_keep_timo(void *up)
    	tcpstat.tcps_keeptimeo++;
    	if (tp->t_state < TCPS_ESTABLISHED)
 	   	goto dropit;
-   	if (tp->t_state <= TCPS_CLOSE_WAIT) {
-	   	if ((int)ticks - (int)tp->t_rcvtime >= tcp_keepintvl + tcp_maxidle)
-		   	goto dropit;
-	   	tcpstat.tcps_keepprobe++;
+   	if (tp->t_state <= TCPS_CLOSING) {
+		if (ticks - tp->t_rcvtime >= TP_KEEPIDLE(tp) + TP_MAXIDLE(tp))
+			goto dropit;
+		TCPSTAT_INC(tcps_keepprobe);
 	   	/* tcp_respond */
-		tx_timer_reset(&tp->t_timer_keep, tcp_keepintvl);
+
+		struct tcphdr th = {0};
+		th.th_ack = htonl(tp->rcv_nxt);
+		th.th_seq = htonl(tp->snd_una);
+		th.th_tsval = htonl(tcp_snd_getticks);
+		th.th_tsecr = htonl(tp->ts_recent);
+
+		tcp_respond(tp, &th, 0, 0);
+		tx_timer_reset(&tp->t_timer_keep, TP_KEEPINTVL(tp));
    	} else
-		tx_timer_reset(&tp->t_timer_keep, tcp_keepidle);
+		tx_timer_reset(&tp->t_timer_keep, TP_KEEPIDLE(tp));
 	return;
 
 dropit:

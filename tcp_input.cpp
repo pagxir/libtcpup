@@ -348,7 +348,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 	 * Parse options on any incoming segment.
 	 */
 	int hdrlen = tcp_dooptions(&to, (u_char *)(th + 1),
-			th->th_opten * 4, (thflags & TH_SYN) ? TO_SYN : 0);
+			th->th_opten << 2, (thflags & TH_SYN) ? TO_SYN : 0);
 	to.to_flags |= TOF_TS;
 	to.to_tsval = htonl(th->th_tsval);
 	to.to_tsecr = htonl(th->th_tsecr);
@@ -376,12 +376,12 @@ void tcp_input(struct tcpcb *tp, int dst,
 		tp->ts_recent_age = tcp_ts_getticks();
 	}
 
-
-       if (TSTMP_GEQ(to.to_tsval, tp->ts_recent)) {
-               memcpy(tp->dst_addr.name, from, namlen);
-               tp->dst_addr.namlen = namlen;
-       }
-
+	if (TSTMP_GEQ(to.to_tsval, tp->ts_recent)
+			&& memcmp(tp->dst_addr.name, from, namlen)) {
+		memcpy(tp->dst_addr.name, from, namlen);
+		tp->dst_addr.namlen = namlen;
+		needoutput = 1;
+	}
 
 	if (tp->t_state == TCPS_ESTABLISHED &&
 			th->th_seq == tp->rcv_nxt &&

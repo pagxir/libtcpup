@@ -468,8 +468,10 @@ sendit:
 	int prev_t_rtseq = tp->t_rtseq;
 	int prev_t_rtttime = tp->t_rtttime;
 
-	TCP_DEBUG_TRACE(th->th_flags & TH_FIN, "%x FIN sent\n", tp->t_conv);
-	TCP_DEBUG_TRACE(tilen == 0 && tp->t_state > TCPS_ESTABLISHED, "%x finish ack\n", tp->t_conv);
+	if (th->th_flags & TH_FIN) {
+		TCP_DEBUG_TRACE(th->th_flags & TH_FIN, "%x FIN sent\n", tp->t_conv);
+		TCP_DEBUG_TRACE(tilen == 0 && tp->t_state > TCPS_ESTABLISHED, "%x finish ack\n", tp->t_conv);
+	}
 
 	error = utxpl_output(tp->if_dev, iobuf, 3, &tp->dst_addr);
 
@@ -590,6 +592,13 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, int tlen, int flags)
 	th->th_conv = htonl(tp->t_conv);
 	th->th_flags = flags;
 	th->th_win   = 0;
+
+	if (tp != NULL) {
+		long recwin = rgn_rest(tp->rgn_rcv);
+		if (recwin > (long)TCP_MAXWIN) recwin = (long)TCP_MAXWIN;
+		th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
+	}
+
 	th->th_tsecr = htonl(orig->th_tsval);
 	th->th_tsval = htonl(orig->th_tsecr);
 
