@@ -311,7 +311,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 	const char *dat = NULL;
 	u_long tiwin;
 	struct tcpopt to;
-	struct tcpcb tcb;
+	struct tcpcb tcb = {0};
 
 	th = (struct tcphdr *)buf;
 	TCPSTAT_INC(tcps_rcvtotal);

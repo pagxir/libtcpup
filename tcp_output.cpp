@@ -593,7 +593,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, int tlen, int flags)
 	th->th_flags = flags;
 	th->th_win   = 0;
 
-	if (tp != NULL) {
+	if (tp != NULL && tp->rgn_rcv) {
 		long recwin = rgn_rest(tp->rgn_rcv);
 		if (recwin > (long)TCP_MAXWIN) recwin = (long)TCP_MAXWIN;
 		th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
