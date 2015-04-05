@@ -5,19 +5,28 @@
 #include <utx/utxpl.h>
 #include <utx/socket.h>
 
+#include "dns_txasync.h"
 #include "tcp_channel.h"
 #include "pstcp_channel.h"
 
-#define TF_CONNECT    1
-#define TF_CONNECTING 2
-#define TF_EOF0       4
-#define TF_EOF1       8
-#define TF_SHUT0      16 
-#define TF_SHUT1      32
+#define TF_RESOLVED   0x10
+#define TF_RESOLVING  0x20
+
+#define TF_CONNECTED  0x40
+#define TF_CONNECTING 0x80
+
+#define TF_EOF0       0x1
+#define TF_SHUT0      0x2
+
+#define TF_EOF1       0x4
+#define TF_SHUT1      0x8
 
 #ifndef WIN32
 #include <errno.h>
 #include <unistd.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 #define SD_BOTH SHUT_RDWR
 #endif
 
@@ -33,6 +42,7 @@ class pstcp_channel {
 	private:
 		int m_file;
 		int m_flags;
+		int m_dns_handle;
 
 	private:
 		struct tx_task_t m_rwait;
@@ -53,6 +63,9 @@ class pstcp_channel {
 		struct tcpcb *m_peer;
 		struct tx_task_t r_evt_peer;
 		struct tx_task_t w_evt_peer;
+
+	private:
+		int expend_relay(struct sockaddr *, struct tcpcb *, u_long , u_short , struct tx_task_t *);
 };
 
 u_short _forward_port = 1080;
@@ -70,6 +83,7 @@ pstcp_channel::pstcp_channel(struct tcpcb *tp)
 
 	m_roff = m_rlen = 0;
 	m_woff = m_wlen = 0;
+	m_dns_handle = -1;
 
 	tx_task_init(&m_rwait, loop, tc_callback, this);
 	tx_task_init(&m_wwait, loop, tc_callback, this);
@@ -79,6 +93,11 @@ pstcp_channel::pstcp_channel(struct tcpcb *tp)
 
 pstcp_channel::~pstcp_channel()
 {
+	if (m_dns_handle != -1) {
+		dns_query_close(m_dns_handle);
+		m_dns_handle = -1;
+	}
+
 	tx_aiocb_fini(&m_sockcbp);
 	tcp_soclose(m_peer);
 
@@ -91,10 +110,12 @@ pstcp_channel::~pstcp_channel()
 	closesocket(m_file);
 }
 
-static int expend_relay(struct sockaddr *destination, struct tcpcb *tp, u_long defdest, u_short port)
+int pstcp_channel::expend_relay(struct sockaddr *destination, struct tcpcb *tp, u_long defdest, u_short port, struct tx_task_t *task)
 {
-    int len, typ;
-    char *p, relay[64];
+	int len, typ;
+	struct addrinfo hints;
+    char *p, relay[64], serv[10];
+
     struct sockaddr_in *dst4 =
         (struct sockaddr_in *)destination;
 
@@ -104,7 +125,7 @@ static int expend_relay(struct sockaddr *destination, struct tcpcb *tp, u_long d
     p = relay;
     len = tcp_relayget(tp, relay, sizeof(relay));
 
-    while (len > 4) {
+    while (len > 4 && len < sizeof(relay)) {
         int p0;
         typ = *p++;
         if (*p++ != 0) break;
@@ -126,6 +147,21 @@ static int expend_relay(struct sockaddr *destination, struct tcpcb *tp, u_long d
 
             case 0x03:
                 /* FQDN (4 + x byte): atyp=0x01 + 0x0 + port[2] + fqdn[4]. */
+				memset(&hints, 0, sizeof(struct addrinfo));
+				hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
+				hints.ai_socktype = SOCK_STREAM; /* Datagram socket */
+				hints.ai_flags = 0;
+				hints.ai_protocol = 0;          /* Any protocol */
+
+				sprintf(serv, "%d", ntohs(p0));
+				relay[len] = 0;
+
+				m_dns_handle = dns_query_open(relay + 4, serv, &hints, task);
+				if (m_dns_handle >= 0) {
+					fprintf(stderr, "dns query is pending\n");
+					return 1;
+				}
+
                 break;
 
             case 0x04:
@@ -155,26 +191,100 @@ int pstcp_channel::run(void)
 	int error = -1;
 	struct sockaddr name;
 
-	if ((m_flags & TF_CONNECT) == 0) {
-		expend_relay(&name, m_peer, _forward_addr, _forward_port);
-		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, &m_wwait);
-		m_flags |= TF_CONNECT;
 
+#define TF_RESOLVABLE(flags) (0x0 == (flags&(TF_RESOLVING|TF_RESOLVED)))
+	if (TF_RESOLVABLE(m_flags)) {
+		error = expend_relay(&name, m_peer, _forward_addr, _forward_port, &m_wwait);
+		if (error == -1) {
+			fprintf(stderr, "do dns resolv error\n");
+			return 0;
+		}
+
+		if (error) {
+			m_flags |= TF_RESOLVING;
+			return 1;
+		}
+
+		m_flags |= TF_RESOLVED;
+	} else {
+		int error;
+		int rsoket;
+		struct tx_loop_t *loop;
+		struct addrinfo *rp, *result = 0;
+
+		if (m_dns_handle != -1 && (m_flags & TF_RESOLVING)) {
+			error = dns_query_result(m_dns_handle, &result);
+			if (error) {
+				fprintf(stderr, "do dns async resolv failure\n");
+				return 0;
+			}
+
+			if (result != NULL) {
+				m_flags &= ~TF_RESOLVING;
+				m_flags |= TF_RESOLVED;
+
+				tx_aiocb_fini(&m_sockcbp);
+				closesocket(m_file);
+
+				loop = tx_loop_default();
+				for (rp = result; rp != NULL; rp = rp->ai_next) {
+					rsoket = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+					if (rsoket == -1) continue;
+					tx_setblockopt(rsoket, 0);
+
+					tx_aiocb_init(&m_sockcbp, loop, rsoket);
+					error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)rp->ai_addr, &m_wwait);
+
+					if (error == 0 || error == -EINPROGRESS) {
+						m_file = rsoket;
+						if (error) {
+							m_flags |= TF_CONNECTING;
+							return 1;
+						}
+
+						m_flags |= TF_CONNECTED;
+						dns_query_close(m_dns_handle);
+						m_dns_handle = -1;
+						goto process;
+					}
+
+					tx_aiocb_fini(&m_sockcbp);
+					close(rsoket);
+				}
+
+				return 0;
+			}
+		}
+	}
+
+#define TF_CONNECTABLE(f) (0x0 == (f&(TF_CONNECTING|TF_CONNECTED)))
+	if (TF_CONNECTABLE(m_flags) && (m_flags & TF_RESOLVED)) {
+		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, &m_wwait);
 		if (error == -1) {
 			fprintf(stderr, "tcp connect error\n");
 			return 0;
-		} else if (error) {
+		}
+
+		if (error) {
 			m_flags |= TF_CONNECTING;
+			return 1;
+		}
+
+		m_flags |= TF_CONNECTED;
+	} else {
+		if (tx_writable(&m_sockcbp)
+				&& (m_flags & TF_CONNECTING)) {
+			m_flags &= ~TF_CONNECTING;
+			m_flags |= TF_CONNECTED;
+		}
+
+		if ((m_flags & TF_CONNECTED) == 0) {
+			fprintf(stderr, "connect is inprogress...");
 			return 1;
 		}
 	}
 
-	if (tx_writable(&m_sockcbp)) {
-		m_flags &= ~TF_CONNECTING;
-	} else if (m_flags & TF_CONNECTING) {
-		return 1;
-	}
-
+process:
 reread:
 	if (tx_readable(&m_sockcbp) && m_rlen < (int)sizeof(m_rbuf) && (m_flags & TF_EOF1) == 0) {
 		len = recv(m_file, m_rbuf + m_rlen, sizeof(m_rbuf) - m_rlen, 0);
