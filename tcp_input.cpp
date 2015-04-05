@@ -558,6 +558,20 @@ void tcp_input(struct tcpcb *tp, int dst,
 			tp->irs = th->th_seq;
 			tp->t_flags |= TF_ACKNOW;
 			tp->t_state = TCPS_SYN_RECEIVED;
+
+			if ((to.to_flags & TOF_MSS) &&
+					to.to_mss >= 512 && to.to_mss < tp->t_maxseg) {
+				TCP_DEBUG_TRACE(1, "%x update mss from peer\n", tp->t_conv);
+				tp->t_maxseg = to.to_mss;
+			}
+
+			if ((to.to_flags & TOF_DESTINATION) &&
+					to.to_dslen >= 4 && to.to_dslen < 60) {
+				TCP_DEBUG_TRACE(1, "%x update relay from peer\n", tp->t_conv);
+				memcpy(tp->relay_target, to.to_dsaddr, to.to_dslen);
+				tp->relay_len = to.to_dslen;
+			}
+
 			tcp_timer_activate(tp, TT_KEEP, TCPTV_KEEP_INIT);
 			tcp_rcvseqinit(tp);
 			tcp_sendseqinit(tp);

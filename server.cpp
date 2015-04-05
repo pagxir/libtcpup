@@ -11,13 +11,14 @@
 #include "pstcp_channel.h"
 
 void set_cc_algo(const char *name);
+extern struct module_stub dns_async_mod;
 extern struct module_stub tcp_timer_mod;
 extern struct module_stub tcp_device_mod;
 extern struct module_stub pstcp_listen_mod;
 
 struct module_stub *modules_list[] = {
 	&tcp_timer_mod, &tcp_device_mod,
-   	&pstcp_listen_mod, NULL
+   	&pstcp_listen_mod, &dns_async_mod, NULL
 };
 
 int main(int argc, char *argv[])

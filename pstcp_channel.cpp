@@ -158,7 +158,7 @@ int pstcp_channel::expend_relay(struct sockaddr *destination, struct tcpcb *tp, 
 
 				m_dns_handle = dns_query_open(relay + 4, serv, &hints, task);
 				if (m_dns_handle >= 0) {
-					fprintf(stderr, "dns query is pending\n");
+					fprintf(stderr, "dns query is pending: %s\n", relay + 4);
 					return 1;
 				}
 
@@ -182,6 +182,7 @@ int pstcp_channel::expend_relay(struct sockaddr *destination, struct tcpcb *tp, 
     dst4->sin_family = AF_INET;
     dst4->sin_port   = htons(port);
     dst4->sin_addr.s_addr = htonl(defdest);
+	fprintf(stderr, "relay: len %d\n", len);
     return 0;
 }
 

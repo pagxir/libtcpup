@@ -78,11 +78,14 @@ int dns_query_open(const char *name, const char *service, struct addrinfo *info,
 
 	item->info = *info;
 	item->task = task;
+	item->flags = 0;
+	item->refcnt = 1;
 
 	u_char b = (u_char)i;
 	_dns_items[i] = item;
 	error = send(upp->default_handle, &b, 1, 0);
 	TX_PANIC(error == 1, "send dns query to thread failure");
+	TX_PRINT(TXL_DEBUG, "index: %d dns query\n", b);
 	return i;
 }
 
@@ -127,6 +130,7 @@ static int do_dns_query(int index)
 		item->refcnt++;
 		EXIT_DNS_LOCK;
 		item->flags = getaddrinfo(item->name, item->serv, &item->info, &item->result);
+		TX_PRINT(TXL_DEBUG, "start query %s\n", item->name);
 		ENTER_DNS_LOCK;
 		if (--item->refcnt == 0) {
 			_dns_items[index] = NULL;
@@ -159,6 +163,8 @@ static void dns_query_back(void *up)
 		for (int i = 0; i < count; i++) {
 			ind = (indexs[i] & 0xff);
 			item = _dns_items[ind];
+			
+			TX_PRINT(TXL_DEBUG, "dns is back %d\n", count);
 			if (item != NULL &&
 					item->task != NULL) {
 				tx_task_active(item->task);
@@ -208,7 +214,7 @@ static void module_init(void)
 	tx_loop_t *loop = tx_loop_default();
 	struct dns_async_context *dnsp = &_dns_async;
 
-	err = socketpair(AF_INET, SOCK_STREAM, 0, fildes);
+	err = socketpair(PF_LOCAL, SOCK_STREAM, 0, fildes);
 	TX_PANIC(err == 0, "socketpair create for async failure!\n");
 
 	dnsp->thread_handle = fildes[1];

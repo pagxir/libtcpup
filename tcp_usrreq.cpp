@@ -613,7 +613,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const void *from, size
 		}
 	} else if (handled == 0 && (th->th_flags & TH_CONNECT) == TH_ACK) {
 		if (th->th_magic == MAGIC_UDP_TCP) {
-			struct tcpcb tcb;
+			struct tcpcb tcb = {0};
 			tcb.if_dev = dst;
 			tcb.t_conv = conv;
 			UTXPL_ASSERT(namlen <= sizeof(tcb.dst_addr.name));

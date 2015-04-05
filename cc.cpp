@@ -6,7 +6,7 @@
 #include <tcpup/cc.h>
 #include <tcpup/tcp_debug.h>
 
-struct cc_algo *default_cc_ptr = &htcp_cc_algo;
+struct cc_algo *default_cc_ptr = &cubic_cc_algo;
 
 int update_vegas_alpha_beta(int alpha, int beta);
 
