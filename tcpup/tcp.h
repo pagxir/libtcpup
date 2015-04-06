@@ -150,7 +150,7 @@ struct tcphdr {
  *
  * We use explicit numerical definition here to avoid header pollution.
  */
-#define TCP_MSS         1220
+#define TCP_MSS         1360
 #define TCP6_MSS        1220
 
 /*
