@@ -28,6 +28,10 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #define SD_BOTH SHUT_RDWR
+#define WSAEINPROGRESS EINPROGRESS
+#else
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #endif
 
 class pstcp_channel {
@@ -236,7 +240,7 @@ int pstcp_channel::run(void)
 					tx_aiocb_init(&m_sockcbp, loop, rsoket);
 					error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)rp->ai_addr, &m_wwait);
 
-					if (error == 0 || error == -EINPROGRESS) {
+					if (error == 0 || error == -WSAEINPROGRESS) {
 						m_file = rsoket;
 						if (error) {
 							m_flags |= TF_CONNECTING;
@@ -250,7 +254,7 @@ int pstcp_channel::run(void)
 					}
 
 					tx_aiocb_fini(&m_sockcbp);
-					close(rsoket);
+					closesocket(rsoket);
 				}
 
 				return 0;

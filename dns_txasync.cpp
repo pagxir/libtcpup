@@ -5,21 +5,27 @@
 #include <stdlib.h>
 
 #ifdef WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
+
+#define ENTER_DNS_LOCK EnterCriticalSection(&_dns_async.mutex)
+#define EXIT_DNS_LOCK  LeaveCriticalSection(&_dns_async.mutex)
+
 #else
 #include <unistd.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <netdb.h>
 #include <pthread.h>
+
+#define ENTER_DNS_LOCK pthread_mutex_lock(&_dns_async.mutex)
+#define EXIT_DNS_LOCK  pthread_mutex_unlock(&_dns_async.mutex)
 #endif
 
 #include "txall.h"
 #include "dns_txasync.h"
 #include <utx/utxpl.h>
-
-#define ENTER_DNS_LOCK pthread_mutex_lock(&_dns_async.mutex)
-#define EXIT_DNS_LOCK  pthread_mutex_unlock(&_dns_async.mutex)
 
 struct dns_async_context {
 	int thread_handle;
@@ -31,6 +37,9 @@ struct dns_async_context {
 #ifndef WIN32
 	pthread_t thread;
 	pthread_mutex_t mutex;
+#else
+	HANDLE thread;
+	CRITICAL_SECTION mutex;
 #endif
 };
 
@@ -81,7 +90,7 @@ int dns_query_open(const char *name, const char *service, struct addrinfo *info,
 	item->flags = 0;
 	item->refcnt = 1;
 
-	u_char b = (u_char)i;
+	char b = (char)i;
 	_dns_items[i] = item;
 	error = send(upp->default_handle, &b, 1, 0);
 	TX_PANIC(error == 1, "send dns query to thread failure");
@@ -147,7 +156,7 @@ static int do_dns_query(int index)
 static void dns_query_back(void *up)
 {
 	int ind;
-	u_char indexs[256];
+	char indexs[256];
 	struct dns_query_item *item;
 	struct dns_async_context *upp;
 
@@ -180,7 +189,7 @@ static void dns_query_back(void *up)
 static void *do_sync_dns_query(void *up)
 {
 	int error;
-	u_char indexs[256];
+	char indexs[256];
 	struct dns_async_context *upp;
 
 	upp = (struct dns_async_context *)up;
@@ -207,6 +216,14 @@ static void *do_sync_dns_query(void *up)
 	return NULL;
 }
 
+#ifdef WIN32
+static DWORD CALLBACK wrap_sync_dns_query(LPVOID lpArg)
+{
+	void *p = do_sync_dns_query(lpArg);
+	return DWORD(p);
+}
+#endif
+
 static void module_init(void)
 {
 	int err;
@@ -230,6 +247,11 @@ static void module_init(void)
 	pthread_mutex_init(&dnsp->mutex, NULL);
 	err = pthread_create(&dnsp->thread, NULL, do_sync_dns_query, dnsp);
 	TX_PANIC(err == 0, "pthread_create for async dns failure!\n");
+#else
+	DWORD dropid = 0;
+	InitializeCriticalSection(&dnsp->mutex);
+	dnsp->thread = CreateThread(NULL, 0, wrap_sync_dns_query, dnsp, 0, &dropid);
+	TX_PANIC(dnsp->thread == NULL, "CreateThread for async dns failure\n");
 #endif
 }
 
@@ -249,11 +271,16 @@ static void module_clean(void)
 #ifndef WIN32
 	pthread_join(dnsp->thread, &ignore);
 	pthread_mutex_destroy(&dnsp->mutex);
+#else
+	WaitForSingleObject(dnsp->thread, INFINITE);
+	DeleteCriticalSection(&dnsp->mutex);
+	CloseHandle(dnsp->thread);
 #endif
 
 	thread_handle = dnsp->thread_handle;
 	closesocket(thread_handle);
 
+	VAR_UNUSED(ignore);
 	return;
 }
 
