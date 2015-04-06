@@ -856,7 +856,7 @@ close:
 			TCPSTAT_INC(tcps_rcvduppack);
 			TCPSTAT_ADD(tcps_rcvdupbyte, tlen);
 			TCPSTAT_INC(tcps_pawsdrop);
-			TCP_DEBUG_TRACE(1, "drop for time stamp\n");
+			TCP_DEBUG_TRACE(1, "drop for time stamp, seq %x %x %x\n", th->th_seq, th->th_ack, tp->rcv_nxt, tp->snd_una);
 			if (tlen > 0)
 				goto dropafterack;
 

@@ -156,7 +156,7 @@ struct tcpcb * tcp_newtcpcb(int if_fd, tcp_seq conv)
 
 	tp->t_rttupdated = 0;
 	tp->t_keepidle = 0;
-	tp->t_keepidle = 3 * hz;
+	tp->t_keepidle = 17 * hz;
 
 	tp->relay_len = 0;
 

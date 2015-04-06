@@ -140,12 +140,12 @@ static void tcp_keep_timo(void *up)
 	   	/* tcp_respond */
 
 		struct tcphdr th = {0};
-		th.th_ack = htonl(tp->rcv_nxt);
-		th.th_seq = htonl(tp->snd_una);
-		th.th_tsval = htonl(tcp_snd_getticks);
-		th.th_tsecr = htonl(tp->ts_recent);
+		th.th_ack = (tp->rcv_nxt);
+		th.th_seq = (tp->snd_una);
+		th.th_tsecr = (tcp_snd_getticks);
+		th.th_tsval = (tp->ts_recent);
 
-		tcp_respond(tp, &th, 0, 0);
+		tcp_respond(tp, &th, 0, TH_ACK);
 		tx_timer_reset(&tp->t_timer_keep, TP_KEEPINTVL(tp));
    	} else
 		tx_timer_reset(&tp->t_timer_keep, TP_KEEPIDLE(tp));

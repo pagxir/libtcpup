@@ -137,7 +137,9 @@ again:
 	sendalot = 0;
 	/* this_snd_nxt = tp->snd_nxt; */
 	off = tp->snd_nxt - tp->snd_una;
-	sendwin = min(tp->snd_wnd, tp->snd_cwnd);
+	sendwin = min(tp->snd_wnd, tp-> snd_cwnd);
+	TCP_DEBUG_TRACE(tp-> snd_cwnd < tp->t_maxseg, "snd_wnd %d, snd_cwnd %d\n", tp->snd_wnd, tp-> snd_cwnd) ;
+	TCP_DEBUG_TRACE(sendwin < tp->t_maxseg, "snd_wnd %d, snd_cwnd %d\n", tp->snd_wnd, tp-> snd_cwnd) ;
 	flags = tcp_outflags[tp->t_state];
 
 	sack_rxmit = 0;
@@ -614,7 +616,9 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, int tlen, int flags)
 
     iov0.iov_len = sizeof(tcpup_th0);
     iov0.iov_base = &tcpup_th0;
-	TCP_DEBUG_TRACE(th->th_flags & TH_FIN, "%x RST %x ACK %x\n", tp->t_conv, flags & TH_ACK, flags & TH_RST);
+
+	TCP_DEBUG_TRACE(1, "tcp_respond: %x RST %x ACK %x %x %x\n",
+			tp->t_conv, flags & TH_RST, flags & TH_ACK, orig->th_tsval, orig->th_tsecr);
 
 	error = utxpl_output(tp->if_dev, &iov0, 1, &tp->dst_addr);
 	VAR_UNUSED(error);
