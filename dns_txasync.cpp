@@ -227,11 +227,15 @@ static DWORD CALLBACK wrap_sync_dns_query(LPVOID lpArg)
 static void module_init(void)
 {
 	int err;
+	int family = AF_INET;
 	int fildes[2];
 	tx_loop_t *loop = tx_loop_default();
 	struct dns_async_context *dnsp = &_dns_async;
 
-	err = socketpair(PF_LOCAL, SOCK_STREAM, 0, fildes);
+#ifndef WIN32
+	family = PF_LOCAL;
+#endif
+	err = socketpair(family, SOCK_STREAM, 0, fildes);
 	TX_PANIC(err == 0, "socketpair create for async failure!\n");
 
 	dnsp->thread_handle = fildes[1];
@@ -251,7 +255,7 @@ static void module_init(void)
 	DWORD dropid = 0;
 	InitializeCriticalSection(&dnsp->mutex);
 	dnsp->thread = CreateThread(NULL, 0, wrap_sync_dns_query, dnsp, 0, &dropid);
-	TX_PANIC(dnsp->thread == NULL, "CreateThread for async dns failure\n");
+	TX_PANIC(dnsp->thread != NULL, "CreateThread for async dns failure\n");
 #endif
 }
 
