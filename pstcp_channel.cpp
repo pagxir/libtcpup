@@ -264,6 +264,21 @@ int pstcp_channel::run(void)
 
 #define TF_CONNECTABLE(f) (0x0 == (f&(TF_CONNECTING|TF_CONNECTED)))
 	if (TF_CONNECTABLE(m_flags) && (m_flags & TF_RESOLVED)) {
+		if (name.sa_family == AF_INET6) {
+			struct tx_loop_t *loop = tx_loop_default();
+
+			tx_aiocb_fini(&m_sockcbp);
+			closesocket(m_file);
+
+			m_file = socket(AF_INET6, SOCK_STREAM, 0);
+			assert(m_file != -1);
+
+			tx_setblockopt(m_file, 0);
+			tx_aiocb_init(&m_sockcbp, loop, m_file);
+
+			tx_aiocb_init(&m_sockcbp, loop, m_file);
+		}
+
 		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, &m_wwait);
 		if (error == -1) {
 			fprintf(stderr, "tcp connect error\n");
