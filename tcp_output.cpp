@@ -415,7 +415,7 @@ sendit:
 			TCPSTAT_INC(tcps_sndpack);
 			TCPSTAT_ADD(tcps_sndbyte, len);
 		}
-		TCP_DEBUG_TRACE(off && p, "len %d, off %d\n", len, off);
+		TCP_DEBUG_TRACE(off && p, "len %d, off %d, optlen %d, %x\n", len, off, optlen, to.to_flags);
 		rgn_peek(tp->rgn_snd, iobuf + 1, len, off);
 #if 0
 		if (off + len == rgn_len(tp->rgn_snd))

@@ -188,6 +188,11 @@ struct tcphdr {
  * values and are not masked together.  Some values appear to be
  * bitmasks for historical reasons.
  */
+
+#ifdef TCP_NODELAY
+#undef TCP_NODELAY
+#endif
+
 #define TCP_NODELAY     1       /* don't delay send to coalesce packets */
 #define TCP_MAXSEG      2       /* set maximum segment size */
 #define TCP_NOPUSH      4       /* don't push last block of write */
