@@ -238,11 +238,12 @@ int pstcp_channel::run(void)
 					tx_setblockopt(rsoket, 0);
 
 					tx_aiocb_init(&m_sockcbp, loop, rsoket);
-					error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)rp->ai_addr, &m_wwait);
+					error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)rp->ai_addr, rp->ai_addrlen, &m_wwait);
 
 					if (error == 0 || error == -WSAEINPROGRESS) {
 						m_file = rsoket;
 						if (error) {
+							fprintf(stderr, "connect all pending\n");
 							m_flags |= TF_CONNECTING;
 							return 1;
 						}
@@ -253,10 +254,12 @@ int pstcp_channel::run(void)
 						goto process;
 					}
 
+					fprintf(stderr, "connect error colde: %d\n", errno);
 					tx_aiocb_fini(&m_sockcbp);
 					closesocket(rsoket);
 				}
 
+				fprintf(stderr, "connect all failure\n");
 				return 0;
 			}
 		}
@@ -276,7 +279,7 @@ int pstcp_channel::run(void)
 			tx_aiocb_init(&m_sockcbp, loop, m_file);
 		}
 
-		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, &m_wwait);
+		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, sizeof(name), &m_wwait);
 		if (error == -1) {
 			fprintf(stderr, "tcp connect error\n");
 			return 0;

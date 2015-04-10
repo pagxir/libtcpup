@@ -165,7 +165,7 @@ static void dns_query_back(void *up)
 		int count = recv(upp->default_handle, indexs, sizeof(indexs), 0);
 		tx_aincb_update(&upp->aiocb, count);
 		if (count == -1) {
-			TX_PRINT(TXL_DEBUG, "reach end of file %d\n", count);
+			TX_CHECK(!tx_readable(&upp->aiocb), "reach end of file dns query\n");
 			break;
 		}
 
@@ -208,7 +208,7 @@ static void *do_sync_dns_query(void *up)
 		for (int i = 0; i < count; i++) {
 			if (do_dns_query(indexs[i] & 0xff)) {
 				error = send(upp->thread_handle, &indexs[i], 1, 0);
-				TX_PRINT(error == 1, "send back dns query failure\n");
+				TX_CHECK(error == 1, "send back dns query failure\n");
 			}
 		}
 	}

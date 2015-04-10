@@ -214,13 +214,40 @@ void tcp_channel::sockv4_proto_input(void)
     return;
 }
 
+static void set_relay_info(struct tcpcb *tp, int type, char *host, u_short port)
+{
+	int len;
+	char *p, buf[60];
+	static unsigned int type_len_map[8] = {0x0, 0x04, 0x0, 0x0, 0x0, 0x10};
+
+	p = buf;
+	*p++ = (type & 0xff);
+	*p++ = 0;
+
+	memcpy(p, &port, 2);
+	p += 2;
+
+	len = type_len_map[type & 0x7];
+	if (type == 0x03) {
+		fprintf(stderr, "domain: %s:%d\n", host, htons(port));
+		len = strlen(host);
+		if (len > 46) return;
+	}
+
+	memcpy(p, host, len);
+	p += len;
+
+	fprintf(stderr, "set relayto: %d\n", host[0] & 0xff);
+	tcp_relayto(tp, buf, p - buf);
+	return;
+}
+
 void tcp_channel::sockv5_proto_input(void)
 {
-    int len;
-    int ret, pat;
+    int len, pat;
     char buf[256];
     char *p, *limit;
-    struct buf_match m, n;
+    struct buf_match m;
     static u_char resp_v5[] = {
         0x05, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     };
@@ -255,28 +282,30 @@ void tcp_channel::sockv5_proto_input(void)
     if ((up->proto_flags & AUTHED_Z)) {
         if (buf_equal(&m, 0, 0x05) &&
                 buf_equal(&m, 2, 0x00) && buf_valid(&m, 9)) {
+			int type;
             char *end = 0;
             u_short in_port1;
-            char domain[256];
-            struct in_addr in_addr1;
+            char *addrp, domain[256];
             limit = up->c2r.buf + up->c2r.len;
 
-            switch (up->c2r.buf[3]) {
+            switch (type = up->c2r.buf[3]) {
                 case 0x01:
                     fprintf(stderr, "family: INET\n");
                     end = (up->c2r.buf + 4);
-                    //memcpy(&in_addr1, end, sizeof(in_addr1));
-                    end += sizeof(u_long);
-                    //memcpy(&in_port1, end, sizeof(in_port1));
+					addrp = end;
+                    end += sizeof(int);
+                    memcpy(&in_port1, end, sizeof(in_port1));
+                    set_relay_info(m_peer, type, addrp, in_port1);
                     end += sizeof(u_short);
                     break;
 
                 case 0x04:
                     fprintf(stderr, "family: INET6\n");
                     end = (up->c2r.buf + 4);
-                    //memcpy(&in_addr1, end, sizeof(in_addr1));
+					addrp = end;
                     end += 16;
-                    //memcpy(&in_port1, end, sizeof(in_port1));
+                    memcpy(&in_port1, end, sizeof(in_port1));
+                    set_relay_info(m_peer, type, addrp, in_port1);
                     end += sizeof(u_short);
                     break;
 
@@ -284,10 +313,13 @@ void tcp_channel::sockv5_proto_input(void)
                     fprintf(stderr, "family: DOMAIN\n");
                     pat = (up->c2r.buf[4] & 0xFF);
                     if (buf_valid(&m, 4 + pat + 2)) {
-                        //memcpy(domain, up->c.buf + 5, pat);
-                        //domain[pat] = 0;
+                        memcpy(domain, up->c2r.buf + 5, pat);
+                        domain[pat] = 0;
+						addrp = domain;
+
                         end = up->c2r.buf + 5 + pat;
-                        //memcpy(&in_port1, end, sizeof(in_port1));
+                        memcpy(&in_port1, end, sizeof(in_port1));
+                        set_relay_info(m_peer, type, addrp, in_port1);
                         end += sizeof(u_short);
                         break;
                     }
@@ -309,7 +341,12 @@ void tcp_channel::sockv5_proto_input(void)
                 goto failure_closed;
             }
 
+            memmove(up->c2r.buf, end, limit - end);
+            up->c2r.len = limit - end;
+
+            memcpy(up->r2c.buf, resp_v5, sizeof(resp_v5));
             tx_outcb_write(&m_sockcbp, up->r2c.buf, sizeof(resp_v5));
+
             up->m_flags &= ~SOCKV5_PROTO;
             up->m_flags |= DIRECT_PROTO;
             return;
@@ -389,6 +426,7 @@ int tcp_channel::run(void)
 		name.sin_family = AF_INET;
 		name.sin_port   = (_forward_port);
 		name.sin_addr.s_addr = (_forward_addr);
+
 	   	error = tcp_connect(m_peer, &name, sizeof(name));
 		m_flags |= TF_CONNECT;
 		if (error == 1) {
