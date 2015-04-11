@@ -245,6 +245,8 @@ int pstcp_channel::run(void)
 						if (error) {
 							fprintf(stderr, "connect all pending\n");
 							m_flags |= TF_CONNECTING;
+							dns_query_close(m_dns_handle);
+							m_dns_handle = -1;
 							return 1;
 						}
 

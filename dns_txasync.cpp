@@ -89,6 +89,7 @@ int dns_query_open(const char *name, const char *service, struct addrinfo *info,
 	item->task = task;
 	item->flags = 0;
 	item->refcnt = 1;
+	item->result = 0;
 
 	char b = (char)i;
 	_dns_items[i] = item;
