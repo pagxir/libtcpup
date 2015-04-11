@@ -312,7 +312,7 @@ after_sack_rexmit:
 		long adv;
 		int oldwin;
 
-		adv = min(recwin, (long)TCP_MAXWIN);
+		adv = min(recwin, (long)(TCP_MAXWIN << WINDOW_SCALE));
 		
 		if (SEQ_GT(tp->rcv_adv, tp->rcv_nxt)) {
 			oldwin = (tp->rcv_adv - tp->rcv_nxt);
@@ -466,8 +466,8 @@ sendit:
 	if (SEQ_GT(tp->rcv_adv, tp->rcv_nxt) &&
 		recwin < (long)(tp->rcv_adv - tp->rcv_nxt))
 		recwin = (long)(tp->rcv_adv - tp->rcv_nxt);
-	if (recwin > (long)TCP_MAXWIN)
-		recwin = (long)TCP_MAXWIN;
+	if (recwin > (long)(TCP_MAXWIN << WINDOW_SCALE))
+		recwin = (long)(TCP_MAXWIN << WINDOW_SCALE);
 	th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
 
 	/* Run HHOOK_TCP_ESTABLISHED_OUT helper hooks. */
@@ -607,7 +607,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, int tlen, int flags)
 
 	if (tp != NULL && tp->rgn_rcv) {
 		long recwin = rgn_rest(tp->rgn_rcv);
-		if (recwin > (long)TCP_MAXWIN) recwin = (long)TCP_MAXWIN;
+		if (recwin > (long)(TCP_MAXWIN << WINDOW_SCALE)) recwin = (long)(TCP_MAXWIN << WINDOW_SCALE);
 		th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
 	}
 
