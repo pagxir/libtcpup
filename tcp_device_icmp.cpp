@@ -1,67 +1,27 @@
 #include <time.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <errno.h>
 #include <unistd.h>
 #include <assert.h>
 #include <stdarg.h>
 #include <stdlib.h>
-#include <strings.h>
-#include <netinet/ip.h>
 
-#include <wait/module.h>
-#include <wait/platform.h>
-#include <wait/slotwait.h>
-#include <wait/slotsock.h>
+#include <txall.h>
 
 #include <utx/utxpl.h>
 #include <utx/socket.h>
 
+#include <tcpup/tcp.h>
 #include <tcpup/tcp_subr.h>
 #include <tcpup/tcp_debug.h>
 
-#include <pstcp_stun.h>
 #include "tcp_channel.h"
 
-#define ICMPCODE_MAGIC 0
-#define ICMP_MAGIC_CLIENT 0xBEEFDEAD
-#define ICMP_MAGIC_SERVER 0xDEADDEAD
-
-static int _file = -1;
-static struct sockcb *_sockcbp;
-
-static struct waitcb _stop;
-static struct waitcb _event;
-static struct waitcb _start;
-static struct waitcb _dev_idle;
-static struct waitcb *_dev_busy = 0;
-static int _tcp_dev_busy = 0;
-static struct sockaddr_in _addr_in;
-static void listen_statecb(void *context);
-static void listen_callback(void *context);
-
-int tcp_busying(void)
-{
-	return _tcp_dev_busy;
-}
-
-#define ICMP_MODE_SERVER 0
-#define ICMP_MODE_CLIENT 1
-#define ICMP_SIZE_WHEEL  78
-
-static int _icmp_mode = 0;
-static int _icmp_left = 0;
-static int _icmp_cached = 0;
-static int _icmp_valecr = 0;
-static int _icmp_polling = 0;
-static int _icmp_last_rcv = 0;
-
-static int _icmp_last_id = 0;
-static int _icmp_last_idup = 0;
-static int _icmp_last_seq = 0;
-static int _icmp_last_sdup = 0;
-
-static int _icmp_ticks[ICMP_SIZE_WHEEL] = {0};
-static unsigned int _icmp_pair[ICMP_SIZE_WHEEL] = {0};
+#define ICMP_NATYPE_CODE 0
+#define ICMP_CLIENT_FILL 0xEC
+#define ICMP_SERVER_FILL 0xCE
+#define ICMP_SEQNO_FIXED 0xfab5
 
 struct icmphdr {
 	unsigned char type;
@@ -74,38 +34,137 @@ struct icmphdr {
 			unsigned short seqno;
 		};
 	} u0;
-	unsigned int   valecr;
-	unsigned int   magic;
+	/* just reserved for expend, not part of icmp protocol. */
+	unsigned int   reserved[2];
 };
 
-int set_icmp_mode(int mode, int polling)
+struct tcpup_device {
+	struct tx_aiocb _sockcbp;
+
+	struct tx_task_t _event;
+	struct tx_task_t _dev_idle;
+	struct sockaddr_in _addr_in;
+
+public:
+	int _file;
+	int _offset;
+	int _dobind;
+	time_t _t_sndtime;
+	time_t _t_rcvtime;
+
+public:
+	void init(int dobind);
+	void fini();
+	void incoming();
+};
+
+int _tcp_out_fd = -1;
+int _tcp_dev_busy = 0;
+int _icmp_is_reply = 0;
+static tx_task_q _dev_busy;
+
+static struct tx_task_t _stop;
+static struct tx_task_t _start;
+
+static struct tcpup_device *_paging_devices[32] = {0};
+
+static void listen_statecb(void *context);
+static void listen_callback(void *context);
+
+int tcp_busying(void)
 {
-	_icmp_mode = mode;
-	_icmp_polling = polling;
-	return 0;
+	return _tcp_dev_busy;
 }
 
 struct tcpcb;
 struct tcpcb *tcp_create(uint32_t conv)
 {
-	int fildes = _file;
-	return tcp_create(fildes, conv);
+#ifndef _DNS_CLIENT_
+	int offset = 0;
+#else
+	int offset = (rand() % 0xF) << 1;
+#endif
+	tcpup_device *this_device = _paging_devices[offset];
+
+	if (this_device != NULL && this_device->_dobind == 0) {
+		int idle, idleout;
+		time_t now = time(NULL);
+
+		idle = (now - this_device->_t_rcvtime) > 6; // last recv if 15s ago
+		idleout = (now - this_device->_t_sndtime) > 2; // last out is 2s ago;
+
+		if (idleout && idle && this_device->_t_rcvtime < this_device->_t_sndtime) {
+			if (_paging_devices[offset + 1] != NULL) {
+				_paging_devices[offset + 1]->fini();
+				_paging_devices[offset + 1] = NULL;
+			}
+
+			_paging_devices[offset + 1] = _paging_devices[offset];
+			_paging_devices[offset + 1]->_offset = offset + 1;
+			_paging_devices[offset] = NULL;
+			this_device = NULL;
+		}
+	}
+
+	if (this_device == NULL) {
+		this_device = new tcpup_device;
+		this_device->init(0);
+		this_device->_offset = offset;
+		tx_task_active(&this_device->_event);
+
+		_paging_devices[offset] = this_device;
+	}
+
+	return tcp_create(offset, conv);
 }
 
 static void dev_idle_callback(void *uup)
 {
-	struct waitcb *evt;
-
-	_tcp_dev_busy = 0;
-	while (_dev_busy != NULL &&
-			_tcp_dev_busy == 0) {
-		evt = _dev_busy;
-		evt->wt_callback(evt->wt_udata);
-	}
+	tx_task_wakeup(&_dev_busy);
+	TCP_DEBUG_TRACE(1, "dev_idle_callback\n");
 
 	return ;
 }
 
+void tcp_devbusy(struct tcpcb *tp)
+{
+#if 0
+	if ((tp->t_flags & TF_DEVBUSY) == 0) {
+		tx_task_record(&_dev_busy, &tp->t_event_devbusy);
+		tp->t_flags |= TF_DEVBUSY;
+		if (_tcp_dev_busy == 0) {
+			/* TODO: fixme: device busy */
+			sock_write_wait(_sockcbp, &_dev_idle);
+			_tcp_dev_busy = 1;
+		}
+	}
+#endif
+}
+
+static struct sockaddr_in _tcp_out_addr = { 0 };
+extern "C" void tcp_set_outter_address(struct tcpip_info *info)
+{
+	int error;
+	struct sockaddr *out_addr;
+
+	_tcp_out_addr.sin_family = AF_INET;
+	_tcp_out_addr.sin_port   = (info->port);
+	_tcp_out_addr.sin_addr.s_addr   = (info->address);
+	out_addr = (struct sockaddr *)&_tcp_out_addr;
+
+#ifdef _DNS_CLIENT_
+	_tcp_out_fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+	assert(_tcp_out_fd != -1);
+#else
+	_tcp_out_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+	assert(_tcp_out_fd != -1);
+#endif
+
+	error = bind(_tcp_out_fd, out_addr, sizeof(_tcp_out_addr));
+	assert(error != -1);
+
+	return;
+}
 
 static struct sockaddr_in _tcp_dev_addr = { 0 };
 extern "C" void tcp_set_device_address(struct tcpip_info *info)
@@ -116,64 +175,93 @@ extern "C" void tcp_set_device_address(struct tcpip_info *info)
 	return;
 }
 
-static void module_init(void)
+struct icmphdr icmp_hdr_fill[1] = {{0}};
+
+void tcpup_device::init(int dobind)
 {
 	int error;
+	socklen_t alen;
+	struct sockaddr_in saddr;
 
 	memcpy(&_addr_in, &_tcp_dev_addr, sizeof(_addr_in));
 	_addr_in.sin_family = AF_INET;
 
-	waitcb_init(&_event, listen_callback, NULL);
-	waitcb_init(&_stop, listen_statecb, (void *)0);
-	waitcb_init(&_start, listen_statecb, (void *)1);
-	waitcb_init(&_dev_idle, dev_idle_callback, NULL);
+	tx_loop_t *loop = tx_loop_default();
+	tx_task_init(&_event, loop, listen_callback, this);
+	tx_task_init(&_dev_idle, loop, dev_idle_callback, this);
 
+#ifdef _DNS_CLIENT_
+	_file = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+	assert(_file != -1);
+#else
 	_file = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 	assert(_file != -1);
+#endif
 
-	error = bind(_file, (struct sockaddr *)&_addr_in, sizeof(_addr_in));
-	assert(error == 0);
-
-	if (_addr_in.sin_port == 0) {
-		socklen_t addr_len = sizeof(_tcp_dev_addr);
-		getsockname(_file, (struct sockaddr *)&_tcp_dev_addr, &addr_len);
-		fprintf(stderr, "bind@address# %s:%u\n",
-				inet_ntoa(_tcp_dev_addr.sin_addr), htons(_tcp_dev_addr.sin_port));
+	if (dobind) {
+		error = bind(_file, (struct sockaddr *)&_addr_in, sizeof(_addr_in));
+		assert(error == 0);
+		_dobind = 1;
+	} else {
+		_addr_in.sin_port = 0;
+		error = bind(_file, (struct sockaddr *)&_addr_in, sizeof(_addr_in));
+		assert(error == 0);
 	}
 
-	_sockcbp = sock_attach(_file);
-	slotwait_atstart(&_start);
-	slotwait_atstop(&_stop);
-	stun_client_init(_file);
+	alen = sizeof(saddr);
+	getsockname(_file, (struct sockaddr *)&saddr, &alen);
+	fprintf(stderr, "bind@address# %s:%u\n",
+			inet_ntoa(saddr.sin_addr), htons(saddr.sin_port));
 
-#ifndef WIN32
-	int l = fcntl(_file, F_GETFL);
-	fcntl(_file, F_SETFL, l & ~O_NONBLOCK);
-#else
+	_addr_in.sin_port = saddr.sin_port;
+	if (saddr.sin_addr.s_addr != 0)
+		_addr_in.sin_addr = saddr.sin_addr;
+
+#ifdef WIN32
     int bufsize = 1024 * 1024;
     setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
     setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
 #endif
+
+	tx_setblockopt(_file, 0);
+	tx_aiocb_init(&_sockcbp, loop, _file);
+#if 0
+	stun_client_init(_file);
+#endif
+}
+
+static void module_init(void)
+{
+	tx_loop_t *loop = tx_loop_default();
+	tx_taskq_init(&_dev_busy);
+	tx_task_init(&_stop, loop, listen_statecb, (void *)0);
+	tx_task_init(&_start, loop, listen_statecb, (void *)1);
+
+	tx_task_active(&_start);
+	// TODO: fixme how to do when stop loop
+	/* slotwait_atstop(&_stop); */
 }
 
 static void listen_statecb(void *context)
 {
 	int state;
-	socklen_t addr_len;
-	struct sockaddr_in addr_in;
+	int offset = 0;
+	tcpup_device *this_device = _paging_devices[offset];
 
 	state = (int)(long)context;
 	switch (state) {
 		case 1:
-			addr_len = sizeof(addr_in);
-			getsockname(_file, (struct sockaddr *)&addr_in, &addr_len);
-			fprintf(stderr, "bind!address# %s:%u\n",
-				   	inet_ntoa(addr_in.sin_addr), htons(addr_in.sin_port));
-			waitcb_switch(&_event);
+			if (this_device == NULL) {
+				this_device = new tcpup_device;
+				this_device->init(1);
+				this_device->_offset = offset;
+				tx_task_active(&this_device->_event);
+
+				_paging_devices[offset] = this_device;
+			}
 			break;
 
 		case 0:
-			waitcb_cancel(&_event);
 			break;
 
 		default:
@@ -189,27 +277,36 @@ static char _udp_buf[1024 * 1024 * 8];
 
 static void listen_callback(void *context)
 {
+	struct tcpup_device *up;
+
+	up = (struct tcpup_device *)context;
+	up->incoming();
+	return;
+}
+
+void tcpup_device::incoming(void)
+{
 	int len;
 	socklen_t addr_len;
 	struct sockaddr_in addr_in;
-	struct {
-		struct ip u0;
-		struct icmphdr u1;
-	} icmphdr0;
 
-	TCP_DEBUG_TRACE(sizeof(icmphdr0) != 36, "Hello World %d\n", sizeof(icmphdr0));
-
-	if (waitcb_completed(&_event)) {
+	if (tx_readable(&_sockcbp)) {
 		int ct = 0;
-		int filling = 0;
-		struct tcpup_addr ta0;
+		int count = 0;
 		char *c_buf = _udp_buf;
 		ticks = tx_getticks();
 
-		while (ct < 1024) {
+#ifndef _DNS_CLIENT_
+#define IPHDR_SKIP_LEN 20
+#else
+#define IPHDR_SKIP_LEN 0
+#endif
+
+		for (ct = 0; ct < 1024; ct++) {
 		   	addr_len = sizeof(addr_in);
 		   	len = recvfrom(_file, c_buf, 1500,
 				   	MSG_DONTWAIT, (struct sockaddr *)&addr_in, &addr_len);
+			tx_aincb_update(&_sockcbp, len);
 			if (len == -1)
 				break;
 
@@ -219,104 +316,62 @@ static void listen_callback(void *context)
 				TCP_DEBUG_TRACE(len <  20, "small packet drop: %s:%d\n", inet_ntoa(addr_in.sin_addr), htons(addr_in.sin_port));
 			}
 #endif
-			memcpy(&icmphdr0, c_buf, sizeof(icmphdr0));
-			if (icmphdr0.u1.code == ICMPCODE_MAGIC) {
-				unsigned int valecr, seqno, win, index, test;
-				if (_icmp_mode == ICMP_MODE_SERVER &&
-					icmphdr0.u1.type == 0x08 && icmphdr0.u1.magic == ICMP_MAGIC_CLIENT) {
-					int reset = 0;
-					if (_icmp_last_id != icmphdr0.u1.u0.ident) {
-						reset += (_icmp_last_idup > 10);
-						_icmp_last_idup = 0;
-					}
 
-					if (_icmp_last_seq != icmphdr0.u1.u0.seqno) {
-						reset += (_icmp_last_sdup > 10);
-						_icmp_last_sdup = 0;
-					}
+			if (len >= TCPUP_HDRLEN + IPHDR_SKIP_LEN + sizeof(icmp_hdr_fill)) {
+#ifndef DISABLE_ENCRYPT
+				unsigned short key;
+				memcpy(&key, c_buf + 14 + IPHDR_SKIP_LEN, 2);
+				unsigned int d0 = key;
 
-					_icmp_last_id = icmphdr0.u1.u0.ident;
-					_icmp_last_idup++;
-
-					_icmp_last_seq = icmphdr0.u1.u0.seqno;
-					_icmp_last_sdup++;
-
-					if ((int)(ticks - _icmp_last_rcv) > 1000 || reset > 0) {
-						_icmp_last_rcv = 0;
-						_icmp_cached = 0;
-						_icmp_left = 0;
-					}
-
-					if (_icmp_cached < ICMP_SIZE_WHEEL) {
-						index  = (_icmp_left + _icmp_cached) % ICMP_SIZE_WHEEL;
-						_icmp_cached++;
-					} else {
-						index  = (_icmp_left + _icmp_cached) % ICMP_SIZE_WHEEL;
-						_icmp_left++;
-					}
-
-					valecr = htonl(icmphdr0.u1.valecr);
-					_icmp_ticks[index] = ticks;
-					_icmp_pair[index]  = icmphdr0.u1.u0.pair;
-					if ((_icmp_valecr - valecr) & 0x800000 ||
-						(int)(ticks - _icmp_last_rcv) < 1000 || _icmp_last_rcv == 0) {
-						_icmp_last_rcv = ticks;
-						_icmp_valecr = valecr;
-					}
-				} else if (_icmp_mode == ICMP_MODE_CLIENT &&
-						icmphdr0.u1.type == 0x00 && icmphdr0.u1.magic == ICMP_MAGIC_SERVER) {
-					valecr = htonl(icmphdr0.u1.valecr);
-					win    = (valecr >> 24) & 0xff;
-					seqno  = (valecr & 0xffffff);
-
-					memcpy(ta0.name, &addr_in, addr_len);
-					ta0.namlen = addr_len;
-
-					test = (_icmp_left - seqno) & 0xffffff;
-					TCP_DEBUG_TRACE((test & 0x800000), "seq is bad");
-					if (test + win < 76) {
-						filling = 1;
-					}
-				} else {
-					TCP_DEBUG_TRACE(1, "incorrect icmp mode\n");
-					continue;
+				for (int i = sizeof(icmp_hdr_fill) + IPHDR_SKIP_LEN; i < len; i++) {
+					c_buf[i] ^= d0;
+					d0 = (d0 * 123 + 59) & 0xffff;
 				}
-
-				if (len >= 20 + sizeof(icmphdr0)) {
-					_udp_len[ct++] = len;
-					c_buf += len;
-				}
+#endif
+				_udp_len[count++] = len;
+				c_buf += len;
 			}
+
+			this->_t_rcvtime = time(NULL);
 		}
 
+		int handled;
 		c_buf = _udp_buf;
-		for (int i = 0; i < ct; i++) {
-			TCP_DEBUG_TRACE(_udp_len[i] < sizeof(icmphdr0), "BAD length %d", _udp_len[i]);
-			int handled = tcpup_do_packet(_file, c_buf + sizeof(icmphdr0), _udp_len[i] - sizeof(icmphdr0), &addr_in, addr_len);
+		for (int i = 0; i < count; i++) {
+
+#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
+			if (_dobind > 0 && (c_buf[7] || c_buf[6])) {
+				struct sockaddr_in newa;
+				memcpy(&newa.sin_addr, c_buf, 4);
+				memcpy(&newa.sin_port, c_buf + 6, 2);
+				addr_in.sin_addr = newa.sin_addr;
+				addr_in.sin_port = newa.sin_port;
+			}
+#endif
+			memcpy(&addr_in.sin_port, c_buf + IPHDR_SKIP_LEN + 4, 2);
+			handled = tcpup_do_packet(_offset, c_buf + sizeof(icmp_hdr_fill) + IPHDR_SKIP_LEN,
+					_udp_len[i] - sizeof(icmp_hdr_fill) - IPHDR_SKIP_LEN, &addr_in, addr_len);
 			TCP_DEBUG_TRACE(handled == 0, "error packet drop: %s:%d\n", inet_ntoa(addr_in.sin_addr), htons(addr_in.sin_port));
 			c_buf += _udp_len[i];
-			handled = handled;
 		}
-
-		utxpl_output(_file, NULL, 0, &ta0);
-		if (filling == 1)
-			utxpl_output(_file, NULL, 0, &ta0);
-
-		waitcb_clear(&_event);
 	}
 
-	sock_read_wait(_sockcbp, &_event);
+	tx_aincb_active(&_sockcbp, &_event);
 	return;
 }
 
 static void module_clean(void)
 {
+	tx_task_drop(&_start);
+	tx_task_drop(&_stop);
+}
+
+void tcpup_device::fini()
+{
 	fprintf(stderr, "udp_listen: exiting\n");
-	waitcb_clean(&_dev_idle);
-	waitcb_clean(&_event);
-	waitcb_clean(&_start);
-	waitcb_clean(&_stop);
-	sock_detach(_sockcbp);
+	tx_task_drop(&_dev_idle);
+	tx_task_drop(&_event);
+	tx_aiocb_fini(&_sockcbp);
 	closesocket(_file);
 }
 
@@ -331,30 +386,37 @@ extern "C" void tcp_backwork(struct tcpip_info *info)
 	sendto(_file, "HELO", 4, 0,
 			(struct sockaddr *)&addr_in1, sizeof(addr_in1));
 #endif
-
 	return;
 }
 
 void __utxpl_assert(const char *expr, const char *path, size_t line)
 {
 	fprintf(stderr, "ASSERT FAILURE: %s:%ld %s\n", path, line, expr);
-	*(char *)0 = 0;
 	exit(-1);
 	return;
 }
 
-static void icmp_update_checksum(unsigned char *st, struct iovec *vecs, size_t count)
+#ifndef WIN32
+#define LPIOVEC struct iovec *
+#define IOV_LEN(var) var.iov_len
+#define IOV_BASE(var) var.iov_base
+#else
+#define LPIOVEC LPWSABUF
+#define IOV_LEN(var) var.len
+#define IOV_BASE(var) var.buf
+#endif
+
+static void icmp_update_checksum(unsigned char *st, LPIOVEC vecs, size_t count)
 {
 	int index = 0;
-	unsigned short *digit;
 	unsigned long cksum = 0;
 	unsigned short cksum1 = 0;
 
 	if (st != NULL) memset(st, 0, 2);
 
 	for (int i = 0; i < count; i++) {
-		size_t len = vecs[i].iov_len;
-		unsigned char *adj = (unsigned char *)vecs[i].iov_base;
+		size_t len = IOV_LEN(vecs[i]);
+		unsigned char *adj = (unsigned char *)IOV_BASE(vecs[i]);
 
 		for (int j = 0; j < len; j++) {
 			cksum += (((int)adj[j]) << ((index & 0x01) << 3));
@@ -374,66 +436,143 @@ static void icmp_update_checksum(unsigned char *st, struct iovec *vecs, size_t c
 	return;
 }
 
-int utxpl_output(int fd, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
+static u_short get_addr_port(struct tcpup_addr const *name)
 {
-	int error;
-	struct icmphdr icmphdr0;
+	struct sockaddr_in *saip;
+	saip = (struct sockaddr_in *)name->name;
+	return saip->sin_port;
+}
 
-#ifndef WIN32
-	struct msghdr msg0;
-	struct iovec  iovecs[10];
-	iovecs[0].iov_len = sizeof(icmphdr0);
-	iovecs[0].iov_base = &icmphdr0;
-	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
+int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
+{
+	int fd;
+    int error;
 
-	if (_icmp_mode == ICMP_MODE_CLIENT) {
-		_icmp_left++;
-		icmphdr0.type = 0x08;
-		icmphdr0.code = ICMPCODE_MAGIC;
-		icmphdr0.u0.ident = 0;
-		icmphdr0.u0.seqno = htons(_icmp_left);
-		icmphdr0.valecr = htonl(_icmp_left & 0xffffff);
-		icmphdr0.magic  = ICMP_MAGIC_CLIENT;
-		icmp_update_checksum((unsigned char *)&icmphdr0.checksum, iovecs, count + 1);
-	} else if (_icmp_mode == ICMP_MODE_SERVER) {
-		icmphdr0.type = 0x00;
-		icmphdr0.code = ICMPCODE_MAGIC;
-		TCP_DEBUG_TRACE(_icmp_cached <= 0, "no usable icmp response");
-
-		if (_icmp_cached > 1) {
-			icmphdr0.u0.pair = _icmp_pair[_icmp_left++ % ICMP_SIZE_WHEEL];
-			_icmp_cached--;
+	if (offset >= 32 || _paging_devices[offset] == NULL) {
+		fprintf(stderr, "offset: %d\n", offset);
+		if ((offset & 01) && offset < 32 && _paging_devices[offset - 1]) {
+			offset --;
 		} else {
-			icmphdr0.u0.pair = _icmp_pair[_icmp_left % ICMP_SIZE_WHEEL];
+			return -1;
 		}
-		icmphdr0.valecr = htonl((_icmp_valecr & 0xffffff) | (_icmp_cached << 24));
-		icmphdr0.magic  = ICMP_MAGIC_SERVER;
-		icmp_update_checksum((unsigned char *)&icmphdr0.checksum, iovecs, count + 1);
+	}
+	
+	fd = _paging_devices[offset]->_file;
+	_paging_devices[offset]->_t_sndtime = time(NULL);
+
+#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
+	if (_tcp_out_fd >= 0) {
+		struct sockaddr_in _addr_in;
+		_addr_in = _paging_devices[offset]->_addr_in;
+		memcpy(icmp_hdr_fill, &_addr_in.sin_addr, sizeof(_addr_in.sin_addr));
+		memcpy((char *)icmp_hdr_fill + 6, &_addr_in.sin_port, sizeof(_addr_in.sin_port));
+		fd = _tcp_out_fd;
+	}
+#endif
+
+	if (_icmp_is_reply == 0) {
+		icmp_hdr_fill[0].type = 0x08; // icmp echo request
+		icmp_hdr_fill[0].code = ICMP_NATYPE_CODE;
+		icmp_hdr_fill[0].u0.ident = getpid();
+		icmp_hdr_fill[0].u0.seqno = ICMP_SEQNO_FIXED;
+		memset(icmp_hdr_fill[0].reserved, ICMP_CLIENT_FILL, sizeof(icmp_hdr_fill[0].reserved));
+	} else {
+		icmp_hdr_fill[0].type = 0x00; // icmp echo reply
+		icmp_hdr_fill[0].code = ICMP_NATYPE_CODE;
+		icmp_hdr_fill[0].u0.ident = get_addr_port(name);
+		icmp_hdr_fill[0].u0.seqno = ICMP_SEQNO_FIXED;
+		memset(icmp_hdr_fill[0].reserved, ICMP_SERVER_FILL, sizeof(icmp_hdr_fill[0].reserved));
 	}
 
-	TCP_DEBUG_TRACE(_icmp_mode != ICMP_MODE_SERVER && _icmp_mode != ICMP_MODE_CLIENT, "_icmp_mode not correctly");
+#ifndef WIN32
+	struct iovec  iovecs[10];
+	iovecs[0].iov_len = sizeof(icmp_hdr_fill);
+	iovecs[0].iov_base = icmp_hdr_fill;
+	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
 
+	struct msghdr msg0;
 	msg0.msg_name = (void *)name->name;
 	msg0.msg_namelen = name->namlen;
-	msg0.msg_iov  = iovecs;
+	msg0.msg_iov  = (struct iovec*)iovecs;
 	msg0.msg_iovlen = count + 1;
+
+#ifndef DISABLE_ENCRYPT
+	unsigned char *bp;
+	unsigned int d0 = (rand() & 0xffff);
+	unsigned char _crypt_stream[2048];
+
+	bp = _crypt_stream;
+	for (int i = 0; i < count; i++) {
+		memcpy(bp, iov[i].iov_base, iov[i].iov_len);
+		bp += iov[i].iov_len;
+	}
+
+	unsigned short key = d0;
+	memcpy((char *)(icmp_hdr_fill) + 14, &key, 2);
+	for (int i = 0; i < (bp - _crypt_stream); i++) {
+		_crypt_stream[i] ^= (d0 & 0xff);
+		d0 = (d0 * 123 + 59) & 0xffff;
+	}
+
+	iovecs[1].iov_base = _crypt_stream;
+	iovecs[1].iov_len  = (bp - _crypt_stream);
+	msg0.msg_iov  = (struct iovec*)iovecs;
+	msg0.msg_iovlen = 2;
+#endif
 
 	msg0.msg_control = NULL;
 	msg0.msg_controllen = 0;
 	msg0.msg_flags = 0;
+
+	icmp_update_checksum((unsigned char *)&icmp_hdr_fill[0].checksum, iovecs, msg0.msg_iovlen);
 	error = sendmsg(fd, &msg0, 0);
 #else
 	DWORD transfer = 0;
-	error = WSASendTo(fd, (LPWSABUF)iov, count, &transfer, 0,
+	WSABUF  iovecs[10];
+	iovecs[0].len = sizeof(icmp_hdr_fill);
+	iovecs[0].buf = (char *)icmp_hdr_fill;
+	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
+
+#ifndef DISABLE_ENCRYPT
+	unsigned char *bp;
+	unsigned int d0 = (rand() & 0xffff);
+	unsigned char _crypt_stream[2048];
+
+	bp = _crypt_stream;
+	for (int i = 0; i < count; i++) {
+		memcpy(bp, iov[i].iov_base, iov[i].iov_len);
+		bp += iov[i].iov_len;
+	}
+
+	unsigned short key = d0;
+	memcpy((char *)(icmp_hdr_fill) + 14, &key, 2);
+	for (int i = 0; i < (bp - _crypt_stream); i++) {
+		_crypt_stream[i] ^= d0;
+		d0 = (d0 * 123 + 59) & 0xffff;
+	}
+
+	iovecs[1].buf = (char *)_crypt_stream;
+	iovecs[1].len  = (bp - _crypt_stream);
+	count = 1;
+#endif
+
+	icmp_update_checksum((unsigned char *)&icmp_hdr_fill[0].checksum, iovecs, count + 1);
+	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,
 			(const sockaddr *)name->name, name->namlen, NULL, NULL);
 	error = (error == 0? transfer: -1);
 #endif
+
+	TCP_DEBUG_TRACE(error == -1, "utxpl_output send failure\n");
 	return error;
 }
 
 int utxpl_error()
 {
-    return WSAGetLastError();
+#ifdef WIN32
+	return WSAGetLastError();
+#else
+	return errno;
+#endif
 }
 
 struct module_stub  tcp_device_mod = {

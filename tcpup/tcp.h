@@ -94,6 +94,8 @@ struct tcphdr {
 	tcp_seq th_tsval;
 };
 
+#define TCPUP_HDRLEN sizeof(struct tcphdr)
+
 #define TH_FIN  0x01
 #define TH_SYN  0x02
 #define TH_RST  0x04

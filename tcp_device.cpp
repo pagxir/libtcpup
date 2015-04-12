@@ -12,6 +12,7 @@
 #include <utx/utxpl.h>
 #include <utx/socket.h>
 
+#include <tcpup/tcp.h>
 #include <tcpup/tcp_subr.h>
 #include <tcpup/tcp_debug.h>
 
@@ -291,7 +292,7 @@ void tcpup_device::incoming(void)
 			}
 #endif
 
-			if (len >= 20 + sizeof(dns_filling_byte)) {
+			if (len >= TCPUP_HDRLEN + sizeof(dns_filling_byte)) {
 #ifndef DISABLE_ENCRYPT
 				unsigned short key;
 				memcpy(&key, c_buf + 14, 2);
