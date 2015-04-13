@@ -138,8 +138,7 @@ again:
 	/* this_snd_nxt = tp->snd_nxt; */
 	off = tp->snd_nxt - tp->snd_una;
 	sendwin = min(tp->snd_wnd, tp-> snd_cwnd);
-	TCP_DEBUG_TRACE(tp-> snd_cwnd < tp->t_maxseg, "snd_wnd %d, snd_cwnd %d\n", tp->snd_wnd, tp-> snd_cwnd) ;
-	TCP_DEBUG_TRACE(sendwin < tp->t_maxseg, "snd_wnd %d, snd_cwnd %d\n", tp->snd_wnd, tp-> snd_cwnd) ;
+	TCP_TRACE_CHECK(tp, sendwin < tp->t_maxseg, "snd_wnd %d, snd_cwnd %d\n", tp->snd_wnd, tp-> snd_cwnd) ;
 	flags = tcp_outflags[tp->t_state];
 
 	sack_rxmit = 0;
@@ -415,7 +414,7 @@ sendit:
 			TCPSTAT_INC(tcps_sndpack);
 			TCPSTAT_ADD(tcps_sndbyte, len);
 		}
-		TCP_DEBUG_TRACE(off && p, "len %d, off %d, optlen %d, %x\n", len, off, optlen, to.to_flags);
+		TCP_TRACE_CHECK(tp, off && p, "len %d, off %d, optlen %d, %x\n", len, off, optlen, to.to_flags);
 		rgn_peek(tp->rgn_snd, iobuf + 1, len, off);
 #if 0
 		if (off + len == rgn_len(tp->rgn_snd))
@@ -481,8 +480,8 @@ sendit:
 	int prev_t_rtttime = tp->t_rtttime;
 
 	if (th->th_flags & TH_FIN) {
-		TCP_DEBUG_TRACE(th->th_flags & TH_FIN, "%x FIN sent\n", tp->t_conv);
-		TCP_DEBUG_TRACE(tilen == 0 && tp->t_state > TCPS_ESTABLISHED, "%x finish ack\n", tp->t_conv);
+		TCP_TRACE_CHECK(tp, th->th_flags & TH_FIN, "%x FIN sent\n", tp->t_conv);
+		TCP_TRACE_CHECK(tp, tilen == 0 && tp->t_state > TCPS_ESTABLISHED, "%x finish ack\n", tp->t_conv);
 	}
 
 	error = utxpl_output(tp->if_dev, iobuf, 3, &tp->dst_addr);
@@ -559,7 +558,7 @@ timer:
 		tp->snd_cwnd = tp->t_maxseg;
 
 		/* tp->t_dupacks++; */
-		TCP_DEBUG_TRACE(1, "utxpl_output %d\n", utxpl_error());
+		TCP_TRACE_AWAYS(tp, "utxpl_output %d\n", utxpl_error());
 		UTXPL_ASSERT(tp->snd_nxt >= tp->snd_una);
 
 		tcp_devbusy(tp);
@@ -617,7 +616,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, int tlen, int flags)
     iov0.iov_len = sizeof(tcpup_th0);
     iov0.iov_base = &tcpup_th0;
 
-	TCP_DEBUG_TRACE(1, "tcp_respond: %x RST %x ACK %x %x %x\n",
+	TCP_TRACE_AWAYS(tp, "tcp_respond: %x RST %x ACK %x %x %x\n",
 			tp->t_conv, flags & TH_RST, flags & TH_ACK, orig->th_tsval, orig->th_tsecr);
 
 	error = utxpl_output(tp->if_dev, &iov0, 1, &tp->dst_addr);

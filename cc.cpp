@@ -32,7 +32,7 @@ static void set_vegas_alpha_beta(const char *algo)
 		}
 
 		update_vegas_alpha_beta(alpha, beta);
-		TCP_DEBUG_TRACE(1, "alpha = %d, beta = %d\n", alpha, beta);
+		TCP_DEBUG(1, "alpha = %d, beta = %d\n", alpha, beta);
 	}
 
 	return;
@@ -41,23 +41,23 @@ static void set_vegas_alpha_beta(const char *algo)
 void set_cc_algo(const char *name)
 {
 	if (name == NULL) {
-		TCP_DEBUG_TRACE(1, "use htcp cc algo\n");
+		TCP_DEBUG(1, "use htcp cc algo\n");
 		default_cc_ptr = &htcp_cc_algo;
 	} else if (strcmp(name, "newreno") == 0) {
-		TCP_DEBUG_TRACE(1, "use newreno cc algo\n");
+		TCP_DEBUG(1, "use newreno cc algo\n");
 		default_cc_ptr = &newreno_cc_algo;
 	} else if (strcmp(name, "htcp") == 0) {
-		TCP_DEBUG_TRACE(1, "use htcp cc algo\n");
+		TCP_DEBUG(1, "use htcp cc algo\n");
 		default_cc_ptr = &htcp_cc_algo;
 	} else if (strncmp(name, "vegas", 5) == 0) {
-		TCP_DEBUG_TRACE(1, "use vegas cc algo\n");
+		TCP_DEBUG(1, "use vegas cc algo\n");
 		default_cc_ptr = &vegas_cc_algo;
 		set_vegas_alpha_beta(name);
 	} else if (strcmp(name, "vegasab") == 0) {
-		TCP_DEBUG_TRACE(1, "use vegasab cc algo\n");
+		TCP_DEBUG(1, "use vegasab cc algo\n");
 		default_cc_ptr = &vegasab_cc_algo;
 	} else if (strcmp(name, "cubic") == 0) {
-		TCP_DEBUG_TRACE(1, "use cubic cc algo\n");
+		TCP_DEBUG(1, "use cubic cc algo\n");
 		default_cc_ptr = &cubic_cc_algo;
 	}
 

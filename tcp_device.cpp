@@ -101,7 +101,7 @@ struct tcpcb *tcp_create(uint32_t conv)
 static void dev_idle_callback(void *uup)
 {
 	tx_task_wakeup(&_dev_busy);
-	TCP_DEBUG_TRACE(1, "dev_idle_callback\n");
+	TCP_DEBUG(1, "dev_idle_callback\n");
 
 	return ;
 }
@@ -297,7 +297,7 @@ void tcpup_device::incoming(void)
 
 			int offset = sizeof(dns_filling_byte);
 			if (len >= offset + TCPUP_HDRLEN) {
-				TCP_DEBUG_TRACE(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
+				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
 				memcpy(&key, packet + 14, 2);
 				packet_decrypt(key, p, packet + offset, len - offset);
 				p += (len - offset);
@@ -314,7 +314,7 @@ void tcpup_device::incoming(void)
 		p = _rcvpkt_buf;
 		for (int i = 0; i < pktcnt; i++) {
 			handled = tcpup_do_packet(_offset, p, _rcvpkt_len[i], &_rcvpkt_addr[i]);
-			TCP_DEBUG_TRACE(handled == 0, "error packet drop: %s\n", inet_ntoa(((struct sockaddr_in *)(&saaddr))->sin_addr));
+			TCP_DEBUG(handled == 0, "error packet drop: %s\n", inet_ntoa(((struct sockaddr_in *)(&saaddr))->sin_addr));
 			p += _rcvpkt_len[i];
 		}
 	}
@@ -443,12 +443,10 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	}
 
 	datlen = (bp - _plain_stream);
-	memcpy((char *)(icmp_hdr_fill) + 14, &key, 2);
+	memcpy((char *)(dns_filling_byte) + 14, &key, 2);
 	packet_encrypt(key, _crypt_stream, _plain_stream, datlen);
-	iovecs[1].iov_base = _crypt_stream;
-	iovecs[1].iov_len  = datlen;
-	msg0.msg_iov  = (struct iovec*)iovecs;
-	msg0.msg_iovlen = 2;
+	iovecs[1].buf = (char *)_crypt_stream;
+	iovecs[1].len = datlen;
 #endif
 
 	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,
@@ -456,7 +454,7 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	error = (error == 0? transfer: -1);
 #endif
 
-	TCP_DEBUG_TRACE(error == -1, "utxpl_output send failure\n");
+	TCP_DEBUG(error == -1, "utxpl_output send failure\n");
 	return error;
 }
 

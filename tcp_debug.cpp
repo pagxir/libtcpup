@@ -4,7 +4,57 @@
 #include <utx/utxpl.h>
 #include <tcpup/tcp_debug.h>
 
-void tcp_debug_trace(char const *fmt, ...)
+static const void *_trac_link = 0;
+
+void tcp_trace_print(const void *tp, const char *fmt, ...)
+{
+    int n;
+    va_list ap;
+    va_start(ap, fmt);
+
+	if (_trac_link == tp || _trac_link == 0) {
+		n = vfprintf(stderr, fmt, ap);
+		VAR_UNUSED(n);
+	}
+
+    va_end(ap);
+    return;
+}
+
+void tcp_trace_start(const void *tp, const char *fmt, ...)
+{
+    int n;
+    va_list ap;
+    va_start(ap, fmt);
+
+	if (NULL == _trac_link) {
+		n = vfprintf(stderr, fmt, ap);
+		_trac_link = tp;
+		VAR_UNUSED(n);
+	}
+
+    va_end(ap);
+    return;
+
+}
+
+void tcp_trace_end(const void *tp, const char *fmt, ...)
+{
+    int n;
+    va_list ap;
+    va_start(ap, fmt);
+
+	if (tp == _trac_link) {
+		n = vfprintf(stderr, fmt, ap);
+		_trac_link = NULL;
+		VAR_UNUSED(n);
+	}
+
+    va_end(ap);
+    return;
+}
+
+void tcp_debug(const char *fmt, ...)
 {
     int n;
     va_list ap;
@@ -14,4 +64,3 @@ void tcp_debug_trace(char const *fmt, ...)
     va_end(ap);
     return;
 }
-

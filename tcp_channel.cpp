@@ -237,7 +237,6 @@ static void set_relay_info(struct tcpcb *tp, int type, char *host, u_short port)
 	memcpy(p, host, len);
 	p += len;
 
-	fprintf(stderr, "set relayto: %d\n", host[0] & 0xff);
 	tcp_relayto(tp, buf, p - buf);
 	return;
 }
@@ -290,7 +289,6 @@ void tcp_channel::sockv5_proto_input(void)
 
             switch (type = up->c2r.buf[3]) {
                 case 0x01:
-                    fprintf(stderr, "family: INET\n");
                     end = (up->c2r.buf + 4);
 					addrp = end;
                     end += sizeof(int);
@@ -300,7 +298,6 @@ void tcp_channel::sockv5_proto_input(void)
                     break;
 
                 case 0x04:
-                    fprintf(stderr, "family: INET6\n");
                     end = (up->c2r.buf + 4);
 					addrp = end;
                     end += 16;
@@ -310,7 +307,6 @@ void tcp_channel::sockv5_proto_input(void)
                     break;
 
                 case 0x03:
-                    fprintf(stderr, "family: DOMAIN\n");
                     pat = (up->c2r.buf[4] & 0xFF);
                     if (buf_valid(&m, 4 + pat + 2)) {
                         memcpy(domain, up->c2r.buf + 5, pat);
@@ -365,7 +361,6 @@ check_protocol:
         goto failure_closed;
     }
 
-    fprintf(stderr, "proxy socks5 handshake\n");
     tx_aincb_active(&m_sockcbp, &m_rwait);
     return;
 
@@ -384,13 +379,11 @@ int tcp_channel::do_fake_proxy_hello(void)
     }
 
     if (up->m_flags & SOCKV4_PROTO) {
-        fprintf(stderr, "SOCKV4_PROTO\n");
         fill_connect_buffer(&up->c2r);
         sockv4_proto_input();
     }
 
     if (up->m_flags & SOCKV5_PROTO) {
-        fprintf(stderr, "SOCKV5_PROTO\n");
         fill_connect_buffer(&up->c2r);
         sockv5_proto_input();
     }
@@ -401,7 +394,6 @@ int tcp_channel::do_fake_proxy_hello(void)
     }
 
     if (up->m_flags & DIRECT_PROTO) {
-        fprintf(stderr, "DIRECT_PROTO\n");
         up->m_flags &= ~TF_PROXY_HELLO;
     }
 

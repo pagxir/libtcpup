@@ -156,7 +156,7 @@ struct tcpcb * tcp_newtcpcb(int if_fd, tcp_seq conv)
 
 	tp->t_rttupdated = 0;
 	tp->t_keepidle = 0;
-	tp->t_keepidle = 17 * hz;
+	tp->t_keepidle = 170 * hz;
 
 	tp->relay_len = 0;
 
@@ -235,9 +235,8 @@ struct tcpcb *tcp_drop(struct tcpcb *tp, int why)
 
 	if (tp->t_flags & TF_PROTOREF) {
 		tp->t_flags &= ~TF_PROTOREF;
-		TCP_DEBUG_TRACE(1, "T1 drop %x\n", tp->t_flags & SS_NOFDREF);
+		TCP_TRACE_AWAYS(tp, "T1 drop %x\n", tp->t_flags & SS_NOFDREF);
 		tcp_free(tp);
-		TCP_DEBUG_TRACE(1, "T2 drop\n");
 		return NULL;
 	}
 
@@ -251,7 +250,7 @@ int tcp_free(struct tcpcb *tp)
 			(tp->t_flags & TF_PROTOREF) == TF_PROTOREF)
 		return -1;
 
- 	TCP_DEBUG_TRACE(1, "tcp_free %p %x\n", tp, tp->t_flags & SS_NOFDREF);
+ 	TCP_TRACE_END(tp, "tcp_free %p %x\n", tp, tp->t_flags & SS_NOFDREF);
 	UTXPL_ASSERT(tx_taskq_empty(&tp->r_event));
 	UTXPL_ASSERT(tx_taskq_empty(&tp->w_event));
 	
@@ -285,7 +284,7 @@ int tcp_read(struct tcpcb *tp, void *buf, size_t count)
 {
 	int min_len = min((int)count, rgn_len(tp->rgn_rcv));
 
-	TCP_DEBUG_TRACE(tp->t_state != TCPS_ESTABLISHED,
+	TCP_TRACE_CHECK(tp, tp->t_state != TCPS_ESTABLISHED,
 			"min_len = %d\n", min_len);
 
 	if (rgn_len(tp->rgn_rcv) == 0) {
@@ -432,12 +431,12 @@ int tcp_shutdown(struct tcpcb *tp)
 	switch (tp->t_state) {
 		case TCPS_ESTABLISHED:
 			tp->t_state = TCPS_FIN_WAIT_1;
-			TCP_DEBUG_TRACE(1, "TCPS_ESTABLISHED -> TCPS_FIN_WAIT_1\n");
+			TCP_TRACE_AWAYS(tp, "TCPS_ESTABLISHED -> TCPS_FIN_WAIT_1\n");
 			(void)tcp_output(tp);
 			break;
 
 		case TCPS_CLOSE_WAIT:
-			TCP_DEBUG_TRACE(1, "TCPS_CLOSE_WAIT -> TCPS_LAST_ACK\n");
+			TCP_TRACE_AWAYS(tp, "TCPS_CLOSE_WAIT -> TCPS_LAST_ACK\n");
 			tp->t_state = TCPS_LAST_ACK;
 			(void)tcp_output(tp);
 			break;
@@ -476,7 +475,7 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 				break;
 			}
 
-			TCP_DEBUG_TRACE(tp->t_state != TCPS_ESTABLISHED, "not TCPS_ESTABLISHED %d\n");
+			TCP_TRACE_CHECK(tp, tp->t_state != TCPS_ESTABLISHED, "not TCPS_ESTABLISHED %d\n");
 		   	tx_task_record(&tp->r_event, task);
 			error = 1;
 			break;
@@ -509,7 +508,7 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 			break;
 
 		default:
-			TCP_DEBUG_TRACE(1, "tcp poll error\n");
+			TCP_DEBUG(1, "tcp poll error\n");
 			break;
 	}
 
@@ -526,7 +525,7 @@ int tcp_connect(struct tcpcb *tp,
 		UTXPL_ASSERT(namlen <= sizeof(tp->dst_addr.name));
 		memcpy(tp->dst_addr.name, name, namlen);
 		tp->dst_addr.namlen = namlen;
-		TCP_DEBUG_TRACE(1, "TCPS_CLOSED -> TCPS_SYN_SENT\n");
+		TCP_TRACE_AWAYS(tp, "TCPS_CLOSED -> TCPS_SYN_SENT\n");
 		(void)tcp_output(tp);
 		return 1;
 	}
@@ -539,7 +538,7 @@ int tcp_listen(struct tcpcb *tp)
 {
 	if (tp->t_state == TCPS_CLOSED) {
 		tp->t_state = TCPS_LISTEN;
-		TCP_DEBUG_TRACE(1, "TCPS_CLOSED -> TCPS_LISTEN\n");
+		TCP_TRACE_AWAYS(tp, "TCPS_CLOSED -> TCPS_LISTEN\n");
 		return 1;
 	}
 
@@ -553,9 +552,8 @@ struct tcpcb *tcp_close(struct tcpcb *tp)
 
 	if (tp->t_flags & TF_PROTOREF) {
 		tp->t_flags &= ~TF_PROTOREF;
-		TCP_DEBUG_TRACE(1, "T1 close %p %x\n", tp, tp->t_flags & SS_NOFDREF);
+		TCP_TRACE_AWAYS(tp, "T1 close %p %x\n", tp, tp->t_flags & SS_NOFDREF);
 		tcp_free(tp);
-		TCP_DEBUG_TRACE(1, "T2\n");
 		return NULL;
 	}
 
@@ -570,7 +568,7 @@ int tcp_soclose(struct tcpcb *tp)
 	if (tp->t_state != TCPS_CLOSED)
 		tp->t_flags |= TF_PROTOREF;
 
-	TCP_DEBUG_TRACE(1, "tcp_soclose %p\n", tp);
+	TCP_TRACE_AWAYS(tp, "tcp_soclose %p\n", tp);
 	tp->t_flags |= SS_NOFDREF;
 	tcp_free(tp);
 	return 0;
@@ -586,7 +584,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 	th = (struct tcphdr *)buf;
 	if (len < sizeof(*th) ||
 			(th->th_magic != MAGIC_UDP_TCP)) {
-		TCP_DEBUG_TRACE(len >= sizeof(*th), "BAD TCPUP MAGIC\n");
+		TCP_DEBUG(len >= sizeof(*th), "BAD TCPUP MAGIC\n");
 		return -1;
 	}
 

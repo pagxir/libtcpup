@@ -72,7 +72,7 @@ static void tcp_rexmt_timo(void *up)
 	tp = (struct tcpcb *)up;
 	tcp_free_sackholes(tp);
 
-	TCP_DEBUG_TRACE(1, "tcp rexmt time out %x\n", tp->t_conv);
+	TCP_TRACE_AWAYS(tp, "tcp rexmt time out %x\n", tp->t_conv);
    	if (++tp->t_rxtshift > TCP_MAXRXTSHIFT) {
 	   	tp->t_rxtshift = TCP_MAXRXTSHIFT;
 	   	tp->t_state = TCPS_CLOSED;
@@ -238,7 +238,7 @@ tcp_timer_active(struct tcpcb *tp, int timer_type)
 			t_callout = &tp->t_timer_2msl;
 			break;
 		default:
-			TCP_DEBUG_TRACE(1, "bad timer_type");
+			TCP_DEBUG(1, "bad timer_type");
 			return -1;
 	}
 
