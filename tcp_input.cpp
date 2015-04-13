@@ -308,7 +308,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 }
 
 void tcp_input(struct tcpcb *tp, int dst,
-	   	const char *buf, size_t len, const void *from, size_t namlen)
+		const char *buf, size_t len, const struct tcpup_addr *from)
 {
 	int tlen;
 	int thflags;
@@ -392,9 +392,8 @@ void tcp_input(struct tcpcb *tp, int dst,
 	}
 
 	if (TSTMP_GEQ(to.to_tsval, tp->ts_recent)
-			&& memcmp(tp->dst_addr.name, from, namlen)) {
-		memcpy(tp->dst_addr.name, from, namlen);
-		tp->dst_addr.namlen = namlen;
+			&& memcmp(&tp->dst_addr, from, sizeof(*from))) {
+		tp->dst_addr = *from;
 		needoutput = 1;
 	}
 
@@ -575,8 +574,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 			tcp_timer_activate(tp, TT_KEEP, TCPTV_KEEP_INIT);
 			tcp_rcvseqinit(tp);
 			tcp_sendseqinit(tp);
-			memcpy(tp->dst_addr.name, from, namlen);
-			tp->dst_addr.namlen = namlen;
+			tp->dst_addr = *from;
 			TCP_DEBUG_TRACE(1, "TCPS_LISTEN -> TCPS_SYN_RECEIVED\n");
 			TCPSTAT_INC(tcps_accepts);
 			goto trimthenstep6;

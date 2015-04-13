@@ -15,6 +15,7 @@
 #include <tcpup/tcp.h>
 #include <tcpup/tcp_subr.h>
 #include <tcpup/tcp_debug.h>
+#include <tcpup/tcp_crypt.h>
 
 #include "tcp_channel.h"
 
@@ -55,7 +56,11 @@ int tcp_busying(void)
 	return _tcp_dev_busy;
 }
 
-struct tcpcb;
+void set_ping_reply(int mode)
+{
+	return;
+}
+
 struct tcpcb *tcp_create(uint32_t conv)
 {
 	int offset = (rand() % 0xF) << 1;
@@ -199,9 +204,9 @@ void tcpup_device::init(int dobind)
 		_addr_in.sin_addr = saddr.sin_addr;
 
 #ifdef WIN32
-    int bufsize = 1024 * 1024;
-    setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
-    setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
+	int bufsize = 1024 * 1024;
+	setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
+	setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
 #endif
 
 	tx_setblockopt(_file, 0);
@@ -253,8 +258,13 @@ static void listen_statecb(void *context)
 }
 
 int ticks = 0;
-static short _udp_len[1024];
-static char _udp_buf[1024 * 1024 * 8];
+
+#define RCVPKT_MAXCNT 256
+#define RCVPKT_MAXSIZ 1500
+
+static u_short _rcvpkt_len[RCVPKT_MAXCNT];
+static tcpup_addr _rcvpkt_addr[RCVPKT_MAXCNT];
+static char  _rcvpkt_buf[RCVPKT_MAXSIZ * RCVPKT_MAXCNT];
 
 static void listen_callback(void *context)
 {
@@ -268,65 +278,44 @@ static void listen_callback(void *context)
 void tcpup_device::incoming(void)
 {
 	int len;
-	socklen_t addr_len;
-	struct sockaddr_in addr_in;
+	int pktcnt;
+	socklen_t salen;
+	struct sockaddr saaddr;
+	char packet[RCVPKT_MAXSIZ];
 
 	if (tx_readable(&_sockcbp)) {
-		int ct = 0;
-		int count = 0;
-		char *c_buf = _udp_buf;
+		char *p;
+		unsigned short key;
 		ticks = tx_getticks();
 
-		for (ct = 0; ct < 1024; ct++) {
-		   	addr_len = sizeof(addr_in);
-		   	len = recvfrom(_file, c_buf, 1500,
-				   	MSG_DONTWAIT, (struct sockaddr *)&addr_in, &addr_len);
+		p = _rcvpkt_buf;
+		for (pktcnt = 0; pktcnt < RCVPKT_MAXCNT; pktcnt++) {
+			salen = sizeof(saaddr);
+			len = recvfrom(_file, packet, RCVPKT_MAXSIZ, MSG_DONTWAIT, &saaddr, &salen);
 			tx_aincb_update(&_sockcbp, len);
-			if (len == -1)
-				break;
+			if (len == -1) break;
 
-#if 0
-			if (len > 0) {
-				stun_client_input(c_buf, len, &addr_in);
-				TCP_DEBUG_TRACE(len <  20, "small packet drop: %s:%d\n", inet_ntoa(addr_in.sin_addr), htons(addr_in.sin_port));
-			}
-#endif
+			int offset = sizeof(dns_filling_byte);
+			if (len >= offset + TCPUP_HDRLEN) {
+				TCP_DEBUG_TRACE(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
+				memcpy(&key, packet + 14, 2);
+				packet_decrypt(key, p, packet + offset, len - offset);
+				p += (len - offset);
+				memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
+				_rcvpkt_addr[pktcnt].namlen = salen;
+				_rcvpkt_len[pktcnt++] = (len - offset);
 
-			if (len >= TCPUP_HDRLEN + sizeof(dns_filling_byte)) {
-#ifndef DISABLE_ENCRYPT
-				unsigned short key;
-				memcpy(&key, c_buf + 14, 2);
-				unsigned int d0 = key;
-
-				for (int i = sizeof(dns_filling_byte); i < len; i++) {
-					c_buf[i] ^= d0;
-					d0 = (d0 * 123 + 59) & 0xffff;
-				}
-#endif
-				_udp_len[count++] = len;
-				c_buf += len;
 			}
 
 			this->_t_rcvtime = time(NULL);
 		}
 
 		int handled;
-		c_buf = _udp_buf;
-		for (int i = 0; i < count; i++) {
-
-#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
-			if (_dobind > 0 && (c_buf[7] || c_buf[6])) {
-				struct sockaddr_in newa;
-				memcpy(&newa.sin_addr, c_buf, 4);
-				memcpy(&newa.sin_port, c_buf + 6, 2);
-				addr_in.sin_addr = newa.sin_addr;
-				addr_in.sin_port = newa.sin_port;
-			}
-#endif
-
-			handled = tcpup_do_packet(_offset, c_buf + sizeof(dns_filling_byte), _udp_len[i] - sizeof(dns_filling_byte), &addr_in, addr_len);
-			TCP_DEBUG_TRACE(handled == 0, "error packet drop: %s:%d\n", inet_ntoa(addr_in.sin_addr), htons(addr_in.sin_port));
-			c_buf += _udp_len[i];
+		p = _rcvpkt_buf;
+		for (int i = 0; i < pktcnt; i++) {
+			handled = tcpup_do_packet(_offset, p, _rcvpkt_len[i], &_rcvpkt_addr[i]);
+			TCP_DEBUG_TRACE(handled == 0, "error packet drop: %s\n", inet_ntoa(((struct sockaddr_in *)(&saaddr))->sin_addr));
+			p += _rcvpkt_len[i];
 		}
 	}
 
@@ -365,7 +354,7 @@ extern "C" void tcp_backwork(struct tcpip_info *info)
 
 void __utxpl_assert(const char *expr, const char *path, size_t line)
 {
-	fprintf(stderr, "ASSERT FAILURE: %s:%ld %s\n", path, line, expr);
+	fprintf(stderr, "ASSERT FAILURE: %s:%d %s\n", path, line, expr);
 	exit(-1);
 	return;
 }
@@ -410,25 +399,22 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	msg0.msg_iovlen = count + 1;
 
 #ifndef DISABLE_ENCRYPT
-	unsigned char *bp;
-	unsigned int d0 = (rand() & 0xffff);
-	unsigned char _crypt_stream[2048];
+	int datlen = 0;
+	unsigned short key = rand();
+	unsigned char _plain_stream[RCVPKT_MAXSIZ];
+	unsigned char *bp, _crypt_stream[RCVPKT_MAXSIZ];
 
-	bp = _crypt_stream;
+	bp = _plain_stream;
 	for (int i = 0; i < count; i++) {
 		memcpy(bp, iov[i].iov_base, iov[i].iov_len);
 		bp += iov[i].iov_len;
 	}
 
-	unsigned short key = d0;
+	datlen = (bp - _plain_stream);
 	memcpy(dns_filling_byte + 14, &key, 2);
-	for (int i = 0; i < (bp - _crypt_stream); i++) {
-		_crypt_stream[i] ^= d0;
-		d0 = (d0 * 123 + 59) & 0xffff;
-	}
-
+	packet_encrypt(key, _crypt_stream, _plain_stream, datlen);
 	iovecs[1].iov_base = _crypt_stream;
-	iovecs[1].iov_len  = (bp - _crypt_stream);
+	iovecs[1].iov_len  = datlen;
 	msg0.msg_iov  = (struct iovec*)iovecs;
 	msg0.msg_iovlen = 2;
 #endif
@@ -445,26 +431,24 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
 
 #ifndef DISABLE_ENCRYPT
-	unsigned char *bp;
-	unsigned int d0 = (rand() & 0xffff);
-	unsigned char _crypt_stream[2048];
+	int datlen = 0;
+	unsigned short key = rand();
+	unsigned char _plain_stream[RCVPKT_MAXSIZ];
+	unsigned char *bp, _crypt_stream[RCVPKT_MAXSIZ];
 
-	bp = _crypt_stream;
+	bp = _plain_stream;
 	for (int i = 0; i < count; i++) {
 		memcpy(bp, iov[i].iov_base, iov[i].iov_len);
 		bp += iov[i].iov_len;
 	}
 
-	unsigned short key = d0;
-	memcpy(dns_filling_byte + 14, &key, 2);
-	for (int i = 0; i < (bp - _crypt_stream); i++) {
-		_crypt_stream[i] ^= d0;
-		d0 = (d0 * 123 + 59) & 0xffff;
-	}
-
-	iovecs[1].buf = (char *)_crypt_stream;
-	iovecs[1].len  = (bp - _crypt_stream);
-	count = 1;
+	datlen = (bp - _plain_stream);
+	memcpy((char *)(icmp_hdr_fill) + 14, &key, 2);
+	packet_encrypt(key, _crypt_stream, _plain_stream, datlen);
+	iovecs[1].iov_base = _crypt_stream;
+	iovecs[1].iov_len  = datlen;
+	msg0.msg_iov  = (struct iovec*)iovecs;
+	msg0.msg_iovlen = 2;
 #endif
 
 	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,

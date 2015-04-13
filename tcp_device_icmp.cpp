@@ -15,6 +15,7 @@
 #include <tcpup/tcp.h>
 #include <tcpup/tcp_subr.h>
 #include <tcpup/tcp_debug.h>
+#include <tcpup/tcp_crypt.h>
 
 #include "tcp_channel.h"
 
@@ -74,6 +75,12 @@ static void listen_callback(void *context);
 int tcp_busying(void)
 {
 	return _tcp_dev_busy;
+}
+
+void set_ping_reply(int mode)
+{
+	_icmp_is_reply = mode;
+	return;
 }
 
 struct tcpcb;
@@ -218,9 +225,9 @@ void tcpup_device::init(int dobind)
 		_addr_in.sin_addr = saddr.sin_addr;
 
 #ifdef WIN32
-    int bufsize = 1024 * 1024;
-    setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
-    setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
+	int bufsize = 1024 * 1024;
+	setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
+	setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
 #endif
 
 	tx_setblockopt(_file, 0);
@@ -272,8 +279,13 @@ static void listen_statecb(void *context)
 }
 
 int ticks = 0;
-static short _udp_len[1024];
-static char _udp_buf[1024 * 1024 * 8];
+
+#define RCVPKT_MAXCNT 256
+#define RCVPKT_MAXSIZ 1500
+
+static u_short _rcvpkt_len[RCVPKT_MAXCNT];
+static tcpup_addr _rcvpkt_addr[RCVPKT_MAXCNT];
+static char  _rcvpkt_buf[RCVPKT_MAXSIZ * RCVPKT_MAXCNT];
 
 static void listen_callback(void *context)
 {
@@ -284,75 +296,57 @@ static void listen_callback(void *context)
 	return;
 }
 
-void tcpup_device::incoming(void)
-{
-	int len;
-	socklen_t addr_len;
-	struct sockaddr_in addr_in;
-
-	if (tx_readable(&_sockcbp)) {
-		int ct = 0;
-		int count = 0;
-		char *c_buf = _udp_buf;
-		ticks = tx_getticks();
-
 #ifndef _DNS_CLIENT_
 #define IPHDR_SKIP_LEN 20
 #else
 #define IPHDR_SKIP_LEN 0
 #endif
 
-		for (ct = 0; ct < 1024; ct++) {
-		   	addr_len = sizeof(addr_in);
-		   	len = recvfrom(_file, c_buf, 1500,
-				   	MSG_DONTWAIT, (struct sockaddr *)&addr_in, &addr_len);
+void tcpup_device::incoming(void)
+{
+	int len;
+	int pktcnt;
+	socklen_t salen;
+	struct sockaddr saaddr;
+	char packet[RCVPKT_MAXSIZ];
+
+	if (tx_readable(&_sockcbp)) {
+		char *p;
+		unsigned short key;
+		ticks = tx_getticks();
+
+		pktcnt = 0;
+		p = _rcvpkt_buf;
+		for (int i = 0; i < RCVPKT_MAXCNT; i++) {
+			salen = sizeof(saaddr);
+			len = recvfrom(_file, packet, RCVPKT_MAXSIZ, MSG_DONTWAIT, &saaddr, &salen);
 			tx_aincb_update(&_sockcbp, len);
-			if (len == -1)
-				break;
+			if (len == -1) break;
 
-#if 0
-			if (len > 0) {
-				stun_client_input(c_buf, len, &addr_in);
-				TCP_DEBUG_TRACE(len <  20, "small packet drop: %s:%d\n", inet_ntoa(addr_in.sin_addr), htons(addr_in.sin_port));
-			}
-#endif
+			int offset = IPHDR_SKIP_LEN + sizeof(icmp_hdr_fill);
+			if (len >= offset + TCPUP_HDRLEN) {
+				TCP_DEBUG_TRACE(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
+				memcpy(&key, packet + 14 + IPHDR_SKIP_LEN, 2);
+				packet_decrypt(key, p, packet + offset, len - offset);
+				p += (len - offset);
 
-			if (len >= TCPUP_HDRLEN + IPHDR_SKIP_LEN + sizeof(icmp_hdr_fill)) {
-#ifndef DISABLE_ENCRYPT
-				unsigned short key;
-				memcpy(&key, c_buf + 14 + IPHDR_SKIP_LEN, 2);
-				unsigned int d0 = key;
+				memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
+				struct icmphdr *hdrp = (struct icmphdr *)&packet[IPHDR_SKIP_LEN];
+				_rcvpkt_addr[pktcnt].xdat = hdrp->u0.pair;
+				_rcvpkt_addr[pktcnt].namlen = salen;
+				_rcvpkt_len[pktcnt++] = (len - offset);
 
-				for (int i = sizeof(icmp_hdr_fill) + IPHDR_SKIP_LEN; i < len; i++) {
-					c_buf[i] ^= d0;
-					d0 = (d0 * 123 + 59) & 0xffff;
-				}
-#endif
-				_udp_len[count++] = len;
-				c_buf += len;
 			}
 
 			this->_t_rcvtime = time(NULL);
 		}
 
 		int handled;
-		c_buf = _udp_buf;
-		for (int i = 0; i < count; i++) {
-
-#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
-			if (_dobind > 0 && (c_buf[7] || c_buf[6])) {
-				struct sockaddr_in newa;
-				memcpy(&newa.sin_addr, c_buf, 4);
-				memcpy(&newa.sin_port, c_buf + 6, 2);
-				addr_in.sin_addr = newa.sin_addr;
-				addr_in.sin_port = newa.sin_port;
-			}
-#endif
-			memcpy(&addr_in.sin_port, c_buf + IPHDR_SKIP_LEN + 4, 2);
-			handled = tcpup_do_packet(_offset, c_buf + sizeof(icmp_hdr_fill) + IPHDR_SKIP_LEN,
-					_udp_len[i] - sizeof(icmp_hdr_fill) - IPHDR_SKIP_LEN, &addr_in, addr_len);
-			TCP_DEBUG_TRACE(handled == 0, "error packet drop: %s:%d\n", inet_ntoa(addr_in.sin_addr), htons(addr_in.sin_port));
-			c_buf += _udp_len[i];
+		p = _rcvpkt_buf;
+		for (int i = 0; i < pktcnt; i++) {
+			handled = tcpup_do_packet(_offset, p, _rcvpkt_len[i], &_rcvpkt_addr[i]);
+			TCP_DEBUG_TRACE(handled == 0, "error packet drop: %s\n", inet_ntoa(((struct sockaddr_in *)(&saaddr))->sin_addr));
+			p += _rcvpkt_len[i];
 		}
 	}
 
@@ -391,7 +385,7 @@ extern "C" void tcp_backwork(struct tcpip_info *info)
 
 void __utxpl_assert(const char *expr, const char *path, size_t line)
 {
-	fprintf(stderr, "ASSERT FAILURE: %s:%ld %s\n", path, line, expr);
+	fprintf(stderr, "ASSERT FAILURE: %s:%d %s\n", path, line, expr);
 	exit(-1);
 	return;
 }
@@ -446,7 +440,7 @@ static u_short get_addr_port(struct tcpup_addr const *name)
 int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
 {
 	int fd;
-    int error;
+	int error;
 
 	if (offset >= 32 || _paging_devices[offset] == NULL) {
 		fprintf(stderr, "offset: %d\n", offset);
@@ -497,25 +491,22 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	msg0.msg_iovlen = count + 1;
 
 #ifndef DISABLE_ENCRYPT
-	unsigned char *bp;
-	unsigned int d0 = (rand() & 0xffff);
-	unsigned char _crypt_stream[2048];
+	int datlen = 0;
+	unsigned short key = rand();
+	unsigned char _plain_stream[RCVPKT_MAXSIZ];
+	unsigned char *bp, _crypt_stream[RCVPKT_MAXSIZ];
 
-	bp = _crypt_stream;
+	bp = _plain_stream;
 	for (int i = 0; i < count; i++) {
 		memcpy(bp, iov[i].iov_base, iov[i].iov_len);
 		bp += iov[i].iov_len;
 	}
 
-	unsigned short key = d0;
+	datlen = (bp - _plain_stream);
 	memcpy((char *)(icmp_hdr_fill) + 14, &key, 2);
-	for (int i = 0; i < (bp - _crypt_stream); i++) {
-		_crypt_stream[i] ^= (d0 & 0xff);
-		d0 = (d0 * 123 + 59) & 0xffff;
-	}
-
+	packet_encrypt(key, _crypt_stream, _plain_stream, datlen);
 	iovecs[1].iov_base = _crypt_stream;
-	iovecs[1].iov_len  = (bp - _crypt_stream);
+	iovecs[1].iov_len  = datlen;
 	msg0.msg_iov  = (struct iovec*)iovecs;
 	msg0.msg_iovlen = 2;
 #endif
@@ -524,6 +515,7 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	msg0.msg_controllen = 0;
 	msg0.msg_flags = 0;
 
+	icmp_hdr_fill[0].u0.pair = name->xdat;
 	icmp_update_checksum((unsigned char *)&icmp_hdr_fill[0].checksum, iovecs, msg0.msg_iovlen);
 	error = sendmsg(fd, &msg0, 0);
 #else
@@ -534,28 +526,27 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
 
 #ifndef DISABLE_ENCRYPT
-	unsigned char *bp;
-	unsigned int d0 = (rand() & 0xffff);
-	unsigned char _crypt_stream[2048];
+	int datlen = 0;
+	unsigned short key = rand();
+	unsigned char _plain_stream[RCVPKT_MAXSIZ];
+	unsigned char *bp, _crypt_stream[RCVPKT_MAXSIZ];
 
-	bp = _crypt_stream;
+	bp = _plain_stream;
 	for (int i = 0; i < count; i++) {
 		memcpy(bp, iov[i].iov_base, iov[i].iov_len);
 		bp += iov[i].iov_len;
 	}
 
-	unsigned short key = d0;
+	datlen = (bp - _plain_stream);
 	memcpy((char *)(icmp_hdr_fill) + 14, &key, 2);
-	for (int i = 0; i < (bp - _crypt_stream); i++) {
-		_crypt_stream[i] ^= d0;
-		d0 = (d0 * 123 + 59) & 0xffff;
-	}
-
-	iovecs[1].buf = (char *)_crypt_stream;
-	iovecs[1].len  = (bp - _crypt_stream);
-	count = 1;
+	packet_encrypt(key, _crypt_stream, _plain_stream, datlen);
+	iovecs[1].iov_base = _crypt_stream;
+	iovecs[1].iov_len  = datalen;
+	msg0.msg_iov  = (struct iovec*)iovecs;
+	msg0.msg_iovlen = 2;
 #endif
 
+	icmp_hdr_fill[0].u0.pair = name->xdat;
 	icmp_update_checksum((unsigned char *)&icmp_hdr_fill[0].checksum, iovecs, count + 1);
 	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,
 			(const sockaddr *)name->name, name->namlen, NULL, NULL);

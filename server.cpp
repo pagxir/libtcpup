@@ -10,6 +10,7 @@
 #include "tcp_channel.h"
 #include "pstcp_channel.h"
 
+void set_ping_reply(int);
 void set_cc_algo(const char *name);
 extern struct module_stub dns_async_mod;
 extern struct module_stub tcp_timer_mod;
@@ -65,16 +66,17 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	set_ping_reply(1);
 	tcp_set_device_address(&interface_address);
 	pstcp_channel_forward(&forward_address);
 
 	tcp_set_device_address(&listen_address);
 
 	tx_loop_t *loop = tx_loop_default();
-    tx_epoll_init(loop);
-    tx_kqueue_init(loop);
-    tx_completion_port_init(loop);
-    tx_timer_ring_get(loop);
+	tx_epoll_init(loop);
+	tx_kqueue_init(loop);
+	tx_completion_port_init(loop);
+	tx_timer_ring_get(loop);
 
 	initialize_modules(modules_list);
 #ifndef WIN32

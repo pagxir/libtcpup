@@ -576,7 +576,7 @@ int tcp_soclose(struct tcpcb *tp)
 	return 0;
 }
 
-int tcpup_do_packet(int dst, const char *buf, size_t len, const void *from, size_t namlen)
+int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_addr *from)
 {
 	int handled = 0;
 	tcp_seq conv = 0;
@@ -593,7 +593,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const void *from, size
 	conv = htonl(th->th_conv);
 	for (tp = tcp_last_tcpcb; tp != NULL; tp = tp->tle_next) {
 		if (conv == tp->t_conv) {
-			tcp_input(tp, dst, buf, len, from, namlen);
+			tcp_input(tp, dst, buf, len, from);
 			handled = 1;
 			break;
 		}
@@ -605,10 +605,8 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const void *from, size
 		if (tp != NULL) {
 			tcp_attach(tp);
 			tp->t_state = TCPS_LISTEN;
-			UTXPL_ASSERT(namlen <= sizeof(tp->dst_addr.name));
-			memcpy(tp->dst_addr.name, from, namlen);
-			tp->dst_addr.namlen = namlen;
-			tcp_input(tp, dst, buf, len, from, namlen);
+			tp->dst_addr = *from;
+			tcp_input(tp, dst, buf, len, from);
 			handled = 1;
 		}
 	} else if (handled == 0 && (th->th_flags & TH_CONNECT) == TH_ACK) {
@@ -616,9 +614,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const void *from, size
 			struct tcpcb tcb = {0};
 			tcb.if_dev = dst;
 			tcb.t_conv = conv;
-			UTXPL_ASSERT(namlen <= sizeof(tcb.dst_addr.name));
-			memcpy(tcb.dst_addr.name, from, namlen);
-			tcb.dst_addr.namlen = namlen;
+			tcb.dst_addr = *from;
 			th->th_seq = ntohl(th->th_seq);
 			th->th_ack = ntohl(th->th_ack);
 			th->th_tsval = ntohl(th->th_tsval);

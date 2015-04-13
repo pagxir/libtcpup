@@ -104,6 +104,7 @@ enum {
 
 struct tcpup_addr {
     size_t namlen;
+    u_long xdat;
     char name[16];
 };
 

@@ -707,7 +707,7 @@ void     tcp_reass_destroy(void);
 #if 0
 void     tcp_input(struct mbuf *, int);
 #endif
-void tcp_input(struct tcpcb *tp, int dst, const char *buf, size_t len, const void *from, size_t namlen);
+void tcp_input(struct tcpcb *tp, int dst, const char *buf, size_t len, const struct tcpup_addr *from);
 u_long   tcp_maxmtu(struct in_conninfo *, struct tcp_ifcap *);
 u_long   tcp_maxmtu6(struct in_conninfo *, struct tcp_ifcap *);
 void     tcp_mss_update(struct tcpcb *, int, int, struct hc_metrics_lite *,
