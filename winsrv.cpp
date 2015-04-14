@@ -62,7 +62,6 @@ static void CALLBACK _ControlHandle(DWORD dwCtrlCode)
 
 static void CALLBACK _Daemonize(DWORD dwArgc, LPTSTR *lpszArgv)
 {
-	int count;
 	static char *_winsrv_args[] = {"main.exe", "-l", "53", "127.0.0.1:3389"};
 	sshStatusHandle = RegisterServiceCtrlHandler(("SAAgent"), _ControlHandle);
 	UpdateStatus(sshStatusHandle, lastStatus);

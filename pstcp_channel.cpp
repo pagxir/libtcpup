@@ -72,6 +72,9 @@ class pstcp_channel {
 		struct tx_task_t w_evt_peer;
 
 	private:
+		struct tx_task_t xidle;
+		struct tx_timer_t tidle;
+		static void tc_idleclose(void *context);
 		int expend_relay(struct sockaddr *, struct tcpcb *, u_long , u_short , struct tx_task_t *);
 };
 
@@ -120,6 +123,9 @@ pstcp_channel::pstcp_channel(struct tcpcb *tp)
 	r2s.off = r2s.len = 0;
 	m_dns_handle = -1;
 
+	tx_task_init(&xidle, loop, tc_idleclose, this);
+	tx_timer_init(&tidle, loop, &xidle);
+
 	tx_task_init(&m_rwait, loop, tc_callback, this);
 	tx_task_init(&m_wwait, loop, tc_callback, this);
 	tx_task_init(&r_evt_peer, loop, tc_callback, this);
@@ -135,6 +141,9 @@ pstcp_channel::~pstcp_channel()
 
 	tx_aiocb_fini(&m_sockcbp);
 	tcp_soclose(m_peer);
+
+	tx_timer_stop(&tidle);
+	tx_task_drop(&xidle);
 
 	tx_task_drop(&w_evt_peer);
 	tx_task_drop(&r_evt_peer);
@@ -228,6 +237,7 @@ int pstcp_channel::run(void)
 	int change = 0;
 	struct sockaddr name;
 
+	tx_timer_reset(&tidle, 1000 * 180); // close after 3 min idle time
 
 #define TF_RESOLVABLE(flags) (0x0 == (flags&(TF_RESOLVING|TF_RESOLVED)))
 	if (TF_RESOLVABLE(m_flags)) {
@@ -442,6 +452,14 @@ int pstcp_channel::run(void)
     }
 
 	return error;
+}
+
+void pstcp_channel::tc_idleclose(void *context)
+{
+	pstcp_channel *chan;
+	chan = (pstcp_channel *)context;
+	delete chan;
+	return;
 }
 
 void pstcp_channel::tc_callback(void *context)
