@@ -22,7 +22,18 @@ struct module_stub *modules_list[] = {
    	&pstcp_listen_mod, &dns_async_mod, NULL
 };
 
+#ifdef _WINSRV_
+void _winsrv_stop()
+{
+	tx_loop_t *loop = tx_loop_default();
+	tx_loop_stop(loop);
+	return;
+}
+
+int _winsrv(int argc, char *argv[])
+#else
 int main(int argc, char *argv[])
+#endif
 {
 	struct tcpip_info listen_address = {0};
 	struct tcpip_info outter_address = {0};
