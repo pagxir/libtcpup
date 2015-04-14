@@ -19,7 +19,6 @@ static BOOL UpdateStatus(SERVICE_STATUS_HANDLE handle, DWORD status)
 	if (handle != 0) {
 		memset(&ssStatus, 0, sizeof(ssStatus));
 		ssStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
-		//ssStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP| SERVICE_ACCEPT_PAUSE_CONTINUE;
 		ssStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP;
 		ssStatus.dwCurrentState = status;
 
@@ -65,7 +64,7 @@ static void CALLBACK _Daemonize(DWORD dwArgc, LPTSTR *lpszArgv)
 {
 	int count;
 	static char *_winsrv_args[] = {"main.exe", "-l", "53", "127.0.0.1:3389"};
-	sshStatusHandle = RegisterServiceCtrlHandler(TEXT("SAAgent"), _ControlHandle);
+	sshStatusHandle = RegisterServiceCtrlHandler(("SAAgent"), _ControlHandle);
 	UpdateStatus(sshStatusHandle, lastStatus);
 
 	if (lpszArgv == NULL || dwArgc < 2) {

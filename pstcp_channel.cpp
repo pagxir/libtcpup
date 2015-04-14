@@ -34,6 +34,15 @@
 #include <ws2tcpip.h>
 #endif
 
+struct relay_data {
+    int off;
+    int len;
+#define RDF_EOF 0x01
+#define RDF_FIN 0x02
+    int flag;
+    char buf[4096];
+};
+
 class pstcp_channel {
    	public:
 		pstcp_channel(struct tcpcb *tp);
@@ -54,14 +63,8 @@ class pstcp_channel {
 		struct tx_aiocb m_sockcbp;
 
 	private:
-		int m_woff;
-		int m_wlen;
-		char m_wbuf[4096];
-
-	private:
-		int m_roff;
-		int m_rlen;
-		char m_rbuf[4096];
+		struct relay_data r2s;
+		struct relay_data s2r;
 
 	private:
 		struct tcpcb *m_peer;
@@ -75,18 +78,46 @@ class pstcp_channel {
 u_short _forward_port = 1080;
 u_long  _forward_addr = INADDR_LOOPBACK;
 
+static void anybind(int fd, int family)
+{
+	struct sockaddr_in siaddr = {0};
+	struct sockaddr_in6 si6addr = {0};
+
+	switch(family) {
+		case AF_INET:
+			siaddr.sin_family = AF_INET;
+			bind(fd, (struct sockaddr *)&siaddr, sizeof(siaddr));
+			break;
+
+		case AF_INET6:
+			si6addr.sin6_family = AF_INET6;
+			bind(fd, (struct sockaddr *)&si6addr, sizeof(si6addr));
+			break;
+
+		default:
+			break;
+	}
+
+	return;
+}
+
 pstcp_channel::pstcp_channel(struct tcpcb *tp)
 	:m_flags(0)
 {
 	m_peer = tp;
 	m_file = socket(AF_INET, SOCK_STREAM, 0);
 	assert(m_file != -1);
+
 	tx_loop_t *loop = tx_loop_default();
 	tx_setblockopt(m_file, 0);
+	anybind(m_file, AF_INET);
 	tx_aiocb_init(&m_sockcbp, loop, m_file);
 
-	m_roff = m_rlen = 0;
-	m_woff = m_wlen = 0;
+	s2r.flag = 0;
+	s2r.off = s2r.len = 0;
+
+	r2s.flag = 0;
+	r2s.off = r2s.len = 0;
 	m_dns_handle = -1;
 
 	tx_task_init(&m_rwait, loop, tc_callback, this);
@@ -194,6 +225,7 @@ int pstcp_channel::run(void)
 {
 	int len = 0;
 	int error = -1;
+	int change = 0;
 	struct sockaddr name;
 
 
@@ -236,6 +268,7 @@ int pstcp_channel::run(void)
 					rsoket = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 					if (rsoket == -1) continue;
 					tx_setblockopt(rsoket, 0);
+					anybind(rsoket, rp->ai_family);
 
 					tx_aiocb_init(&m_sockcbp, loop, rsoket);
 					error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)rp->ai_addr, rp->ai_addrlen, &m_wwait);
@@ -243,20 +276,21 @@ int pstcp_channel::run(void)
 					if (error == 0 || error == -WSAEINPROGRESS) {
 						m_file = rsoket;
 						if (error) {
-							fprintf(stderr, "connect all pending\n");
 							m_flags |= TF_CONNECTING;
+							fprintf(stderr, "connect is pending\n");
 							dns_query_close(m_dns_handle);
 							m_dns_handle = -1;
 							return 1;
 						}
 
 						m_flags |= TF_CONNECTED;
+						fprintf(stderr, "connect all pending\n");
 						dns_query_close(m_dns_handle);
 						m_dns_handle = -1;
-						goto process;
+						return 1;
 					}
 
-					fprintf(stderr, "connect error colde: %d\n", errno);
+					fprintf(stderr, "connect error code: %d\n", errno);
 					tx_aiocb_fini(&m_sockcbp);
 					closesocket(rsoket);
 				}
@@ -264,6 +298,9 @@ int pstcp_channel::run(void)
 				fprintf(stderr, "connect all failure\n");
 				return 0;
 			}
+
+			fprintf(stderr, "query is pending\n");
+			return 1;
 		}
 	}
 
@@ -278,6 +315,8 @@ int pstcp_channel::run(void)
 			assert(m_file != -1);
 
 			tx_setblockopt(m_file, 0);
+			anybind(m_file, AF_INET6);
+
 			tx_aiocb_init(&m_sockcbp, loop, m_file);
 		}
 
@@ -301,95 +340,106 @@ int pstcp_channel::run(void)
 		}
 
 		if ((m_flags & TF_CONNECTED) == 0) {
-			fprintf(stderr, "connect is inprogress...");
+			fprintf(stderr, "%p connect is inprogress...\n", this);
 			return 1;
 		}
 	}
 
-process:
-reread:
-	if (tx_readable(&m_sockcbp) && m_rlen < (int)sizeof(m_rbuf) && (m_flags & TF_EOF1) == 0) {
-		len = recv(m_file, m_rbuf + m_rlen, sizeof(m_rbuf) - m_rlen, 0);
-		tx_aincb_update(&m_sockcbp, len);
-		if (len > 0)
-		   	m_rlen += len;
-		else if (len == 0)
-			m_flags |= TF_EOF1;
-		else if (tx_readable(&m_sockcbp))
-			return 0;
-	}
+	do {
+		change = 0;
+		if (s2r.off >= s2r.len) s2r.off = s2r.len = 0;
 
-	if (tcp_readable(m_peer) && m_wlen < (int)sizeof(m_wbuf) && (m_flags & TF_EOF0) == 0) {
-		len = tcp_read(m_peer, m_wbuf + m_wlen, sizeof(m_wbuf) - m_wlen);
-		if (len == -1 || len == 0) {
-			m_flags |= TF_EOF0;
-			len = 0;
-		}
-		m_wlen += len;
-	}
+		if (tx_readable(&m_sockcbp) && s2r.len < (int)sizeof(s2r.buf) && !s2r.flag) {
+			len = recv(m_file, s2r.buf + s2r.len, sizeof(s2r.buf) - s2r.len, 0);
+			tx_aincb_update(&m_sockcbp, len);
 
-	if (tx_writable(&m_sockcbp) && m_woff < m_wlen) {
-		do {
-			len = tx_outcb_write(&m_sockcbp, m_wbuf + m_woff, m_wlen - m_woff);
-			if (len > 0) {
-				m_woff += len;
-			} else if (tx_writable(&m_sockcbp)) {
+			change |= (len > 0);
+			if (len > 0)
+				s2r.len += len;
+			else if (len == 0)
+				s2r.flag |= RDF_EOF;
+			else if (tx_readable(&m_sockcbp)) // socket meet error condiction
 				return 0;
-			}
-		} while (len > 0 && m_woff < m_wlen);
-	}
+		}
 
-	if (tcp_writable(m_peer) && m_roff < m_rlen) {
-		len = tcp_write(m_peer, m_rbuf + m_roff, m_rlen - m_roff);
-		if (len == -1) return 0;
-		m_roff += len;
-	}
+		if (tcp_writable(m_peer) && s2r.off < s2r.len) {
+			len = tcp_write(m_peer, s2r.buf + s2r.off, s2r.len - s2r.off);
+			if (len == -1) return 0;
+			change |= (len > 0);
+			s2r.off += len;
+		}
+	} while (change);
+
+	do {
+		change = 0;
+		if (r2s.off >= r2s.len)  r2s.off = r2s.len = 0;
+		if (tcp_readable(m_peer) && r2s.len < (int)sizeof(r2s.buf) && !r2s.flag) {
+			len = tcp_read(m_peer, r2s.buf + r2s.len, sizeof(r2s.buf) - r2s.len);
+			if (len == -1 || len == 0) {
+				r2s.flag |= RDF_EOF;
+				len = 0;
+			}
+
+			change |= (len > 0);
+			r2s.len += len;
+		}
+
+		if (tx_writable(&m_sockcbp) && r2s.off < r2s.len) {
+			do {
+				len = tx_outcb_write(&m_sockcbp, r2s.buf + r2s.off, r2s.len - r2s.off);
+				if (len > 0) {
+					r2s.off += len;
+					change |= (len > 0);
+				} else if (tx_writable(&m_sockcbp)) {
+					return 0;
+				}
+			} while (len > 0 && r2s.off < r2s.len);
+		}
+
+	} while (change);
+
 
 	error = 0;
 
-	if (m_roff >= m_rlen) {
-		int test_flags = (TF_EOF1 | TF_SHUT1);
-	   
-		m_roff = m_rlen = 0;
-        if ((m_flags & test_flags) == TF_EOF1) {
-            test_flags |= TF_SHUT1;
-            tcp_shutdown(m_peer);
-        } else if ((m_flags & TF_EOF1) == 0) {
-            /* XXX */
-            if (tx_readable(&m_sockcbp)) { goto reread; }
+	if (s2r.off >= s2r.len) {
+        s2r.off = s2r.len = 0;
+
+		if (s2r.flag == RDF_EOF) {
+			tcp_shutdown(m_peer);
+            s2r.flag |= RDF_FIN;
         }
 	}
 
-	if (m_woff >= m_wlen) {
-		int test_flags = (TF_EOF0 | TF_SHUT0);
-		if ((m_flags & test_flags) == TF_EOF0) {
+	if (r2s.off >= r2s.len) {
+        r2s.off = r2s.len = 0;
+
+		if (r2s.flag == RDF_EOF) {
 			shutdown(m_file, SD_BOTH);
-			test_flags |= TF_SHUT0;
+            r2s.flag |= RDF_FIN;
 		}
-		m_woff = m_wlen = 0;
 	}
 
-	if (m_roff < m_rlen) {
+    if (s2r.off < s2r.len && !tcp_writable(m_peer)) {
 		tcp_poll(m_peer, TCP_WRITE, &w_evt_peer);
 		error = 1;
 	}
 
-	if (m_woff < m_wlen) {
-	   	tx_outcb_prepare(&m_sockcbp, &m_wwait, 0);
+	if (r2s.off < r2s.len && !tx_writable(&m_sockcbp)) {
+		tx_outcb_prepare(&m_sockcbp, &m_wwait, 0);
 		error = 1;
 	}
 
-	if (m_rlen < (int)sizeof(m_rbuf) &&
-			(m_flags & TF_EOF1) == 0) {
-		tx_aincb_active(&m_sockcbp, &m_rwait);
-		error = 1;
-	}
+    if ((s2r.flag == 0) && !tx_readable(&m_sockcbp) &&
+            s2r.len < (int)sizeof(s2r.buf)) {
+        tx_aincb_active(&m_sockcbp, &m_rwait);
+        error = 1;
+    }
 
-	if (m_wlen < (int)sizeof(m_wbuf) &&
-			(m_flags & TF_EOF0) == 0) {
-		tcp_poll(m_peer, TCP_READ, &r_evt_peer);
-		error = 1;
-	}
+    if ((r2s.flag == 0) && !tcp_readable(m_peer) &&
+            r2s.len < (int)sizeof(r2s.buf)) {
+        tcp_poll(m_peer, TCP_READ, &r_evt_peer);
+        error = 1;
+    }
 
 	return error;
 }

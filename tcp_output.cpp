@@ -481,7 +481,8 @@ sendit:
 
 	if (th->th_flags & TH_FIN) {
 		TCP_TRACE_CHECK(tp, th->th_flags & TH_FIN, "%x FIN sent\n", tp->t_conv);
-		TCP_TRACE_CHECK(tp, tilen == 0 && tp->t_state > TCPS_ESTABLISHED, "%x finish ack\n", tp->t_conv);
+		TCP_TRACE_CHECK(tp, tilen == 0 && tp->t_state > TCPS_ESTABLISHED,
+				"%x finish ack state %d, rcv_nxt %x, %x, %x\n", tp->t_conv, tp->t_state, tp->rcv_nxt, htonl(th->th_seq), htonl(th->th_ack));
 	}
 
 	error = utxpl_output(tp->if_dev, iobuf, 3, &tp->dst_addr);

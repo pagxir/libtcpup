@@ -447,11 +447,13 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	packet_encrypt(key, _crypt_stream, _plain_stream, datlen);
 	iovecs[1].buf = (char *)_crypt_stream;
 	iovecs[1].len = datlen;
+	count = 1;
 #endif
 
+	transfer = 1;
 	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,
 			(const sockaddr *)name->name, name->namlen, NULL, NULL);
-	error = (error == 0? transfer: -1);
+	error = ((error == 0 || WSAGetLastError() == WSA_IO_PENDING)? transfer: -1);
 #endif
 
 	TCP_DEBUG(error == -1, "utxpl_output send failure\n");

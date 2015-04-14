@@ -352,6 +352,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 	 */
 	tiwin = th->th_win << WINDOW_SCALE; /* tp->snd_scale; */
 	TCP_TRACE_CHECK(tp, tiwin < 2 * tp->t_maxseg, "small window  %ld\n", tiwin);
+	TCP_TRACE_CHECK(tp, (tp->t_state > TCPS_ESTABLISHED), "after fin: %x %x %x\n", th->th_seq, th->th_ack, tp->snd_max);
 
 	/*
 	 * Parse options on any incoming segment.
