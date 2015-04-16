@@ -281,10 +281,12 @@ static void listen_statecb(void *context)
 int ticks = 0;
 
 #ifndef WIN32
+#define IOVEC struct iovec
 #define LPIOVEC struct iovec *
 #define IOV_LEN(var) var.iov_len
 #define IOV_BASE(var) var.iov_base
 #else
+#define IOVEC WSABUF
 #define LPIOVEC LPWSABUF
 #define IOV_LEN(var) var.len
 #define IOV_BASE(var) var.buf
@@ -356,13 +358,13 @@ void tcpup_device::incoming(void)
 			}
 
 			if (icmphdr->type == 0x08) {
-				struct iovec iov0;
+				IOVEC iov0;
 				icmphdr->type = 0;
 
-				iov0.iov_len = len - IPHDR_SKIP_LEN;
-				iov0.iov_base = packet + IPHDR_SKIP_LEN;
+				IOV_LEN(iov0) = len - IPHDR_SKIP_LEN;
+				IOV_BASE(iov0) = packet + IPHDR_SKIP_LEN;
 				icmp_update_checksum((unsigned char *)&icmphdr->checksum, &iov0, 1);
-				sendto(_file, icmphdr, len - IPHDR_SKIP_LEN, 0, &saaddr, salen);
+				sendto(_file, (char *)icmphdr, len - IPHDR_SKIP_LEN, 0, &saaddr, salen);
 			}
 		}
 

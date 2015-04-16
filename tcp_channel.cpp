@@ -404,6 +404,7 @@ int tcp_channel::run(void)
 {
 	int len = 0;
 	int error = 0;
+	int change = 0;
 	struct sockaddr_in name;
 
     if (m_flags & TF_PROXY_HELLO) {
@@ -442,45 +443,59 @@ int tcp_channel::run(void)
 		return 1;
 	}
 
-reread:
-	if (tx_readable(&m_sockcbp) && c2r.len < (int)sizeof(c2r.buf) && !c2r.flag) {
-		len = recv(m_file, c2r.buf + c2r.len, sizeof(c2r.buf) - c2r.len, 0);
-		tx_aincb_update(&m_sockcbp, len);
+	do {
+		change = 0;
+		if (c2r.off >= c2r.len) c2r.off = c2r.len = 0;
 
-	   	if (len > 0)
-		   	c2r.len += len;
-		else if (len == 0)
-            c2r.flag |= RDF_EOF;
-		else if (tx_readable(&m_sockcbp)) // socket meet error condiction
-			return 0;
-	}
+		if (tx_readable(&m_sockcbp) && c2r.len < (int)sizeof(c2r.buf) && !c2r.flag) {
+			len = recv(m_file, c2r.buf + c2r.len, sizeof(c2r.buf) - c2r.len, 0);
+			tx_aincb_update(&m_sockcbp, len);
 
-	if (tcp_readable(m_peer) && r2c.len < (int)sizeof(r2c.buf) && !r2c.flag) {
-		len = tcp_read(m_peer, r2c.buf + r2c.len, sizeof(r2c.buf) - r2c.len);
-		if (len == -1 || len == 0) {
-            r2c.flag |= RDF_EOF;
-			len = 0;
+			change |= (len > 0);
+			if (len > 0)
+				c2r.len += len;
+			else if (len == 0)
+				c2r.flag |= RDF_EOF;
+			else if (tx_readable(&m_sockcbp)) // socket meet error condiction
+				return 0;
 		}
 
-        r2c.len += len;
-	}
+		if (tcp_writable(m_peer) && c2r.off < c2r.len) {
+			len = tcp_write(m_peer, c2r.buf + c2r.off, c2r.len - c2r.off);
+			if (len == -1) return 0;
+			change |= (len > 0);
+			c2r.off += len;
+		}
+	} while (change);
 
-	if (tx_writable(&m_sockcbp) && r2c.off < r2c.len) {
-		do {
-			len = tx_outcb_write(&m_sockcbp, r2c.buf + r2c.off, r2c.len - r2c.off);
-			if (len > 0) {
-                r2c.off += len;
-			} else if (tx_writable(&m_sockcbp)) {
-				return 0;
+	do {
+		change = 0;
+		if (r2c.off >= r2c.len)  r2c.off = r2c.len = 0;
+		if (tcp_readable(m_peer) && r2c.len < (int)sizeof(r2c.buf) && !r2c.flag) {
+			len = tcp_read(m_peer, r2c.buf + r2c.len, sizeof(r2c.buf) - r2c.len);
+			if (len == -1 || len == 0) {
+				r2c.flag |= RDF_EOF;
+				len = 0;
 			}
-		} while (len > 0 && r2c.off < r2c.len);
-	}
 
-	if (tcp_writable(m_peer) && c2r.off < c2r.len) {
-		len = tcp_write(m_peer, c2r.buf + c2r.off, c2r.len - c2r.off);
-		if (len == -1) return 0;
-        c2r.off += len;
-	}
+			change |= (len > 0);
+			r2c.len += len;
+		}
+
+		if (tx_writable(&m_sockcbp) && r2c.off < r2c.len) {
+			do {
+				len = tx_outcb_write(&m_sockcbp, r2c.buf + r2c.off, r2c.len - r2c.off);
+				if (len > 0) {
+					r2c.off += len;
+					change |= (len > 0);
+				} else if (tx_writable(&m_sockcbp)) {
+					return 0;
+				}
+			} while (len > 0 && r2c.off < r2c.len);
+		}
+
+	} while (change);
+
 
 	error = 0;
 
@@ -490,9 +505,6 @@ reread:
 		if (c2r.flag == RDF_EOF) {
 			tcp_shutdown(m_peer);
             c2r.flag |= RDF_FIN;
-        } else if (c2r.flag == 0 &&
-                tx_readable(&m_sockcbp) ) {
-            goto reread; 
         }
 	}
 
@@ -505,23 +517,23 @@ reread:
 		}
 	}
 
-    if (c2r.off < c2r.len) {
+    if (c2r.off < c2r.len && !tcp_writable(m_peer)) {
 		tcp_poll(m_peer, TCP_WRITE, &w_evt_peer);
 		error = 1;
 	}
 
-	if (r2c.off < r2c.len) {
+	if (r2c.off < r2c.len && !tx_writable(&m_sockcbp)) {
 		tx_outcb_prepare(&m_sockcbp, &m_wwait, 0);
 		error = 1;
 	}
 
-    if ((c2r.flag == 0) &&
+    if ((c2r.flag == 0) && !tx_readable(&m_sockcbp) &&
             c2r.len < (int)sizeof(c2r.buf)) {
         tx_aincb_active(&m_sockcbp, &m_rwait);
         error = 1;
     }
 
-    if ((r2c.flag == 0) &&
+    if ((r2c.flag == 0) && !tcp_readable(m_peer) &&
             r2c.len < (int)sizeof(r2c.buf)) {
         tcp_poll(m_peer, TCP_READ, &r_evt_peer);
         error = 1;
