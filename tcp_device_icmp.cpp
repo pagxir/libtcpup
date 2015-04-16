@@ -280,12 +280,23 @@ static void listen_statecb(void *context)
 
 int ticks = 0;
 
+#ifndef WIN32
+#define LPIOVEC struct iovec *
+#define IOV_LEN(var) var.iov_len
+#define IOV_BASE(var) var.iov_base
+#else
+#define LPIOVEC LPWSABUF
+#define IOV_LEN(var) var.len
+#define IOV_BASE(var) var.buf
+#endif
+
 #define RCVPKT_MAXCNT 256
 #define RCVPKT_MAXSIZ 1500
 
 static u_short _rcvpkt_len[RCVPKT_MAXCNT];
 static tcpup_addr _rcvpkt_addr[RCVPKT_MAXCNT];
 static char  _rcvpkt_buf[RCVPKT_MAXSIZ * RCVPKT_MAXCNT];
+static void icmp_update_checksum(unsigned char *st, LPIOVEC vecs, size_t count);
 
 static void listen_callback(void *context)
 {
@@ -308,6 +319,7 @@ void tcpup_device::incoming(void)
 	int pktcnt;
 	socklen_t salen;
 	struct sockaddr saaddr;
+	struct icmphdr *icmphdr;
 	char packet[RCVPKT_MAXSIZ];
 
 	if (tx_readable(&_sockcbp)) {
@@ -324,21 +336,34 @@ void tcpup_device::incoming(void)
 			if (len == -1) break;
 
 			int offset = IPHDR_SKIP_LEN + sizeof(icmp_hdr_fill);
+			icmphdr = (struct icmphdr *)(packet + IPHDR_SKIP_LEN);
+
 			if (len >= offset + TCPUP_HDRLEN) {
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
 				memcpy(&key, packet + 14 + IPHDR_SKIP_LEN, 2);
 				packet_decrypt(key, p, packet + offset, len - offset);
-				p += (len - offset);
 
-				memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
-				struct icmphdr *hdrp = (struct icmphdr *)&packet[IPHDR_SKIP_LEN];
-				_rcvpkt_addr[pktcnt].xdat = hdrp->u0.pair;
-				_rcvpkt_addr[pktcnt].namlen = salen;
-				_rcvpkt_len[pktcnt++] = (len - offset);
-
+				struct tcphdr *tphdr = (struct tcphdr *)p;
+				if (tphdr->th_magic == MAGIC_UDP_TCP) {
+					this->_t_rcvtime = time(NULL);
+					memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
+					_rcvpkt_addr[pktcnt].xdat = icmphdr->u0.pair;
+					_rcvpkt_addr[pktcnt].namlen = salen;
+					_rcvpkt_len[pktcnt++] = (len - offset);
+					p += (len - offset);
+					continue;
+				}
 			}
 
-			this->_t_rcvtime = time(NULL);
+			if (icmphdr->type == 0x08) {
+				struct iovec iov0;
+				icmphdr->type = 0;
+
+				iov0.iov_len = len - IPHDR_SKIP_LEN;
+				iov0.iov_base = packet + IPHDR_SKIP_LEN;
+				icmp_update_checksum((unsigned char *)&icmphdr->checksum, &iov0, 1);
+				sendto(_file, icmphdr, len - IPHDR_SKIP_LEN, 0, &saaddr, salen);
+			}
 		}
 
 		int handled;
@@ -389,16 +414,6 @@ void __utxpl_assert(const char *expr, const char *path, size_t line)
 	exit(-1);
 	return;
 }
-
-#ifndef WIN32
-#define LPIOVEC struct iovec *
-#define IOV_LEN(var) var.iov_len
-#define IOV_BASE(var) var.iov_base
-#else
-#define LPIOVEC LPWSABUF
-#define IOV_LEN(var) var.len
-#define IOV_BASE(var) var.buf
-#endif
 
 static void icmp_update_checksum(unsigned char *st, LPIOVEC vecs, size_t count)
 {
