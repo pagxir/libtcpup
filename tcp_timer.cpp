@@ -25,6 +25,8 @@ int tcp_keepcnt = TCPTV_KEEPCNT;
 int tcp_maxidle = TCPTV_KEEPINTVL * TCPTV_KEEPCNT;
 int tcp_delacktime = TCPTV_DELACK;
 
+static int tcp_totbackoff = 2559; 
+
 void tcp_canceltimers(struct tcpcb *tp)
 {
 	tx_timer_stop(&tp->t_timer_persist);
@@ -56,10 +58,39 @@ static void tcp_persist_timo(void *up)
 
 	tp = (struct tcpcb *)up;
    	tcpstat.tcps_persisttimeo++;
-   	tcp_setpersist(tp);
+	
+	tcp_timer_activate(tp, TT_PERSIST, 0);
+
+	/*
+	 * Hack: if the peer is dead/unreachable, we do not
+	 * time out if the window is closed.  After a full
+	 * backoff, drop the connection if the idle time
+	 * (no responses to probes) reaches the maximum
+	 * backoff that we would use if retransmitting.
+	 */
+	if (tp->t_rxtshift == TCP_MAXRXTSHIFT &&
+			(ticks - tp->t_rcvtime >= tcp_maxpersistidle ||
+			 ticks - tp->t_rcvtime >= TCP_REXMTVAL(tp) * tcp_totbackoff)) {
+		TCPSTAT_INC(tcps_persistdrop);
+		tp = tcp_drop(tp, UTXTIMEDOUT);
+		goto out;
+	}
+	/*
+	 * If the user has closed the socket then drop a persisting
+	 * connection after a much reduced timeout.
+	 */
+	if (tp->t_state > TCPS_CLOSE_WAIT &&
+			(ticks - tp->t_rcvtime) >= TCPTV_PERSMAX) {
+		TCPSTAT_INC(tcps_persistdrop);
+		tp = tcp_drop(tp, UTXTIMEDOUT);
+		goto out;
+	}
+
+	tcp_setpersist(tp);
    	tp->t_flags |= TF_FORCEDATA;
    	(void)tcp_output(tp);
    	tp->t_flags &= ~TF_FORCEDATA;
+out:
 
 	return;
 }
@@ -183,23 +214,29 @@ static void tcp_output_wrap(void *uup)
 void
 tcp_timer_activate(struct tcpcb *tp, int timer_type, u_int delta)
 {
+	struct tx_task_t *t_task;
 	struct tx_timer_t *t_callout;
 
 	switch (timer_type) {
 		case TT_DELACK:
 			t_callout = &tp->t_timer_delack;
+			t_task = &tp->t_timer_delack_t;
 			break;
 		case TT_REXMT:
 			t_callout = &tp->t_timer_rexmt;
+			t_task = &tp->t_timer_rexmt_t;
 			break;
 		case TT_PERSIST:
 			t_callout = &tp->t_timer_persist;
+			t_task = &tp->t_timer_persist_t;
 			break;
 		case TT_KEEP:
 			t_callout = &tp->t_timer_keep;
+			t_task = &tp->t_timer_keep_t;
 			break;
 		case TT_2MSL:
 			t_callout = &tp->t_timer_2msl;
+			t_task = &tp->t_timer_2msl_t;
 			break;
 		default:
 			/* static char _type[] = "bad timer_type"; */
@@ -209,7 +246,9 @@ tcp_timer_activate(struct tcpcb *tp, int timer_type, u_int delta)
 
 	if (delta == 0) {
 		tx_timer_stop(t_callout);
+		tx_task_drop(t_task);
 	} else {
+		tx_task_drop(t_task);
 		tx_timer_reset(t_callout, delta);
 	}
 

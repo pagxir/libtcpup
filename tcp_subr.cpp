@@ -2,7 +2,10 @@
 #include <utx/queue.h>
 
 #include <tcpup/tcp_var.h>
-#include <tcpup/tcp_subr.h>
+#include <tcpup/tcp_var.h>
+#include <tcpup/tcp_timer.h>
+
+int tcp_maxpersistidle = TCPTV_KEEP_IDLE;
 
 struct tcpcb *tcp_create(int file, uint32_t conv)
 {
