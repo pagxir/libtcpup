@@ -511,7 +511,8 @@ int tcp_channel::run(void)
 	if (r2c.off >= r2c.len) {
         r2c.off = r2c.len = 0;
 
-		if (r2c.flag == RDF_EOF) {
+		if (r2c.flag == RDF_EOF && tx_writable(&m_sockcbp)) {
+			assert(tx_writable(&m_sockcbp));
 			shutdown(m_file, SD_BOTH);
             r2c.flag |= RDF_FIN;
 		}
@@ -522,7 +523,7 @@ int tcp_channel::run(void)
 		error = 1;
 	}
 
-	if (r2c.off < r2c.len && !tx_writable(&m_sockcbp)) {
+	if ((r2c.off < r2c.len || r2c.flag == RDF_EOF) && !tx_writable(&m_sockcbp)) {
 		tx_outcb_prepare(&m_sockcbp, &m_wwait, 0);
 		error = 1;
 	}
