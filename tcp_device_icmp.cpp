@@ -228,9 +228,9 @@ void tcpup_device::init(int dobind)
 	int bufsize = 1024 * 1024;
 	setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
 	setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
+	tx_setblockopt(_file, 0);
 #endif
 
-	tx_setblockopt(_file, 0);
 	tx_aiocb_init(&_sockcbp, loop, _file);
 #if 0
 	stun_client_init(_file);
@@ -559,6 +559,7 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	packet_encrypt(key, _crypt_stream, _plain_stream, datlen);
 	iovecs[1].buf = (char *)_crypt_stream;
 	iovecs[1].len = datlen;
+	count = 1;
 #endif
 
 	icmp_hdr_fill[0].u0.pair = name->xdat;

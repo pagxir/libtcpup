@@ -46,7 +46,8 @@ static tx_task_q _dev_busy;
 static struct tx_task_t _stop;
 static struct tx_task_t _start;
 
-static struct tcpup_device *_paging_devices[32] = {0};
+#define MAX_DEV_CNT 8
+static struct tcpup_device *_paging_devices[MAX_DEV_CNT] = {0};
 
 static void listen_statecb(void *context);
 static void listen_callback(void *context);
@@ -63,7 +64,7 @@ void set_ping_reply(int mode)
 
 struct tcpcb *tcp_create(uint32_t conv)
 {
-	int offset = (rand() % 0xF) << 1;
+	int offset = (rand() % MAX_DEV_CNT) & ~1;
 	tcpup_device *this_device = _paging_devices[offset];
 
 	if (this_device != NULL && this_device->_dobind == 0) {
@@ -207,9 +208,9 @@ void tcpup_device::init(int dobind)
 	int bufsize = 1024 * 1024;
 	setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
 	setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
+	tx_setblockopt(_file, 0);
 #endif
 
-	tx_setblockopt(_file, 0);
 	tx_aiocb_init(&_sockcbp, loop, _file);
 #if 0
 	stun_client_init(_file);
@@ -364,9 +365,9 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	int fd;
     int error;
 
-	if (offset >= 32 || _paging_devices[offset] == NULL) {
+	if (offset >= MAX_DEV_CNT || _paging_devices[offset] == NULL) {
 		fprintf(stderr, "offset: %d\n", offset);
-		if ((offset & 01) && offset < 32 && _paging_devices[offset - 1]) {
+		if ((offset & 01) && offset < MAX_DEV_CNT && _paging_devices[offset - 1]) {
 			offset --;
 		} else {
 			return -1;

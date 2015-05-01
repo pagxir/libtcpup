@@ -1,14 +1,3 @@
-#if 0
-#include <stdio.h>
-#include <UTXPL_ASSERT.h>
-#include <string.h>
-
-#include <wait/platform.h>
-#include <wait/callout.h>
-#include <wait/slotwait.h>
-#include <wait/slotsock.h>
-#endif
-
 #include <unistd.h>
 
 #include <utx/utxpl.h>
@@ -324,7 +313,10 @@ void tcp_input(struct tcpcb *tp, int dst,
 
 	th = (struct tcphdr *)buf;
 	TCPSTAT_INC(tcps_rcvtotal);
-	UTXPL_ASSERT(len >= sizeof(*th));
+	if (len < sizeof(*th)) {
+		TCP_DEBUG(len < sizeof(*th), "incorrect paket %d\n", len);
+		return;
+	}
 
 	th->th_seq = ntohl(th->th_seq);
 	th->th_ack = ntohl(th->th_ack);
@@ -359,10 +351,13 @@ void tcp_input(struct tcpcb *tp, int dst,
 	 */
 	int hdrlen = tcp_dooptions(&to, (u_char *)(th + 1),
 			th->th_opten << 2, (thflags & TH_SYN) ? TO_SYN : 0);
+	if (len < hdrlen) {
+		TCP_DEBUG(len < hdrlen, "incorrect paket %d %d\n", len, hdrlen);
+		return;
+	}
 	to.to_flags |= TOF_TS;
 	to.to_tsval = htonl(th->th_tsval);
 	to.to_tsecr = htonl(th->th_tsecr);
-	UTXPL_ASSERT(len >= (size_t)hdrlen);
 	tlen = len - hdrlen;
 	dat  = buf + hdrlen;
 

@@ -258,30 +258,38 @@ tcp_timer_activate(struct tcpcb *tp, int timer_type, u_int delta)
 int
 tcp_timer_active(struct tcpcb *tp, int timer_type)
 {
+	struct tx_task_t *t_task;
 	struct tx_timer_t *t_callout;
 
 	switch (timer_type) {
 		case TT_DELACK:
 			t_callout = &tp->t_timer_delack;
+			t_task = &tp->t_timer_delack_t;
 			break;
 		case TT_REXMT:
 			t_callout = &tp->t_timer_rexmt;
+			t_task = &tp->t_timer_rexmt_t;
 			break;
 		case TT_PERSIST:
 			t_callout = &tp->t_timer_persist;
+			t_task = &tp->t_timer_persist_t;
 			break;
 		case TT_KEEP:
 			t_callout = &tp->t_timer_keep;
+			t_task = &tp->t_timer_keep_t;
 			break;
 		case TT_2MSL:
 			t_callout = &tp->t_timer_2msl;
+			t_task = &tp->t_timer_2msl_t;
 			break;
 		default:
+			/* static char _type[] = "bad timer_type"; */
 			TCP_DEBUG(1, "bad timer_type");
+			UTXPL_ASSERT(0);
 			return -1;
 	}
 
-	return !tx_timer_idle(t_callout);
+	return !(tx_timer_idle(t_callout) && tx_task_idle(t_task));
 }
 
 
