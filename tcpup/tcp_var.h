@@ -278,7 +278,7 @@ TAILQ_HEAD(sackhole_head, sackhole);
 #define TF_WASCRECOVERY 0x40000000      /* was in congestion recovery */
 #define TF_GOTFIN       0x80000000      /* have got a FIN packet */
 
-#define WINDOW_SCALE	4
+#define WINDOW_SCALE	7
 #define TCP_ISSINCR		0x01000000
 #define SS_NOFDREF      TF_NOOPT
 #define TF_DEVBUSY      TF_SIGNATURE

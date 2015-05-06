@@ -290,7 +290,8 @@ void tcpup_device::incoming(void)
 		ticks = tx_getticks();
 
 		p = _rcvpkt_buf;
-		for (pktcnt = 0; pktcnt < RCVPKT_MAXCNT; pktcnt++) {
+		pktcnt = 0;
+		for (int i = 0; i < RCVPKT_MAXCNT; i++) {
 			salen = sizeof(saaddr);
 			len = recvfrom(_file, packet, RCVPKT_MAXSIZ, MSG_DONTWAIT, &saaddr, &salen);
 			tx_aincb_update(&_sockcbp, len);
@@ -302,10 +303,15 @@ void tcpup_device::incoming(void)
 				memcpy(&key, packet + 14, 2);
 				packet_decrypt(key, p, packet + offset, len - offset);
 				p += (len - offset);
+#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
+				if (_dobind > 0 && (packet[7] || packet[6])) {
+					memcpy(&saaddr.sin_addr, c_buf, 4);
+					memcpy(&saaddr.sin_port, c_buf + 6, 2);
+				}
+#endif
 				memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
 				_rcvpkt_addr[pktcnt].namlen = salen;
 				_rcvpkt_len[pktcnt++] = (len - offset);
-
 			}
 
 			this->_t_rcvtime = time(NULL);
@@ -315,7 +321,8 @@ void tcpup_device::incoming(void)
 		p = _rcvpkt_buf;
 		for (int i = 0; i < pktcnt; i++) {
 			handled = tcpup_do_packet(_offset, p, _rcvpkt_len[i], &_rcvpkt_addr[i]);
-			TCP_DEBUG(handled == 0, "error packet drop: %s\n", inet_ntoa(((struct sockaddr_in *)(&saaddr))->sin_addr));
+			TCP_DEBUG(handled == 0, "error packet drop: %s\n",
+					inet_ntoa(((struct sockaddr_in *)(&saaddr))->sin_addr));
 			p += _rcvpkt_len[i];
 		}
 	}

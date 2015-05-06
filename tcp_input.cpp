@@ -561,6 +561,9 @@ void tcp_input(struct tcpcb *tp, int dst,
 				tp->t_maxseg = to.to_mss;
 			}
 
+			tp->ts_recent = to.to_tsval;
+			tp->ts_recent_age = tcp_ts_getticks();
+
 			if ((to.to_flags & TOF_DESTINATION) &&
 					to.to_dslen >= 4 && to.to_dslen < 60) {
 				TCP_TRACE_AWAYS(tp, "%x update relay from peer\n", tp->t_conv);

@@ -27,7 +27,7 @@ void tcp_trace_start(const void *tp, const char *fmt, ...)
     va_list ap;
     va_start(ap, fmt);
 
-	if (NULL == _trac_link) {
+	if (NULL == _trac_link || _trac_link == tp) {
 		n = vfprintf(stderr, fmt, ap);
 		_trac_link = tp;
 		VAR_UNUSED(n);
