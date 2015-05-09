@@ -331,17 +331,20 @@ int pstcp_channel::run(void)
 		}
 
 		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, sizeof(name), &m_wwait);
-		if (error == -1) {
-			fprintf(stderr, "tcp connect error\n");
-			return 0;
-		}
+		if (error == 0 || error == -WSAEINPROGRESS) {
+			if (error) {
+				fprintf(stderr, "connect is pending\n");
+				m_flags |= TF_CONNECTING;
+				return 1;
+			}
 
-		if (error) {
-			m_flags |= TF_CONNECTING;
+			fprintf(stderr, "connect all pending\n");
+			m_flags |= TF_CONNECTED;
 			return 1;
 		}
 
-		m_flags |= TF_CONNECTED;
+		fprintf(stderr, "tcp connect error\n");
+		return 0;
 	} else {
 		if (tx_writable(&m_sockcbp)
 				&& (m_flags & TF_CONNECTING)) {

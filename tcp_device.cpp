@@ -305,8 +305,9 @@ void tcpup_device::incoming(void)
 				p += (len - offset);
 #ifdef _FEATRUE_INOUT_TWO_INTERFACE_
 				if (_dobind > 0 && (packet[7] || packet[6])) {
-					memcpy(&saaddr.sin_addr, c_buf, 4);
-					memcpy(&saaddr.sin_port, c_buf + 6, 2);
+					struct sockaddr_in *inp = (struct sockaddr_in *)&saaddr;
+					memcpy(&inp->sin_addr, packet, 4);
+					memcpy(&inp->sin_port, packet + 6, 2);
 				}
 #endif
 				memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
