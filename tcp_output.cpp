@@ -77,6 +77,11 @@ cc_after_idle(struct tcpcb *tp)
 {
     if (CC_ALGO(tp)->after_idle != NULL)
         CC_ALGO(tp)->after_idle(tp->ccv);
+
+    if ((tp->t_flags & TF_REC_ADDR) == 0) {
+        tp->dst_addr.xdat = (rand() << 16);
+        tp->dst_addr.xdat |= rand();
+    }
 }
 
 int tcp_output(struct tcpcb *tp)
@@ -108,13 +113,8 @@ int tcp_output(struct tcpcb *tp)
 #endif
 
 	idle = (tp->t_flags & TF_LASTIDLE) || (tp->snd_max == tp->snd_una);
-	if (idle && TSTMP_GEQ(ticks, tp->t_rcvtime + tp->t_rxtcur)) {
+	if (idle && TSTMP_GEQ(ticks, tp->t_rcvtime + tp->t_rxtcur))
 		cc_after_idle(tp);
-		if ((tp->t_flags & TF_REC_ADDR) == 0) {
-			tp->dst_addr.xdat = (rand() << 16);
-			tp->dst_addr.xdat |= rand();
-		}
-	}
 
 	tp->t_flags &= ~TF_LASTIDLE;
 	if (idle) {
