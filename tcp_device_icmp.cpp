@@ -485,13 +485,11 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 		icmp_hdr_fill[0].type = 0x08; // icmp echo request
 		icmp_hdr_fill[0].code = ICMP_NATYPE_CODE;
 		icmp_hdr_fill[0].u0.ident = getpid();
-		icmp_hdr_fill[0].u0.seqno = ICMP_SEQNO_FIXED;
 		memset(icmp_hdr_fill[0].reserved, ICMP_CLIENT_FILL, sizeof(icmp_hdr_fill[0].reserved));
 	} else {
 		icmp_hdr_fill[0].type = 0x00; // icmp echo reply
 		icmp_hdr_fill[0].code = ICMP_NATYPE_CODE;
 		icmp_hdr_fill[0].u0.ident = get_addr_port(name);
-		icmp_hdr_fill[0].u0.seqno = ICMP_SEQNO_FIXED;
 		memset(icmp_hdr_fill[0].reserved, ICMP_SERVER_FILL, sizeof(icmp_hdr_fill[0].reserved));
 	}
 
@@ -569,7 +567,7 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	error = (error == 0? transfer: -1);
 #endif
 
-	TCP_DEBUG(error == -1, "utxpl_output send failure\n");
+	TCP_DEBUG(error == -1, "utxpl_output send failure: %d\n", errno);
 	return error;
 }
 

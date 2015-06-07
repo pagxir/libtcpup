@@ -1,14 +1,4 @@
-#if 0
-#include <stdio.h>
-#include <UTXPL_ASSERT.h>
-#include <unistd.h>
-#include <fcntl.h>
-
-#include <wait/platform.h>
-#include <wait/callout.h>
-#include <wait/slotwait.h>
-#include <wait/slotsock.h>
-#endif
+#include <stdlib.h>
 
 #include <utx/utxpl.h>
 #include <utx/sobuf.h>
@@ -118,8 +108,13 @@ int tcp_output(struct tcpcb *tp)
 #endif
 
 	idle = (tp->t_flags & TF_LASTIDLE) || (tp->snd_max == tp->snd_una);
-	if (idle && TSTMP_GEQ(ticks, tp->t_rcvtime + tp->t_rxtcur))
+	if (idle && TSTMP_GEQ(ticks, tp->t_rcvtime + tp->t_rxtcur)) {
 		cc_after_idle(tp);
+		if ((tp->t_flags & TF_REC_ADDR) == 0) {
+			tp->dst_addr.xdat = (rand() << 16);
+			tp->dst_addr.xdat |= rand();
+		}
+	}
 
 	tp->t_flags &= ~TF_LASTIDLE;
 	if (idle) {

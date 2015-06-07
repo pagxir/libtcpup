@@ -387,7 +387,8 @@ void tcp_input(struct tcpcb *tp, int dst,
 		}
 	}
 
-	if (TSTMP_GEQ(to.to_tsval, tp->ts_recent)
+	if ((tp->t_flags & TF_REC_ADDR) &&
+			TSTMP_GEQ(to.to_tsval, tp->ts_recent)
 			&& memcmp(&tp->dst_addr, from, sizeof(*from))) {
 		tp->dst_addr = *from;
 		needoutput = 1;
@@ -575,6 +576,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 			tcp_rcvseqinit(tp);
 			tcp_sendseqinit(tp);
 			tp->dst_addr = *from;
+			tp->t_flags |= TF_REC_ADDR;
 			TCPSTAT_INC(tcps_accepts);
 			goto trimthenstep6;
 

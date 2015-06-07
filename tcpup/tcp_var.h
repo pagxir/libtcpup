@@ -269,8 +269,12 @@ TAILQ_HEAD(sackhole_head, sackhole);
 #define TF_WASFRECOVERY 0x200000        /* was in NewReno Fast Recovery */
 #define TF_SIGNATURE    0x400000        /* require MD5 digests (RFC2385) */
 #define TF_FORCEDATA    0x800000        /* force out a byte */
+#if 0
 #define TF_TSO          0x1000000       /* TSO enabled on this connection */
 #define TF_TOE          0x2000000       /* this connection is offloaded */
+#else
+#define TF_REC_ADDR     0x1000000       /* need to update address */
+#endif
 #define TF_ECN_PERMIT   0x4000000       /* connection ECN-ready */
 #define TF_ECN_SND_CWR  0x8000000       /* ECN CWR in queue */
 #define TF_ECN_SND_ECE  0x10000000      /* ECN ECE in queue */
