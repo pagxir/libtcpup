@@ -122,6 +122,9 @@ typedef struct rgn_iovec {
 } rgn_iovec;
 #endif
 
+typedef int FILTER_HOOK(int netif, void *buf, size_t len, const struct tcpup_addr *from);
+int set_filter_hook(FILTER_HOOK *hook);
+
 int utxpl_output(int fd, rgn_iovec *buf, size_t count, const struct tcpup_addr *target);
 int utxpl_error(void);
 

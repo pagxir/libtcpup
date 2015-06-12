@@ -19,6 +19,13 @@
 
 #include "tcp_channel.h"
 
+static FILTER_HOOK *_filter_hook;
+int set_filter_hook(FILTER_HOOK *hook)
+{
+	_filter_hook = hook;
+	return 0;
+}
+
 struct tcpup_device {
 	struct tx_aiocb _sockcbp;
 
@@ -299,10 +306,20 @@ void tcpup_device::incoming(void)
 
 			int offset = sizeof(dns_filling_byte);
 			if (len >= offset + TCPUP_HDRLEN) {
+				struct tcpup_addr from;
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
 				memcpy(&key, packet + 14, 2);
 				packet_decrypt(key, p, packet + offset, len - offset);
-				p += (len - offset);
+
+				if (_filter_hook != NULL) {
+					memcpy(from.name, &saaddr, salen);
+					from.namlen = salen;
+					if (_filter_hook(_file, p, len - offset, &from)) {
+						TCP_DEBUG(0x1, "this packet is filter out by %p\n", _filter_hook);
+						continue;
+					}
+				}
+
 #ifdef _FEATRUE_INOUT_TWO_INTERFACE_
 				if (_dobind > 0 && (packet[7] || packet[6])) {
 					struct sockaddr_in *inp = (struct sockaddr_in *)&saaddr;
@@ -313,6 +330,7 @@ void tcpup_device::incoming(void)
 				memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
 				_rcvpkt_addr[pktcnt].namlen = salen;
 				_rcvpkt_len[pktcnt++] = (len - offset);
+				p += (len - offset);
 			}
 
 			this->_t_rcvtime = time(NULL);

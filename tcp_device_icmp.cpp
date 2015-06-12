@@ -39,6 +39,13 @@ struct icmphdr {
 	unsigned int   reserved[2];
 };
 
+static FILTER_HOOK *_filter_hook;
+int set_filter_hook(FILTER_HOOK *hook)
+{
+	_filter_hook = hook;
+	return 0;
+}
+
 struct tcpup_device {
 	struct tx_aiocb _sockcbp;
 
@@ -341,9 +348,20 @@ void tcpup_device::incoming(void)
 			icmphdr = (struct icmphdr *)(packet + IPHDR_SKIP_LEN);
 
 			if (len >= offset + TCPUP_HDRLEN) {
+				struct tcpup_addr from;
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
 				memcpy(&key, packet + 14 + IPHDR_SKIP_LEN, 2);
 				packet_decrypt(key, p, packet + offset, len - offset);
+
+				if (_filter_hook != NULL) {
+					memcpy(from.name, &saaddr, salen);
+					from.namlen = salen;
+					from.xdat   = icmphdr->u0.pair;
+					if (_filter_hook(_file, p, len - offset, &from)) {
+						TCP_DEBUG(0x1, "this packet is filter out by %p\n", _filter_hook);
+						continue;
+					}
+				}
 
 				struct tcphdr *tphdr = (struct tcphdr *)p;
 				if (tphdr->th_magic == MAGIC_UDP_TCP) {

@@ -6,7 +6,11 @@
 
 #include <txall.h>
 
+#include <utx/utxpl.h>
+#include <utx/dns_fwd.h>
+
 #include <tcpup/tcp_device.h>
+
 #include "tcp_channel.h"
 #include "pstcp_channel.h"
 
@@ -15,10 +19,11 @@ void set_cc_algo(const char *name);
 extern struct module_stub dns_async_mod;
 extern struct module_stub tcp_timer_mod;
 extern struct module_stub tcp_device_mod;
+extern struct module_stub dns_forward_mod;
 extern struct module_stub pstcp_listen_mod;
 
 struct module_stub *modules_list[] = {
-	&tcp_timer_mod, &tcp_device_mod,
+	&tcp_timer_mod, &tcp_device_mod, &dns_forward_mod,
    	&pstcp_listen_mod, &dns_async_mod, NULL
 };
 
@@ -94,6 +99,7 @@ int main(int argc, char *argv[])
 	signal(SIGPIPE, SIG_IGN);
 #endif
 
+	set_filter_hook(filter_hook_dns_forward);
 	tx_loop_main(loop);
 
 	cleanup_modules(modules_list);
