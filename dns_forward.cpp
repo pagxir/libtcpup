@@ -186,7 +186,7 @@ static void module_init(void)
 
 	_fwd_target.sin_family = AF_INET;
 	_fwd_target.sin_port   = htons(53);
-	_fwd_target.sin_addr.s_addr   = (0x08080808);
+	_fwd_target.sin_addr.s_addr   = htonl(0x08080808);
 }
 
 static void module_clean(void)

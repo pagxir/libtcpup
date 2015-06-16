@@ -155,8 +155,8 @@ struct tcpcb * tcp_newtcpcb(int if_fd, tcp_seq conv)
 	tx_taskq_init(&tp->r_event);
 
 	tp->t_rttupdated = 0;
-	tp->t_keepidle = 0;
-	tp->t_keepidle = 170 * hz;
+	tp->t_keepidle  = 600 * hz;
+	tp->t_keepintvl = 6 * hz;
 
 	tp->relay_len = 0;
 
@@ -525,6 +525,7 @@ int tcp_connect(struct tcpcb *tp,
 		UTXPL_ASSERT(namlen <= sizeof(tp->dst_addr.name));
 		memcpy(tp->dst_addr.name, name, namlen);
 		tp->dst_addr.namlen = namlen;
+		tp->dst_addr.xdat = tp->t_conv;
 		TCP_TRACE_AWAYS(tp, "TCPS_CLOSED -> TCPS_SYN_SENT\n");
 		(void)tcp_output(tp);
 		return 1;

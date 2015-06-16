@@ -57,7 +57,7 @@ static void tcp_persist_timo(void *up)
    	struct tcpcb *tp;
 
 	tp = (struct tcpcb *)up;
-   	tcpstat.tcps_persisttimeo++;
+   	TCPSTAT_INC(tcps_persisttimeo);
 	
 	tcp_timer_activate(tp, TT_PERSIST, 0);
 
@@ -156,12 +156,14 @@ static void tcp_rexmt_timo(void *up)
 	return;
 }
 
+#include <stdlib.h>
+
 static void tcp_keep_timo(void *up)
 {
    	struct tcpcb *tp;
 
 	tp = (struct tcpcb *)up;
-   	tcpstat.tcps_keeptimeo++;
+   	TCPSTAT_INC(tcps_keeptimeo);
    	if (tp->t_state < TCPS_ESTABLISHED)
 	   	goto dropit;
    	if (tp->t_state <= TCPS_CLOSING) {
@@ -171,10 +173,15 @@ static void tcp_keep_timo(void *up)
 	   	/* tcp_respond */
 
 		struct tcphdr th = {0};
-		th.th_ack = (tp->rcv_nxt);
-		th.th_seq = (tp->snd_una);
+		th.th_seq = (tp->rcv_nxt);
+		th.th_ack = (tp->snd_una);
 		th.th_tsecr = (tcp_snd_getticks);
 		th.th_tsval = (tp->ts_recent);
+
+		if ((tp->t_flags & TF_REC_ADDR) == 0) {
+			tp->dst_addr.xdat = rand();
+			TCP_TRACE_AWAYS(tp, "%x re assign xdat %x\n", tp->t_conv, tp->dst_addr.xdat);
+		}
 
 		tcp_respond(tp, &th, 0, TH_ACK);
 		tx_timer_reset(&tp->t_timer_keep, TP_KEEPINTVL(tp));
@@ -183,8 +190,8 @@ static void tcp_keep_timo(void *up)
 	return;
 
 dropit:
-   	tcpstat.tcps_keepdrops++;
-   	tp->t_state = TCPS_CLOSED;
+	TCPSTAT_INC(tcps_keepdrops);
+	tp->t_state = TCPS_CLOSED;
 	soisdisconnected(tp);
 
 	return;
@@ -197,7 +204,7 @@ static void tcp_do_delack(void *uup)
 	tp = (struct tcpcb *)uup;
 
 	tp->t_flags |= TF_ACKNOW;
-	tcpstat.tcps_delack++;
+	TCPSTAT_INC(tcps_delack);
 	(void)tcp_output(tp);
 
 	return;

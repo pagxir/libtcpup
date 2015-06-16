@@ -287,7 +287,7 @@ int pstcp_channel::run(void)
 						m_file = rsoket;
 						if (error) {
 							m_flags |= TF_CONNECTING;
-							fprintf(stderr, "connect is pending\n");
+							fprintf(stderr, "connect is pending: error = %d\n", errno);
 							dns_query_close(m_dns_handle);
 							m_dns_handle = -1;
 							return 1;
@@ -348,6 +348,7 @@ int pstcp_channel::run(void)
 	} else {
 		if (tx_writable(&m_sockcbp)
 				&& (m_flags & TF_CONNECTING)) {
+			fprintf(stderr, "connect is finish...\n", this);
 			m_flags &= ~TF_CONNECTING;
 			m_flags |= TF_CONNECTED;
 		}

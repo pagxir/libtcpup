@@ -335,8 +335,16 @@ void tcp_input(struct tcpcb *tp, int dst,
 	 * validation to ignore broken/spoofed segs.
 	 */
 	tp->t_rcvtime = ticks;
-	if (TCPS_HAVEESTABLISHED(tp->t_state))
-		tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));
+	if (TCPS_HAVEESTABLISHED(tp->t_state)) {
+		if (tp->t_flags & TF_REC_ADDR) {
+			tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));
+		} else if (tp->snd_max == tp->snd_una &&
+				(len << 1) >= (tp->t_maxseg >> 1)) {
+			tcp_timer_activate(tp, TT_KEEP, TP_KEEPINTVL(tp));
+		} else {
+			tcp_timer_activate(tp, TT_KEEP, TP_KEEPINTVL(tp));
+		}
+	}
 
 	/*
 	 * Unscale the window into a 32-bit value.
@@ -390,6 +398,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 	if ((tp->t_flags & TF_REC_ADDR) &&
 			TSTMP_GEQ(to.to_tsval, tp->ts_recent)
 			&& memcmp(&tp->dst_addr, from, sizeof(*from))) {
+		TCP_TRACE_AWAYS(tp, "update dst_addr\n");
 		tp->dst_addr = *from;
 		needoutput = 1;
 	}

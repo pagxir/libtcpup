@@ -79,8 +79,8 @@ cc_after_idle(struct tcpcb *tp)
         CC_ALGO(tp)->after_idle(tp->ccv);
 
     if ((tp->t_flags & TF_REC_ADDR) == 0) {
-        tp->dst_addr.xdat = (rand() << 16);
-        tp->dst_addr.xdat |= rand();
+
+        tp->dst_addr.xdat ^= 0x5a5a;
     }
 }
 
@@ -594,7 +594,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, int tlen, int flags)
 
 	th->th_magic = MAGIC_UDP_TCP;
 	th->th_opten = 0;
-	th->th_ack = htonl(orig->th_seq + tlen);
+	th->th_ack = htonl(orig->th_seq);
 	th->th_seq = htonl(orig->th_ack);
 	th->th_conv = htonl(tp->t_conv);
 	th->th_flags = flags;
