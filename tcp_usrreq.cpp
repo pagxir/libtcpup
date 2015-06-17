@@ -614,7 +614,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 			tcb.if_dev = dst;
 			tcb.t_conv = conv;
 			tcb.dst_addr = *from;
-			tcp_respond(&tcb, th, ntohl(th->th_seq) + 1, 0, TH_RST| TH_ACK);
+			tcp_respond(&tcb, th, 0, ntohl(th->th_ack), TH_RST);
 			handled = 1;
 		}
 	}

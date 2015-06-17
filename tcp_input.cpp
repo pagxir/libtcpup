@@ -339,7 +339,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 		if (tp->t_flags & TF_REC_ADDR) {
 			tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));
 		} else if (tp->snd_max == tp->snd_una &&
-				(len << 1) >= (tp->t_maxseg >> 1)) {
+				(len > sizeof(*th) + (th->th_opten << 2))) {
 			tcp_timer_activate(tp, TT_KEEP, TP_KEEPINTVL(tp));
 		} else {
 			tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));

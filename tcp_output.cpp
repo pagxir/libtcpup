@@ -604,6 +604,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 		th->th_tsecr = htonl(orig->th_tsval);
 	} else {
 		th->th_conv = (tp->t_conv);
+		th->th_flags = TH_ACK;
 		th->th_tsecr = htonl(tp->ts_recent);
 	}
 
