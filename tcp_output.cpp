@@ -451,7 +451,7 @@ sendit:
 	th->th_tsval = (to.to_tsval);
 	th->th_tsecr = (to.to_tsecr);
 	th->th_flags = flags;
-	th->th_conv  = htonl(tp->t_conv);
+	th->th_conv  = (tp->t_conv);
 	tilen   = (u_short)len;
 
 	if (recwin < (long) rgn_size(tp->rgn_rcv) / 4 &&
@@ -600,17 +600,20 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 	th->th_win   = 0;
 
 	if (orig != NULL) {
-		th->th_conv = htonl(orig->th_conv);
+		th->th_conv = (orig->th_conv);
 		th->th_tsecr = htonl(orig->th_tsval);
-		th->th_tsval = htonl(orig->th_tsecr);
+	} else {
+		th->th_conv = (tp->t_conv);
+		th->th_tsecr = htonl(tp->ts_recent);
 	}
+
+	th->th_tsval = htonl(tcp_ts_getticks());
 
 	if (tp != NULL && tp->rgn_rcv) {
 		long recwin = rgn_rest(tp->rgn_rcv);
 		if (recwin > (long)(TCP_MAXWIN << WINDOW_SCALE))
 			recwin = (long)(TCP_MAXWIN << WINDOW_SCALE);
 		th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
-		th->th_conv = htonl(tp->t_conv);
 	}
 
     iov0.iov_len = sizeof(tcpup_th0);

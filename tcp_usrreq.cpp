@@ -589,7 +589,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 		return -1;
 	}
 
-	conv = htonl(th->th_conv);
+	conv = (th->th_conv);
 	for (tp = tcp_last_tcpcb; tp != NULL; tp = tp->tle_next) {
 		if (conv == tp->t_conv) {
 			tcp_input(tp, dst, buf, len, from);
