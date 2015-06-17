@@ -730,7 +730,7 @@ void     tcp_state_change(struct tcpcb *, int);
 void     tcp_respond(struct tcpcb *, void *,
             struct tcphdr *, struct mbuf *, tcp_seq, tcp_seq, int);
 #endif
-void	 tcp_respond(struct tcpcb *tp, struct tcphdr *hdr, int tilen, int flags);
+void	 tcp_respond(struct tcpcb *tp, struct tcphdr *hdr, tcp_seq ack, tcp_seq seq, int flags);
 void     tcp_tw_init(void);
 #ifdef VIMAGE
 void     tcp_tw_destroy(void);

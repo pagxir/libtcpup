@@ -342,7 +342,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 				(len << 1) >= (tp->t_maxseg >> 1)) {
 			tcp_timer_activate(tp, TT_KEEP, TP_KEEPINTVL(tp));
 		} else {
-			tcp_timer_activate(tp, TT_KEEP, TP_KEEPINTVL(tp));
+			tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));
 		}
 	}
 
@@ -1422,10 +1422,10 @@ dropwithreset:
 
 	if (thflags & TH_ACK) {
 		TCP_TRACE_AWAYS(tp, "sentout RST without ACK\n");
-		tcp_respond(tp, th, tlen, TH_RST);
+		tcp_respond(tp, th, (tcp_seq)0, th->th_ack, TH_RST);
 	} else {
 		if (thflags & TH_SYN) tlen++;
-		tcp_respond(tp, th, tlen, TH_RST| TH_ACK);
+		tcp_respond(tp, th, th->th_seq + tlen, (tcp_seq)0, TH_RST| TH_ACK);
 		TCP_TRACE_AWAYS(tp, "sentout RST within ACK\n");
 	}
 	return;

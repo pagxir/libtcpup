@@ -172,18 +172,12 @@ static void tcp_keep_timo(void *up)
 		TCPSTAT_INC(tcps_keepprobe);
 	   	/* tcp_respond */
 
-		struct tcphdr th = {0};
-		th.th_seq = (tp->rcv_nxt);
-		th.th_ack = (tp->snd_una);
-		th.th_tsecr = (tcp_snd_getticks);
-		th.th_tsval = (tp->ts_recent);
-
 		if ((tp->t_flags & TF_REC_ADDR) == 0) {
 			tp->dst_addr.xdat = rand();
 			TCP_TRACE_AWAYS(tp, "%x re assign xdat %x\n", tp->t_conv, tp->dst_addr.xdat);
 		}
 
-		tcp_respond(tp, &th, 0, TH_ACK);
+		tcp_respond(tp, NULL, tp->rcv_nxt, tp->snd_una - 1, 0);
 		tx_timer_reset(&tp->t_timer_keep, TP_KEEPINTVL(tp));
    	} else
 		tx_timer_reset(&tp->t_timer_keep, TP_KEEPIDLE(tp));

@@ -585,7 +585,7 @@ timer:
 	return 0;
 }
 
-void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, int tlen, int flags)
+void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq, int flags)
 {
 	int error;
     struct rgn_iovec iov0;
@@ -594,26 +594,30 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, int tlen, int flags)
 
 	th->th_magic = MAGIC_UDP_TCP;
 	th->th_opten = 0;
-	th->th_ack = htonl(orig->th_seq);
-	th->th_seq = htonl(orig->th_ack);
-	th->th_conv = htonl(tp->t_conv);
+	th->th_ack = htonl(ack);
+	th->th_seq = htonl(seq);
 	th->th_flags = flags;
 	th->th_win   = 0;
 
-	if (tp != NULL && tp->rgn_rcv) {
-		long recwin = rgn_rest(tp->rgn_rcv);
-		if (recwin > (long)(TCP_MAXWIN << WINDOW_SCALE)) recwin = (long)(TCP_MAXWIN << WINDOW_SCALE);
-		th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
+	if (orig != NULL) {
+		th->th_conv = htonl(orig->th_conv);
+		th->th_tsecr = htonl(orig->th_tsval);
+		th->th_tsval = htonl(orig->th_tsecr);
 	}
 
-	th->th_tsecr = htonl(orig->th_tsval);
-	th->th_tsval = htonl(orig->th_tsecr);
+	if (tp != NULL && tp->rgn_rcv) {
+		long recwin = rgn_rest(tp->rgn_rcv);
+		if (recwin > (long)(TCP_MAXWIN << WINDOW_SCALE))
+			recwin = (long)(TCP_MAXWIN << WINDOW_SCALE);
+		th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
+		th->th_conv = htonl(tp->t_conv);
+	}
 
     iov0.iov_len = sizeof(tcpup_th0);
     iov0.iov_base = &tcpup_th0;
 
-	TCP_TRACE_AWAYS(tp, "tcp_respond: %x RST %x ACK %x %x %x\n",
-			tp->t_conv, flags & TH_RST, flags & TH_ACK, orig->th_tsval, orig->th_tsecr);
+	TCP_TRACE_AWAYS(tp, "tcp_respond: %x flags %x seq %x  ack %x ts %x %x\n",
+			th->th_conv, flags, seq, ack, th->th_tsval, th->th_tsecr);
 
 	error = utxpl_output(tp->if_dev, &iov0, 1, &tp->dst_addr);
 	VAR_UNUSED(error);
