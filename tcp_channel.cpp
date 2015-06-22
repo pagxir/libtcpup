@@ -218,7 +218,7 @@ static void set_relay_info(struct tcpcb *tp, int type, char *host, u_short port)
 {
 	int len;
 	char *p, buf[60];
-	static unsigned int type_len_map[8] = {0x0, 0x04, 0x0, 0x0, 0x0, 0x10};
+	static unsigned int type_len_map[8] = {0x0, 0x04, 0x0, 0x0, 0x10};
 
 	p = buf;
 	*p++ = (type & 0xff);

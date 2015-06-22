@@ -56,6 +56,7 @@ class pstcp_channel {
 		int m_file;
 		int m_flags;
 		int m_dns_handle;
+		static int v4_only;
 
 	private:
 		struct tx_task_t m_rwait;
@@ -75,9 +76,10 @@ class pstcp_channel {
 		struct tx_task_t xidle;
 		struct tx_timer_t tidle;
 		static void tc_idleclose(void *context);
-		int expend_relay(struct sockaddr *, struct tcpcb *, u_long , u_short , struct tx_task_t *);
+		int expend_relay(struct sockaddr_storage *, struct tcpcb *, u_long , u_short , struct tx_task_t *);
 };
 
+int pstcp_channel::v4_only = 0;
 u_short _forward_port = 1080;
 u_long  _forward_addr = INADDR_LOOPBACK;
 
@@ -107,22 +109,20 @@ static void anybind(int fd, int family)
 pstcp_channel::pstcp_channel(struct tcpcb *tp)
 	:m_flags(0)
 {
-	m_peer = tp;
-	m_file = socket(AF_INET, SOCK_STREAM, 0);
-	assert(m_file != -1);
-
-	tx_loop_t *loop = tx_loop_default();
-	tx_setblockopt(m_file, 0);
-	anybind(m_file, AF_INET);
-	tx_aiocb_init(&m_sockcbp, loop, m_file);
+	int len;
+	int is_v4only;
+	char relay[128];
 
 	s2r.flag = 0;
 	s2r.off = s2r.len = 0;
 
 	r2s.flag = 0;
 	r2s.off = r2s.len = 0;
+
+	m_peer = tp;
 	m_dns_handle = -1;
 
+	tx_loop_t *loop = tx_loop_default();
 	tx_task_init(&xidle, loop, tc_idleclose, this);
 	tx_timer_init(&tidle, loop, &xidle);
 
@@ -130,6 +130,21 @@ pstcp_channel::pstcp_channel(struct tcpcb *tp)
 	tx_task_init(&m_wwait, loop, tc_callback, this);
 	tx_task_init(&r_evt_peer, loop, tc_callback, this);
 	tx_task_init(&w_evt_peer, loop, tc_callback, this);
+
+	is_v4only = v4_only;
+	len = tcp_relayget(tp, relay, sizeof(relay));
+	if (len > 4) is_v4only = (relay[0] == 0x01);
+
+	m_file = socket(is_v4only? AF_INET: AF_INET6, SOCK_STREAM, 0);
+	if (m_file == -1 && EAFNOSUPPORT == errno) {
+		m_file = socket(AF_INET, SOCK_STREAM, 0);
+		v4_only = 1;
+	}
+
+	assert(m_file != -1);
+	tx_setblockopt(m_file, 0);
+	anybind(m_file, AF_INET);
+	tx_aiocb_init(&m_sockcbp, loop, m_file);
 }
 
 pstcp_channel::~pstcp_channel()
@@ -154,7 +169,7 @@ pstcp_channel::~pstcp_channel()
 	closesocket(m_file);
 }
 
-int pstcp_channel::expend_relay(struct sockaddr *destination, struct tcpcb *tp, u_long defdest, u_short port, struct tx_task_t *task)
+int pstcp_channel::expend_relay(struct sockaddr_storage *destination, struct tcpcb *tp, u_long defdest, u_short port, struct tx_task_t *task)
 {
 	int len, typ;
 	struct addrinfo hints;
@@ -235,7 +250,9 @@ int pstcp_channel::run(void)
 	int len = 0;
 	int error = -1;
 	int change = 0;
-	struct sockaddr name;
+
+	socklen_t namelen;
+	struct sockaddr_storage name;
 
 	tx_timer_reset(&tidle, 1000 * 180); // close after 3 min idle time
 
@@ -316,21 +333,12 @@ int pstcp_channel::run(void)
 
 #define TF_CONNECTABLE(f) (0x0 == (f&(TF_CONNECTING|TF_CONNECTED)))
 	if (TF_CONNECTABLE(m_flags) && (m_flags & TF_RESOLVED)) {
-		if (name.sa_family == AF_INET6) {
-			struct tx_loop_t *loop = tx_loop_default();
-			tx_aiocb_fini(&m_sockcbp);
-			closesocket(m_file);
-
-			m_file = socket(AF_INET6, SOCK_STREAM, 0);
-			assert(m_file != -1);
-
-			tx_setblockopt(m_file, 0);
-			anybind(m_file, AF_INET6);
-
-			tx_aiocb_init(&m_sockcbp, loop, m_file);
+		namelen = sizeof(struct sockaddr_in);
+		if (name.ss_family == AF_INET6) {
+			namelen = sizeof(struct sockaddr_in6);
 		}
 
-		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, sizeof(name), &m_wwait);
+		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, namelen, &m_wwait);
 		if (error == 0 || error == -WSAEINPROGRESS) {
 			if (error) {
 				fprintf(stderr, "connect is pending\n");
@@ -343,7 +351,8 @@ int pstcp_channel::run(void)
 			return 1;
 		}
 
-		fprintf(stderr, "tcp connect error\n");
+		fprintf(stderr, "tcp connect error: %s\n", strerror(errno));
+		v4_only = (errno == EINVAL? 1: v4_only);
 		return 0;
 	} else {
 		if (tx_writable(&m_sockcbp)
