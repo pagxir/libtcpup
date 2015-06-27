@@ -398,7 +398,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 	if ((tp->t_flags & TF_REC_ADDR) &&
 			TSTMP_GEQ(to.to_tsval, tp->ts_recent)
 			&& memcmp(&tp->dst_addr, from, sizeof(*from))) {
-		TCP_TRACE_AWAYS(tp, "update dst_addr\n");
+		/* TCP_TRACE_AWAYS(tp, "update dst_addr\n"); */
 		tp->dst_addr = *from;
 		needoutput = 1;
 	}
@@ -514,16 +514,17 @@ void tcp_input(struct tcpcb *tp, int dst,
 			 */
 			tp->snd_wl1 = th->th_seq;
 
-			int oldsize = rgn_size(tp->rgn_rcv);
-			if (rgn_len(tp->rgn_rcv) + tp->t_maxseg
-					>= oldsize * 7 / 8 && (oldsize << 1) < tp->rcv_max_space) {
-				tp->rgn_rcv = rgn_resize(tp->rgn_rcv, (oldsize << 1));
-				TCP_TRACE_AWAYS(tp, "expand connection receive space from %d to %d\n", oldsize, oldsize << 1);
-			}
-
 			TCPSTAT_INC(tcps_rcvpack);
 			TCPSTAT_ADD(tcps_rcvbyte, tlen);
 			rgn_put(tp->rgn_rcv, dat, tlen);
+
+			int old = rgn_size(tp->rgn_rcv);
+			if (old < (tp->rcv_max_space >> 1) &&
+					rgn_len(tp->rgn_rcv) + tp->t_maxseg > (old - old >> 2)) {
+				tp->rgn_rcv = rgn_resize(tp->rgn_rcv, (old << 1));
+				TCP_TRACE_AWAYS(tp, "expand connection receive space from %d to %d\n", old, old << 1);
+			}
+
 			sorwakeup(tp);
 			if (DELAY_ACK(tp)) {
 				tp->t_flags |= TF_DELACK;

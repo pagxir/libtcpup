@@ -570,12 +570,13 @@ timer:
 	tp->t_flags &= ~(TF_ACKNOW | TF_DELACK);
 	tcp_timer_activate(tp, TT_DELACK, 0);
 
-	int snd_space = rgn_size(tp->rgn_snd);
-	if ((snd_space << 1) <= tp->snd_max_space &&
-			(u_int)(tp->snd_nxt - tp->snd_una) > snd_space - tp->t_maxseg) {
-		UTXPL_ASSERT(snd_space > tp->t_maxseg);
-		tp->rgn_snd = rgn_resize(tp->rgn_snd, snd_space << 1);
-		TCP_TRACE_AWAYS(tp, "expand connection send space from %d to %d\n", snd_space, snd_space << 1);
+	int old = rgn_size(tp->rgn_snd);
+	if ((tp->t_flags & TF_MORETOCOME) &&
+			(old << 1) <= tp->snd_max_space &&
+			(u_int)(tp->snd_nxt - tp->snd_una) > old - (old >> 2) - tp->t_maxseg) {
+		UTXPL_ASSERT(old > tp->t_maxseg);
+		tp->rgn_snd = rgn_resize(tp->rgn_snd, old << 1);
+		TCP_TRACE_AWAYS(tp, "expand connection send space from %d to %d\n", old, old << 1);
 	}
 
 	if (sendalot)
