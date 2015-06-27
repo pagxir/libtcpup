@@ -514,6 +514,13 @@ void tcp_input(struct tcpcb *tp, int dst,
 			 */
 			tp->snd_wl1 = th->th_seq;
 
+			int oldsize = rgn_size(tp->rgn_rcv);
+			if (rgn_len(tp->rgn_rcv) + tp->t_maxseg
+					>= oldsize * 7 / 8 && (oldsize << 1) < tp->rcv_max_space) {
+				tp->rgn_rcv = rgn_resize(tp->rgn_rcv, (oldsize << 1));
+				TCP_TRACE_AWAYS(tp, "expand connection receive space from %d to %d\n", oldsize, oldsize << 1);
+			}
+
 			TCPSTAT_INC(tcps_rcvpack);
 			TCPSTAT_ADD(tcps_rcvbyte, tlen);
 			rgn_put(tp->rgn_rcv, dat, tlen);

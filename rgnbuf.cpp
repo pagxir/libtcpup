@@ -50,6 +50,39 @@ struct rgnbuf *rgn_create(int size)
 	return rgn;
 }
 
+struct rgnbuf *rgn_resize(struct rgnbuf* old, int newsize)
+{
+	int cplen, off;
+	struct rgnbuf *newbuf = rgn_create(newsize);
+	if (newbuf == NULL) {
+		/* no memory to alloc, just keep the origin buf */
+		return old;
+	}
+
+	newbuf->rb_off = old->rb_off;
+	newbuf->rb_len = old->rb_len;
+	newbuf->rb_flags = old->rb_flags;
+
+	char *pdata = (char *)old->rb_data;
+
+	off = (old->rb_off & old->rb_mask);
+	RGN_ASSERT(newbuf->rb_size >= old->rb_size);
+	memcpy(newbuf->rb_data + off, pdata + off, old->rb_size - off);
+
+	if (off + old->rb_size <= newbuf->rb_size) {
+		memcpy(newbuf->rb_data + old->rb_size, pdata, off);
+	} else {
+		cplen = newbuf->rb_size - old->rb_size;
+		memcpy(newbuf->rb_data + old->rb_size, pdata, cplen);
+		memcpy(newbuf->rb_data, pdata + cplen, off - cplen);
+	}
+
+	cplen = newbuf->rb_frgcnt = old->rb_frgcnt;
+	memcpy(newbuf->rb_fragments, old->rb_fragments, cplen * sizeof(int *));
+	free(old);
+	return newbuf;
+}
+
 int rgn_frgcnt(struct rgnbuf *rb)
 {
 	return rb->rb_frgcnt;

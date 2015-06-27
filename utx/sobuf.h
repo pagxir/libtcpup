@@ -42,5 +42,6 @@ void rgn_clear(struct rgnbuf *rb);
 void rgn_destroy(struct rgnbuf *rb);
 
 struct rgnbuf *rgn_create(int size);
+struct rgnbuf *rgn_resize(struct rgnbuf *rb, int newsize);
 #endif
 

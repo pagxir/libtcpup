@@ -141,8 +141,12 @@ struct tcpcb * tcp_newtcpcb(int if_fd, tcp_seq conv)
 	tp->t_rttvar = ((TCPTV_RTOBASE - TCPTV_SRTTBASE) << TCP_RTTVAR_SHIFT) / 4;
 	tp->t_flags = SS_NOFDREF;
 	tp->t_maxseg = TCP_MSS;
-	tp->rgn_snd = rgn_create(1024 * 1024);
-	tp->rgn_rcv = rgn_create(1024 * 1024 + 16384);
+
+	tp->snd_max_space = (1024 * 1024);
+	tp->rgn_snd = rgn_create(64 * 1024);
+	tp->rcv_max_space = (1024 * 1024);
+	tp->rgn_rcv = rgn_create(128 * 1024);
+
 	tp->snd_cwnd = rgn_size(tp->rgn_snd);
 	tp->snd_ssthresh = rgn_size(tp->rgn_snd);
 	tp->t_rcvtime = ticks;

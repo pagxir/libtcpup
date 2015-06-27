@@ -221,7 +221,10 @@ struct tcpcb {
 		int if_dev;
 		int t_error;
 		tcp_seq t_conv;
+		uint32_t rcv_max_space;
 		struct rgnbuf *rgn_rcv;
+
+		uint32_t snd_max_space;
 		struct rgnbuf *rgn_snd;
 		struct tcpup_addr dst_addr;
 
