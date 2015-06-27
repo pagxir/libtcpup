@@ -209,11 +209,6 @@ enum socksv5_proto_flags {
     AUTHED_Z = (1 << 2)
 };
 
-void tcp_channel::sockv4_proto_input(void)
-{
-    return;
-}
-
 static void set_relay_info(struct tcpcb *tp, int type, char *host, u_short port)
 {
 	int len;
@@ -238,6 +233,81 @@ static void set_relay_info(struct tcpcb *tp, int type, char *host, u_short port)
 	p += len;
 
 	tcp_relayto(tp, buf, p - buf);
+	return;
+}
+
+void tcp_channel::sockv4_proto_input(void)
+{
+	char buf[256];
+	char *limit;
+	struct buf_match m;
+	static u_char resp_v4[] = {
+		0x00, 0x5A, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00
+	};
+
+	tcp_channel *up = this;
+	buf_init(&m, up->c2r.buf, up->c2r.len);
+
+	up->proto_flags |= AUTHED_Z;
+	if ((up->proto_flags & AUTHED_Z)) {
+		if (buf_equal(&m, 0, 0x04) &&
+				buf_equal(&m, 1, 0x01) && buf_valid(&m, 8)) {
+			int type;
+			char *addrp;
+			char *end = 0;
+			u_short in_port1;
+			limit = up->c2r.buf + up->c2r.len;
+
+			end = (up->c2r.buf + 2);
+			memcpy(&in_port1, end, sizeof(in_port1));
+			end += sizeof(in_port1);
+
+			addrp = end;
+			end += sizeof(int);
+
+			end = (char *)memchr(end, 0, limit - buf);
+			if (end != NULL) {
+				type = 0x01;
+				if (!memcmp(addrp, "\000\000\000", 3)) {
+					addrp = ++end;
+					type = 0x03;
+					end = (char *)memchr(end, 0, limit - buf);
+				}
+
+				if (end != NULL) {
+					set_relay_info(m_peer, type, addrp, in_port1);
+
+					end++;
+					memmove(up->c2r.buf, end, limit - end);
+					up->c2r.len = limit - end;
+
+					memcpy(up->r2c.buf, resp_v4, sizeof(resp_v4));
+					tx_outcb_write(&m_sockcbp, up->r2c.buf, sizeof(resp_v4));
+
+					up->m_flags &= ~SOCKV4_PROTO;
+					up->m_flags |= DIRECT_PROTO;
+					return;
+				}
+			}
+		}
+	}
+
+	if (!buf_overflow(&m)) {
+		fprintf(stderr, "socks4 no overflow\n");
+		goto failure_closed;
+	} else if (up->c2r.len == sizeof(up->c2r.buf)) {
+		fprintf(stderr, "socks4 buffer full\n");
+		goto failure_closed;
+	} else if (up->c2r.flag & RDF_EOF) {
+		fprintf(stderr, "socks4 stream closed\n");
+		goto failure_closed;
+	}
+
+	tx_aincb_active(&m_sockcbp, &m_rwait);
+	return;
+
+failure_closed:
+	up->m_flags |= UNKOWN_PROTO;
 	return;
 }
 
