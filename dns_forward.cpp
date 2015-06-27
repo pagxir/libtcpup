@@ -111,7 +111,7 @@ int filter_hook_dns_forward(int netif, void *buf, size_t len, const struct tcpup
 
 	pdns = (unsigned char *)buf;
 	if (record_dns_packet(pdns + DNS_MAGIC_LEN, len - DNS_MAGIC_LEN, netif, from)) {
-		err = sendto(_fwd_handle, pdns + DNS_MAGIC_LEN,
+		err = sendto(_fwd_handle, (const char *)(pdns + DNS_MAGIC_LEN),
 			len - DNS_MAGIC_LEN, 0, (struct sockaddr *)&_fwd_target, sizeof(_fwd_target));
 		if (err == -1) {
 			fprintf(stderr, "sendto error %s\n", strerror(errno));
@@ -174,8 +174,8 @@ static void module_init(void)
 	assert(err == 0);
 
 #ifdef WIN32
-	setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
-	tx_setblockopt(_file, 0);
+	setsockopt(_fwd_handle, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
+	tx_setblockopt(_fwd_handle, 0);
 #endif
 
 	tx_loop_t *loop = tx_loop_default();

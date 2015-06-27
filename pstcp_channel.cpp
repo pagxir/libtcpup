@@ -136,10 +136,12 @@ pstcp_channel::pstcp_channel(struct tcpcb *tp)
 	if (len > 4) is_v4only = (relay[0] == 0x01);
 
 	m_file = socket(is_v4only? AF_INET: AF_INET6, SOCK_STREAM, 0);
+#ifndef WIN32
 	if (m_file == -1 && EAFNOSUPPORT == errno) {
 		m_file = socket(AF_INET, SOCK_STREAM, 0);
 		v4_only = 1;
 	}
+#endif
 
 	assert(m_file != -1);
 	tx_setblockopt(m_file, 0);
@@ -352,7 +354,9 @@ int pstcp_channel::run(void)
 		}
 
 		fprintf(stderr, "tcp connect error: %s\n", strerror(errno));
+#ifndef WIN32
 		v4_only = (errno == EINVAL? 1: v4_only);
+#endif
 		return 0;
 	} else {
 		if (tx_writable(&m_sockcbp)

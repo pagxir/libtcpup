@@ -66,6 +66,14 @@ int main(int argc, char *argv[])
 		} else if (strcmp(argv[i], "-cc.algo") == 0 && i + 1 < argc) {
 			set_cc_algo(argv[i + 1]);
 			i++;
+#ifndef WIN32
+		} else if (strcmp(argv[i], "-d") == 0) {
+			close(1); close(2);
+			dup(open("server-stdout.txt", O_WRONLY|O_CREAT));
+			if (fork()) exit(0);
+			setsid();
+			if (fork()) exit(0);
+#endif
 		} else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
 			get_target_address(&outter_address, argv[i + 1]);
 			tcp_set_outter_address(&outter_address);
