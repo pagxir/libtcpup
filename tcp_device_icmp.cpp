@@ -232,9 +232,9 @@ void tcpup_device::init(int dobind)
 		_addr_in.sin_addr = saddr.sin_addr;
 
 	int bufsize = 1024 * 1024;
+#ifdef WIN32
 	setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
 	setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
-#ifdef WIN32
 	tx_setblockopt(_file, 0);
 #endif
 

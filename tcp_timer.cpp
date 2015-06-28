@@ -30,9 +30,16 @@ static int tcp_totbackoff = 2559;
 void tcp_canceltimers(struct tcpcb *tp)
 {
 	tx_timer_stop(&tp->t_timer_persist);
+	tx_task_drop(&tp->t_timer_persist_t);
+
 	tx_timer_stop(&tp->t_timer_rexmt);
+	tx_task_drop(&tp->t_timer_rexmt_t);
+
 	tx_timer_stop(&tp->t_timer_keep);
+	tx_task_drop(&tp->t_timer_keep_t);
+
 	tx_timer_stop(&tp->t_timer_2msl);
+	tx_task_drop(&tp->t_timer_2msl_t);
 }
 
 static void tcp_2msl_timo(void *up)
