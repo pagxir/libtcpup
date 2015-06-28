@@ -231,10 +231,10 @@ void tcpup_device::init(int dobind)
 	if (saddr.sin_addr.s_addr != 0)
 		_addr_in.sin_addr = saddr.sin_addr;
 
-#ifdef WIN32
 	int bufsize = 1024 * 1024;
 	setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
 	setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
+#ifdef WIN32
 	tx_setblockopt(_file, 0);
 #endif
 
@@ -364,7 +364,8 @@ void tcpup_device::incoming(void)
 				}
 
 				struct tcphdr *tphdr = (struct tcphdr *)p;
-				if (tphdr->th_magic == MAGIC_UDP_TCP) {
+				if (tphdr->th_magic == MAGIC_UDP_TCP &&
+						(icmphdr->reserved[0] == 0xECECECEC || icmphdr->type == 0x00)) {
 					this->_t_rcvtime = time(NULL);
 					(*(struct sockaddr_in *)&saaddr).sin_port = icmphdr->u0.seqno;
 					memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
