@@ -136,6 +136,12 @@ again:
 	TCP_TRACE_CHECK(tp, sendwin < tp->t_maxseg, "snd_wnd %d, snd_cwnd %d\n", tp->snd_wnd, tp-> snd_cwnd) ;
 	flags = tcp_outflags[tp->t_state];
 
+	if (0 == rgn_len(tp->rgn_snd) &&
+			tp->t_state == TCPS_ESTABLISHED &&
+			!(tp->t_flags & TF_MORETOCOME)) {
+		flags |= TH_PUSH;
+	}
+
 	sack_rxmit = 0;
 	sack_bytes_rxmt = 0;
 	len = 0;
@@ -409,7 +415,7 @@ sendit:
 			TCPSTAT_INC(tcps_sndpack);
 			TCPSTAT_ADD(tcps_sndbyte, len);
 		}
-		TCP_TRACE_CHECK(tp, off && p, "len %d, off %d, optlen %d, %x\n", len, off, optlen, to.to_flags);
+		TCP_TRACE_CHECK(tp, off && p, "%x len %d, off %d, optlen %d, %x\n", tp->t_conv, len, off, optlen, to.to_flags);
 		rgn_peek(tp->rgn_snd, iobuf + 1, len, off);
 #if 0
 		if (off + len == rgn_len(tp->rgn_snd))
@@ -613,7 +619,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 		th->th_tsecr = htonl(orig->th_tsval);
 	} else {
 		th->th_conv = (tp->t_conv);
-		th->th_flags = TH_ACK;
+		th->th_flags = TH_ACK | ((rgn_len(tp->rgn_snd) || (tp->t_flags & TF_MORETOCOME))? 0: TH_PUSH);
 		th->th_tsecr = htonl(tp->ts_recent);
 	}
 
