@@ -399,8 +399,11 @@ void tcp_input(struct tcpcb *tp, int dst,
 			TSTMP_GEQ(to.to_tsval, tp->ts_recent)
 			&& memcmp(&tp->dst_addr, from, sizeof(*from))) {
 		/* TCP_TRACE_AWAYS(tp, "update dst_addr\n"); */
+		if (memcmp(&tp->sav_addr, from, sizeof(*from))) {
+			needoutput = 1;
+		}
+		tp->sav_addr = tp->dst_addr;
 		tp->dst_addr = *from;
-		needoutput = 1;
 	}
 
 	if (tp->t_state == TCPS_ESTABLISHED &&

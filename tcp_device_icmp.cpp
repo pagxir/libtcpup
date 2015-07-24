@@ -358,7 +358,7 @@ void tcpup_device::incoming(void)
 					from.namlen = salen;
 					from.xdat   = icmphdr->u0.pair;
 					if (_filter_hook(_file, p, len - offset, &from)) {
-						TCP_DEBUG(0x1, "this packet is filter out by %p\n", _filter_hook);
+						//TCP_DEBUG(0x1, "this packet is filter out by %p\n", _filter_hook);
 						continue;
 					}
 				}

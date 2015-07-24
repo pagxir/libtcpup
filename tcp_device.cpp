@@ -315,7 +315,7 @@ void tcpup_device::incoming(void)
 					memcpy(from.name, &saaddr, salen);
 					from.namlen = salen;
 					if (_filter_hook(_file, p, len - offset, &from)) {
-						TCP_DEBUG(0x1, "this packet is filter out by %p\n", _filter_hook);
+						//TCP_DEBUG(0x1, "this packet is filter out by %p\n", _filter_hook);
 						continue;
 					}
 				}

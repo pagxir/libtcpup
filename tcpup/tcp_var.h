@@ -227,6 +227,7 @@ struct tcpcb {
 		uint32_t snd_max_space;
 		struct rgnbuf *rgn_snd;
 		struct tcpup_addr dst_addr;
+		struct tcpup_addr sav_addr;
 
 		size_t relay_len;
 		u_char relay_target[60];
