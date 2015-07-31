@@ -113,7 +113,6 @@ newreno_after_idle(struct cc_var *ccv)
 				max(2 * CCV(ccv, t_maxseg), 4380));
 	else
 		rw = CCV(ccv, t_maxseg) * 2;
-	rw = CCV(ccv, t_maxseg) * 10;
 
 	CCV(ccv, snd_cwnd) = min(rw, CCV(ccv, snd_cwnd));
 }

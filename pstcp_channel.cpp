@@ -201,6 +201,7 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, struct tcp
                     dst4->sin_family = AF_INET;
                     dst4->sin_port   = p0;
                     memcpy(&dst4->sin_addr, p, 4);
+                    if (dst4->sin_addr.s_addr == htonl(0x0a030081)) dst4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
                     return 0;
                 }
 
