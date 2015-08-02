@@ -61,5 +61,9 @@ void set_cc_algo(const char *name)
 		default_cc_ptr = &cubic_cc_algo;
 	}
 
+	if (default_cc_ptr->mod_init) {
+		default_cc_ptr->mod_init();
+	}
+
 	return;
 }
