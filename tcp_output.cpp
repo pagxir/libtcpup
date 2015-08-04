@@ -132,7 +132,12 @@ again:
 	sendalot = 0;
 	/* this_snd_nxt = tp->snd_nxt; */
 	off = tp->snd_nxt - tp->snd_una;
-	sendwin = min(tp->snd_wnd, tp-> snd_cwnd);
+	if (tp->t_maxseg > tp->snd_cwnd) {
+		sendwin = min(tp->snd_wnd, 3 * tp->t_maxseg);
+	} else {
+		sendwin = min(tp->snd_wnd, tp-> snd_cwnd);
+	}
+
 	TCP_TRACE_CHECK(tp, sendwin < tp->t_maxseg, "snd_wnd %d, snd_cwnd %d\n", tp->snd_wnd, tp-> snd_cwnd) ;
 	flags = tcp_outflags[tp->t_state];
 
@@ -486,6 +491,16 @@ sendit:
 				"%x finish ack state %d, rcv_nxt %x, %x, %x\n", tp->t_conv, tp->t_state, tp->rcv_nxt, htonl(th->th_seq), htonl(th->th_ack));
 	}
 
+	if (IN_FASTRECOVERY(tp->t_flags)) {
+		tcp_seq seq = htonl(th->th_seq);
+		u_int32_t ts = htonl(th->th_tsval);
+		if (tp->undo_seq_left == 0 && SEQ_LT(seq, tp->snd_recover)) {
+			tp->undo_ts_left = ts;
+			tp->undo_seq_left = seq;
+			tp->undo_rexmt_out++;
+		}
+	}
+
 	error = utxpl_output(tp->if_dev, iobuf, 3, &tp->dst_addr);
 
 	if ((tp->t_flags & TF_FORCEDATA) == 0 || !tcp_timer_active(tp, TT_PERSIST)) {
@@ -680,7 +695,7 @@ int tcp_addoptions(struct tcpopt *to, u_char *optp)
 				optlen += TCPOLEN_MAXSEG;
 				*optp++ = TCPOPT_MAXSEG;
 				*optp++ = TCPOLEN_MAXSEG;
-				to->to_mss = htons(to->to_mss);
+				to->to_mss = htons(to->to_mss + 12);
 				bcopy((u_char *)&to->to_mss, optp, sizeof(to->to_mss));
 				optp += sizeof(to->to_mss);
 				break;

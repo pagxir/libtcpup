@@ -203,6 +203,8 @@ cc_post_recovery(struct tcpcb *tp, struct tcphdr *th)
 	}
 	/* XXXLAS: EXIT_RECOVERY ? */
 	tp->t_bytes_acked = 0;
+	tp->undo_seq_left = 0;
+	tp->undo_ts_left = 0;
 }
 
 /*
@@ -238,6 +240,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 				bcopy((char *)cp + 2,
 						(char *)&to->to_mss, sizeof(to->to_mss));
 				to->to_mss = ntohs(to->to_mss);
+				if (to->to_mss > 500) to->to_mss -= 12;
 				break;
 #if 0
 			case TCPOPT_WINDOW:
@@ -1144,6 +1147,7 @@ close:
 						tcp_timer_activate(tp, TT_REXMT, 0);
 						tp->t_rtttime = 0;
 						VAR_UNUSED(onxt);
+						tp->undo_ts_left = 0;
 
 						TCPSTAT_INC(tcps_sack_recovery_episode);
 						tp->sack_newdata = tp->snd_nxt;
@@ -1188,10 +1192,19 @@ close:
 			}
 
 			if (IN_FASTRECOVERY(tp->t_flags)) {
-				if (SEQ_LT(th->th_ack, tp->snd_recover))
-					tcp_sack_partialack(tp, th);
-				else
+				if (SEQ_LT(th->th_ack, tp->snd_recover)) {
+					if (tp->undo_ts_left > 0 &&
+							TSTMP_LT(to.to_tsecr, tp->undo_ts_left)) {
+						TCP_TRACE_AWAYS(NULL, "quck recovery %x \n", tp->t_conv);
+						cc_post_recovery(tp, th);
+						tp->undo_ts_left = -1;
+					} else {
+						TCP_TRACE_AWAYS(tp, "slow recovery %x \n", tp->t_conv);
+						tcp_sack_partialack(tp, th);
+					}
+				} else {
 					cc_post_recovery(tp, th);
+				}
 			}
 
 			tp->t_dupacks = 0;

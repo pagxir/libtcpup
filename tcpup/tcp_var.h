@@ -103,6 +103,10 @@ struct tcpcb {
         int     t_segqlen;              /* segment reassembly queue length */
         int     t_dupacks;              /* consecutive dup acks recd */
 
+        int undo_rexmt_out;
+        tcp_seq undo_seq_left;
+        u_int32_t undo_ts_left;
+
         struct tcp_timer *t_timers;     /* All the TCP timers in one struct */
 
         struct  inpcb *t_inpcb;         /* back pointer to internet pcb */
