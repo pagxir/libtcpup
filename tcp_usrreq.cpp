@@ -589,7 +589,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 	th = (struct tcphdr *)buf;
 	if (len < sizeof(*th) ||
 			(th->th_magic != MAGIC_UDP_TCP)) {
-		TCP_DEBUG(len >= sizeof(*th), "BAD TCPUP MAGIC\n");
+		TCP_DEBUG(len >= sizeof(*th), "BAD TCPUP MAGIC: %x\n", th->th_magic);
 		return -1;
 	}
 

@@ -351,7 +351,7 @@ void tcpup_device::incoming(void)
 				struct tcpup_addr from;
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
 				memcpy(&key, packet + 14 + IPHDR_SKIP_LEN, 2);
-				packet_decrypt(key, p, packet + offset, len - offset);
+				packet_decrypt(htons(key), p, packet + offset, len - offset);
 
 				if (_filter_hook != NULL) {
 					memcpy(from.name, &saaddr, salen);
@@ -539,7 +539,7 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 
 	datlen = (bp - _plain_stream);
 	memcpy((char *)(icmp_hdr_fill) + 14, &key, 2);
-	packet_encrypt(key, _crypt_stream, _plain_stream, datlen);
+	packet_encrypt(htons(key), _crypt_stream, _plain_stream, datlen);
 	iovecs[1].iov_base = _crypt_stream;
 	iovecs[1].iov_len  = datlen;
 	msg0.msg_iov  = (struct iovec*)iovecs;
@@ -574,7 +574,7 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 
 	datlen = (bp - _plain_stream);
 	memcpy((char *)(icmp_hdr_fill) + 14, &key, 2);
-	packet_encrypt(key, _crypt_stream, _plain_stream, datlen);
+	packet_encrypt(htons(key), _crypt_stream, _plain_stream, datlen);
 	iovecs[1].buf = (char *)_crypt_stream;
 	iovecs[1].len = datlen;
 	count = 1;
