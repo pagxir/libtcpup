@@ -180,8 +180,10 @@ static void tcp_keep_timo(void *up)
 	   	/* tcp_respond */
 
 		if ((tp->t_flags & TF_REC_ADDR) == 0) {
+#if 0
 			tp->dst_addr.xdat = rand();
 			TCP_TRACE_AWAYS(tp, "%x re assign xdat %x\n", tp->t_conv, tp->dst_addr.xdat);
+#endif
 		}
 
 		tcp_respond(tp, NULL, tp->rcv_nxt, tp->snd_una - 1, 0);

@@ -35,16 +35,16 @@
 #endif
 
 struct relay_data {
-    int off;
-    int len;
+	int off;
+	int len;
 #define RDF_EOF 0x01
 #define RDF_FIN 0x02
-    int flag;
-    char buf[4096];
+	int flag;
+	char buf[4096];
 };
 
 class pstcp_channel {
-   	public:
+	public:
 		pstcp_channel(struct tcpcb *tp);
 		~pstcp_channel();
 
@@ -57,6 +57,7 @@ class pstcp_channel {
 		int m_flags;
 		int m_dns_handle;
 		static int v4_only;
+		int m_skip_count;
 
 	private:
 		struct tx_task_t m_rwait;
@@ -106,8 +107,8 @@ static void anybind(int fd, int family)
 	return;
 }
 
-pstcp_channel::pstcp_channel(struct tcpcb *tp)
-	:m_flags(0)
+	pstcp_channel::pstcp_channel(struct tcpcb *tp)
+:m_flags(0)
 {
 	int len;
 	int is_v4only;
@@ -134,6 +135,9 @@ pstcp_channel::pstcp_channel(struct tcpcb *tp)
 	is_v4only = v4_only;
 	len = tcp_relayget(tp, relay, sizeof(relay));
 	if (len > 4) is_v4only = (relay[0] == 0x01);
+#ifdef USE_SOCKS_BACKEND 
+	is_v4only = 1;
+#endif
 
 	m_file = socket(is_v4only? AF_INET: AF_INET6, SOCK_STREAM, 0);
 #ifndef WIN32
@@ -175,40 +179,49 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, struct tcp
 {
 	int len, typ;
 	struct addrinfo hints;
-    char *p, relay[64], serv[10];
+	char *p, relay[64], serv[10];
 
-    struct sockaddr_in *dst4 =
-        (struct sockaddr_in *)destination;
+	struct sockaddr_in *dst4 =
+		(struct sockaddr_in *)destination;
 
-    struct sockaddr_in6 *dst6 =
-        (struct sockaddr_in6 *)destination;
+	struct sockaddr_in6 *dst6 =
+		(struct sockaddr_in6 *)destination;
 
-    p = relay;
-    len = tcp_relayget(tp, relay, sizeof(relay));
+	p = relay;
+	len = tcp_relayget(tp, relay, sizeof(relay));
 
-    while (len > 4 && len < sizeof(relay)) {
-        int p0;
-        typ = *p++;
-        if (*p++ != 0) break;
+	while (len > 4 && len < sizeof(relay)) {
+		int p0;
+		typ = *p++;
+		if (*p++ != 0) break;
 
-        memcpy(&p0, p, 2);
-        p += 2;
+		memcpy(&p0, p, 2);
+		p += 2;
 
-        switch (typ) {
-            case 0x01:
-                /* IPv4 (8 byte): atyp=0x01 + 0x0 + port[2]+ addr[4]. */
-                if (len == 8) {
-                    dst4->sin_family = AF_INET;
-                    dst4->sin_port   = p0;
-                    memcpy(&dst4->sin_addr, p, 4);
-                    if (dst4->sin_addr.s_addr == htonl(0x0a030081)) dst4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-                    return 0;
-                }
+#if USE_SOCKS_BACKEND
+		if (typ == 0x01 || typ == 0x04) {
+			dst4->sin_family = AF_INET;
+			dst4->sin_addr.s_addr = inet_addr("204.44.89.146");
+			dst4->sin_port = htons(30008);
+			return 0;
+		}
+#endif
 
-                break;
+		switch (typ) {
+			case 0x01:
+				/* IPv4 (8 byte): atyp=0x01 + 0x0 + port[2]+ addr[4]. */
+				if (len == 8) {
+					dst4->sin_family = AF_INET;
+					dst4->sin_port   = p0;
+					memcpy(&dst4->sin_addr, p, 4);
+					if (dst4->sin_addr.s_addr == htonl(0x0a030081)) dst4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+					return 0;
+				}
 
-            case 0x03:
-                /* FQDN (4 + x byte): atyp=0x01 + 0x0 + port[2] + fqdn[4]. */
+				break;
+
+			case 0x03:
+				/* FQDN (4 + x byte): atyp=0x01 + 0x0 + port[2] + fqdn[4]. */
 				memset(&hints, 0, sizeof(struct addrinfo));
 				hints.ai_family = AF_UNSPEC;    /* Allow IPv4 or IPv6 */
 				hints.ai_socktype = SOCK_STREAM; /* Datagram socket */
@@ -224,28 +237,88 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, struct tcp
 					return 1;
 				}
 
-                break;
+				break;
 
-            case 0x04:
-                /* IPv6 (8 byte): atyp=0x04 + 0x0 + port[2] + addr6[16]. */
-                if (len == 20) {
-                    dst6->sin6_family = AF_INET6;
-                    dst6->sin6_port   = p0;
-                    memcpy(&dst6->sin6_addr, p, 16);
-                    return 0;
-                }
+			case 0x04:
+				/* IPv6 (8 byte): atyp=0x04 + 0x0 + port[2] + addr6[16]. */
+				if (len == 20) {
+					dst6->sin6_family = AF_INET6;
+					dst6->sin6_port   = p0;
+					memcpy(&dst6->sin6_addr, p, 16);
+					return 0;
+				}
 
-                break;
-        }
+				break;
+		}
 
 		break;
-    }
+	}
 
-    dst4->sin_family = AF_INET;
-    dst4->sin_port   = htons(port);
-    dst4->sin_addr.s_addr = htonl(defdest);
+	dst4->sin_family = AF_INET;
+	dst4->sin_port   = htons(port);
+	dst4->sin_addr.s_addr = htonl(defdest);
 	fprintf(stderr, "relay: len %d\n", len);
-    return 0;
+	return 0;
+}
+
+int socksv5_connect(struct tcpcb *cb, void *buf, size_t size)
+{
+	char relay[128];
+	char *p = relay;
+
+	int len = tcp_relayget(cb, relay, sizeof(relay));
+
+	while (len > 4 && len < sizeof(relay)) {
+		int typ = *p++;
+		unsigned short p0;
+
+		if (*p++ != 0) break;
+
+		memcpy(&p0, p, 2);
+		p += 2;
+
+		switch(typ) {
+			case 0x01:
+				if (len == 8) {
+					char *cmdp = (char *)buf;
+					*cmdp++ = 0x05;
+					*cmdp++ = 0x01;
+					*cmdp++ = 0x00;
+
+					*cmdp++ = 0x05;
+					*cmdp++ = 0x01;
+					*cmdp++ = 0x00;
+					*cmdp++ = typ;
+					memcpy(cmdp, p, 4);
+					cmdp += 4;
+					memcpy(cmdp, &p0, 2);
+					cmdp += 2;
+					return cmdp - (char *)buf;
+				}
+				break;
+
+			case 0x04:
+				if (len == 20) {
+					char *cmdp = (char *)buf;
+					*cmdp++ = 0x05;
+					*cmdp++ = 0x01;
+					*cmdp++ = 0x00;
+
+					*cmdp++ = 0x05;
+					*cmdp++ = 0x01;
+					*cmdp++ = 0x00;
+					*cmdp++ = typ;
+					memcpy(cmdp, p, 16);
+					cmdp += 16;
+					memcpy(cmdp, &p0, 2);
+					cmdp += 2;
+					return cmdp - (char *)buf;
+				}
+				break;
+		}
+	}
+
+	return 0;
 }
 
 int pstcp_channel::run(void)
@@ -362,7 +435,12 @@ int pstcp_channel::run(void)
 	} else {
 		if (tx_writable(&m_sockcbp)
 				&& (m_flags & TF_CONNECTING)) {
-			fprintf(stderr, "connect is finish...\n", this);
+			fprintf(stderr, "connect is finish...\n");
+			m_skip_count = 0;
+#if USE_SOCKS_BACKEND
+			r2s.len = sockv4_connect(m_peer, r2s.buf, sizeof(r2s.buf));
+			if (r2s.len > 0) m_skip_count = 12;
+#endif
 			m_flags &= ~TF_CONNECTING;
 			m_flags |= TF_CONNECTED;
 		}
@@ -388,6 +466,16 @@ int pstcp_channel::run(void)
 				s2r.flag |= RDF_EOF;
 			else if (tx_readable(&m_sockcbp)) // socket meet error condiction
 				return 0;
+		}
+
+		if (m_skip_count > 0) {
+			if (m_skip_count + s2r.off < s2r.len) {
+				s2r.off += m_skip_count;
+				m_skip_count = 0;
+			} else {
+				m_skip_count -= (s2r.len - s2r.off);
+				s2r.off = s2r.len;
+			}
 		}
 
 		if (tcp_writable(m_peer) && s2r.off < s2r.len) {
@@ -430,24 +518,24 @@ int pstcp_channel::run(void)
 	error = 0;
 
 	if (s2r.off >= s2r.len) {
-        s2r.off = s2r.len = 0;
+		s2r.off = s2r.len = 0;
 
 		if (s2r.flag == RDF_EOF) {
 			tcp_shutdown(m_peer);
-            s2r.flag |= RDF_FIN;
-        }
-	}
-
-	if (r2s.off >= r2s.len) {
-        r2s.off = r2s.len = 0;
-
-		if (r2s.flag == RDF_EOF) {
-			shutdown(m_file, SD_BOTH);
-            r2s.flag |= RDF_FIN;
+			s2r.flag |= RDF_FIN;
 		}
 	}
 
-    if (s2r.off < s2r.len && !tcp_writable(m_peer)) {
+	if (r2s.off >= r2s.len) {
+		r2s.off = r2s.len = 0;
+
+		if (r2s.flag == RDF_EOF) {
+			shutdown(m_file, SD_BOTH);
+			r2s.flag |= RDF_FIN;
+		}
+	}
+
+	if (s2r.off < s2r.len && !tcp_writable(m_peer)) {
 		tcp_poll(m_peer, TCP_WRITE, &w_evt_peer);
 		error = 1;
 	}
@@ -457,17 +545,17 @@ int pstcp_channel::run(void)
 		error = 1;
 	}
 
-    if ((s2r.flag == 0) && !tx_readable(&m_sockcbp) &&
-            s2r.len < (int)sizeof(s2r.buf)) {
-        tx_aincb_active(&m_sockcbp, &m_rwait);
-        error = 1;
-    }
+	if ((s2r.flag == 0) && !tx_readable(&m_sockcbp) &&
+			s2r.len < (int)sizeof(s2r.buf)) {
+		tx_aincb_active(&m_sockcbp, &m_rwait);
+		error = 1;
+	}
 
-    if ((r2s.flag == 0) && !tcp_readable(m_peer) &&
-            r2s.len < (int)sizeof(r2s.buf)) {
-        tcp_poll(m_peer, TCP_READ, &r_evt_peer);
-        error = 1;
-    }
+	if ((r2s.flag == 0) && !tcp_readable(m_peer) &&
+			r2s.len < (int)sizeof(r2s.buf)) {
+		tcp_poll(m_peer, TCP_READ, &r_evt_peer);
+		error = 1;
+	}
 
 	return error;
 }
@@ -489,14 +577,14 @@ void pstcp_channel::tc_callback(void *context)
 		delete chan;
 		return;
 	}
-   
+
 	return;
 }
 
 void new_pstcp_channel(struct tcpcb *tp)
 {
 	pstcp_channel *chan;
-   	chan = new pstcp_channel(tp);
+	chan = new pstcp_channel(tp);
 
 	if (chan == NULL) {
 		tcp_soclose(tp);
