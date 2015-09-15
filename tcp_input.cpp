@@ -526,7 +526,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 
 			int old = rgn_size(tp->rgn_rcv);
 			if (old < (tp->rcv_max_space >> 1) &&
-					rgn_len(tp->rgn_rcv) + tp->t_maxseg > (old - old >> 2)) {
+					rgn_len(tp->rgn_rcv) + tp->t_maxseg > (old - (old >> 2))) {
 				tp->rgn_rcv = rgn_resize(tp->rgn_rcv, (old << 1));
 				TCP_TRACE_AWAYS(tp, "expand connection receive space from %d to %d\n", old, old << 1);
 			}
