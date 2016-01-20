@@ -365,6 +365,7 @@ void tcpup_device::incoming(void)
 
 				struct tcphdr *tphdr = (struct tcphdr *)p;
 				if (tphdr->th_magic == MAGIC_UDP_TCP &&
+						(icmphdr->type == 0x08 || _dobind == 0) &&
 						(icmphdr->reserved[0] == 0xECECECEC || icmphdr->type == 0x00)) {
 					this->_t_rcvtime = time(NULL);
 					(*(struct sockaddr_in *)&saaddr).sin_port = icmphdr->u0.seqno;
