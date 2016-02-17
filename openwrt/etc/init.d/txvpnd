@@ -3,9 +3,9 @@
 
 START=95
 
-SERVICE_USE_PID=1
-SERVICE_WRITE_PID=1
-SERVICE_DAEMONIZE=1
+SERVICE_USE_PID=0
+SERVICE_WRITE_PID=0
+SERVICE_DAEMONIZE=0
 
 let wid=0;
 tmux_run_command() {
@@ -23,11 +23,12 @@ tmux_run_command() {
 
 start() {
     echo 1 > /proc/sys/net/ipv4/icmp_echo_ignore_all
-    service_start /usr/bin/tmux
+    #service_start /usr/bin/tmux
     tmux_run_command "while true; do /usr/bin/txvpnd; sleep 1; done;"
 }
 
 stop() {
-    service_stop /usr/bin/tmux
+    #service_stop /usr/bin/tmux
+    killall tmux
     echo 0 > /proc/sys/net/ipv4/icmp_echo_ignore_all
 }
