@@ -7,6 +7,8 @@ SERVICE_USE_PID=0
 SERVICE_WRITE_PID=0
 SERVICE_DAEMONIZE=0
 
+PATH=$PATH:/bin:/usr/bin:/sbin:/usr/sbin
+
 let wid=0;
 tmux_run_command() {
 
@@ -23,12 +25,12 @@ tmux_run_command() {
 
 start() {
     echo 1 > /proc/sys/net/ipv4/icmp_echo_ignore_all
-    #service_start /usr/bin/tmux
-    tmux_run_command "while true; do /usr/bin/txvpnd; sleep 1; done;"
+    #service_start $(which tmux)
+    tmux_run_command "while true; do txvpnd; sleep 1; done;"
 }
 
 stop() {
-    #service_stop /usr/bin/tmux
+    #service_stop $(which tmux)
     killall tmux
     echo 0 > /proc/sys/net/ipv4/icmp_echo_ignore_all
 }
