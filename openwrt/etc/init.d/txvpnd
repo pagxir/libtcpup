@@ -1,0 +1,33 @@
+#!/bin/sh /etc/rc.common
+# Copyright (C) 2006-2011 OpenWrt.org
+
+START=95
+
+SERVICE_USE_PID=1
+SERVICE_WRITE_PID=1
+SERVICE_DAEMONIZE=1
+
+let wid=0;
+tmux_run_command() {
+
+    if [ "$wid" -eq 0 ]; then
+        tmux new-session -d -s txvpnd || exit;
+    else
+        tmux new-window || exit;
+    fi;
+
+    tmux send -t txvpnd:$wid "$1" || exit
+    tmux send -t txvpnd:$wid  ENTER || exit
+    let wid=$wid+1;
+}
+
+start() {
+    echo 1 > /proc/sys/net/ipv4/icmp_echo_ignore_all
+    service_start /usr/bin/tmux
+    tmux_run_command "while true; do /usr/bin/txvpnd; sleep 1; done;"
+}
+
+stop() {
+    service_stop /usr/bin/tmux
+    echo 0 > /proc/sys/net/ipv4/icmp_echo_ignore_all
+}
