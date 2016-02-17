@@ -361,7 +361,13 @@ static void module_init(void)
 
 	_fwd_target.sin_family = AF_INET;
 	_fwd_target.sin_port   = htons(53);
-	_fwd_target.sin_addr.s_addr   = inet_addr("8.8.8.8");
+
+	char *nameserver = getenv("NAMESERVER");
+	if (nameserver == NULL) {
+		_fwd_target.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	} else {
+		_fwd_target.sin_addr.s_addr = inet_addr(nameserver);
+	}
 
 }
 
