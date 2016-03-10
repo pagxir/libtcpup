@@ -1414,7 +1414,6 @@ dodata:
 
 	if (needoutput || (tp->t_flags & TF_ACKNOW))
 		(void)tcp_output(tp);
-	return;
 
 check_delack:
 	if (tp->t_flags & TF_DELACK) {
