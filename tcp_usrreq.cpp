@@ -562,6 +562,10 @@ struct tcpcb *tcp_close(struct tcpcb *tp)
 		return NULL;
 	}
 
+	if (tcp_free(tp) == 0) {
+		return NULL;
+	}
+
 	return tp;
 }
 
