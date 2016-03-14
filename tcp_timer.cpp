@@ -194,8 +194,7 @@ static void tcp_keep_timo(void *up)
 
 dropit:
 	TCPSTAT_INC(tcps_keepdrops);
-	tp->t_state = TCPS_CLOSED;
-	soisdisconnected(tp);
+	tp = tcp_drop(tp, UTXTIMEDOUT);
 
 	return;
 }
