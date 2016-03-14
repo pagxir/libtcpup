@@ -1268,7 +1268,7 @@ process_ACK:
 			switch (tp->t_state) {
 				case TCPS_FIN_WAIT_1:
 					if (ourfinisacked) {
-						tcp_timer_activate(tp, TT_2MSL, tcp_keepidle);
+						tcp_timer_activate(tp, TT_2MSL, TP_KEEPCNT(tp) * TP_KEEPINTVL(tp));
 						tp->t_state = TCPS_FIN_WAIT_2;
 						TCP_TRACE_AWAYS(tp, "TCPS_FIN_WAIT_1 -> TCPS_FIN_WAIT_2\n");
 						soisdisconnected(tp);
