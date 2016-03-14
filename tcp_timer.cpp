@@ -47,6 +47,7 @@ static void tcp_2msl_timo(void *up)
    	struct tcpcb *tp;
 
 	tp = (struct tcpcb *)up;
+	ticks = tcp_ts_getticks();
    	if (tp->t_state != TCPS_TIME_WAIT &&
 		   	(int)ticks - (int)tp->t_rcvtime <= (int)tcp_maxidle) {
 		tx_timer_reset(&tp->t_timer_2msl, tcp_keepintvl);
@@ -66,6 +67,7 @@ static void tcp_persist_timo(void *up)
 	tp = (struct tcpcb *)up;
    	TCPSTAT_INC(tcps_persisttimeo);
 	
+	ticks = tcp_ts_getticks();
 	tcp_timer_activate(tp, TT_PERSIST, 0);
 
 	/*
@@ -108,6 +110,7 @@ static void tcp_rexmt_timo(void *up)
    	struct tcpcb *tp;
 
 	tp = (struct tcpcb *)up;
+	ticks = tcp_ts_getticks();
 	tcp_free_sackholes(tp);
 
 	TCP_TRACE_AWAYS(tp, "tcp rexmt time out %x\n", tp->t_conv);
@@ -170,6 +173,7 @@ static void tcp_keep_timo(void *up)
    	struct tcpcb *tp;
 
 	tp = (struct tcpcb *)up;
+	ticks = tcp_ts_getticks();
    	TCPSTAT_INC(tcps_keeptimeo);
    	if (tp->t_state < TCPS_ESTABLISHED)
 	   	goto dropit;
