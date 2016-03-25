@@ -110,6 +110,7 @@ struct tcpcb *tcp_create(uint32_t conv)
 		if (idleout && idle && this_device->_t_rcvtime < this_device->_t_sndtime) {
 			if (_paging_devices[offset + 1] != NULL) {
 				_paging_devices[offset + 1]->fini();
+				delete _paging_devices[offset + 1];
 				_paging_devices[offset + 1] = NULL;
 			}
 
@@ -350,7 +351,7 @@ void tcpup_device::incoming(void)
 			if (len >= offset + TCPUP_HDRLEN) {
 				struct tcpup_addr from;
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
-				memcpy(&key, packet + 14 + IPHDR_SKIP_LEN, 2);
+				memcpy(&key, packet + 14 + IPHDR_SKIP_LEN, sizeof(key));
 				packet_decrypt(htons(key), p, packet + offset, len - offset);
 
 				if (_filter_hook != NULL) {

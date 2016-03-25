@@ -158,6 +158,7 @@ extern "C" void tcp_set_device_address(struct tcpip_info *info)
 	return;
 }
 
+#define _DNS_CLIENT_
 #ifdef _DNS_CLIENT_
 
 static unsigned char dns_filling_byte[] = {

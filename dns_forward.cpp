@@ -23,9 +23,9 @@ struct dns_query_packet {
 };
 
 static struct cached_client {
-    int flags;
-    unsigned short r_ident;
-    unsigned short l_ident;
+	int flags;
+	unsigned short r_ident;
+	unsigned short l_ident;
 
 	int netif;
 	struct tcpup_addr from;
@@ -139,7 +139,7 @@ struct udp_forward_context {
 
 	tx_task_t uf_kill;
 	tx_timer_t uf_timer;
-    LIST_ENTRY(udp_forward_context) entries;
+    	LIST_ENTRY(udp_forward_context) entries;
 };
 
 typedef LIST_HEAD(udp_forward_context_q, udp_forward_context) udp_forward_context_q;
@@ -174,6 +174,7 @@ static void on_udp_receive(void *upp)
 		salen = sizeof(saaddr);
 		len = recvfrom(ctx->uf_handle, packet, RCVPKT_MAXSIZ, MSG_DONTWAIT, (struct sockaddr *)&saaddr, &salen);
 		tx_aincb_update(&ctx->uf_aiocb, len);
+		fprintf(stderr, "udp packet: %d\n", len);
 		if (len > 0) {
 			rgn_iovec dns_pkt[2];
 			dns_pkt[0].iov_base = magic1;
@@ -194,6 +195,7 @@ static void on_udp_receive(void *upp)
 			up4->len = 0x8;
 			up4->port = saaddr.sin_port;
 			up4->addr[0] = saaddr.sin_addr.s_addr;
+			assert(len + sizeof(*up4) < sizeof(udp_packet));
 			memcpy(up4 + 1, packet, len);
 			dns_pkt[1].iov_base = udp_packet;
 			dns_pkt[1].iov_len  = len + sizeof(*up4);

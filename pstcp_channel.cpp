@@ -191,11 +191,12 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, struct tcp
 	len = tcp_relayget(tp, relay, sizeof(relay));
 
 	while (len > 4 && len < sizeof(relay)) {
-		int p0;
+		int err = 0;
+		unsigned short p0;
 		typ = *p++;
 		if (*p++ != 0) break;
 
-		memcpy(&p0, p, 2);
+		memcpy(&p0, p, sizeof(p0));
 		p += 2;
 
 #if USE_SOCKS_BACKEND
@@ -228,7 +229,8 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, struct tcp
 				hints.ai_flags = 0;
 				hints.ai_protocol = 0;          /* Any protocol */
 
-				sprintf(serv, "%d", ntohs(p0));
+				err = snprintf(serv, sizeof(serv), "%d", ntohs(p0));
+				assert(err < sizeof(serv));
 				relay[len] = 0;
 
 				m_dns_handle = dns_query_open(relay + 4, serv, &hints, task);
