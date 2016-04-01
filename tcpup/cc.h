@@ -175,6 +175,7 @@
  extern struct cc_algo htcp_cc_algo;
  extern struct cc_algo cubic_cc_algo;
  extern struct cc_algo vegas_cc_algo;
+ extern struct cc_algo hybla_cc_algo;
  extern struct cc_algo newreno_cc_algo;
  extern struct cc_algo vegasab_cc_algo;
  extern struct cc_algo *default_cc_ptr;

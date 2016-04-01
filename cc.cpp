@@ -6,7 +6,7 @@
 #include <tcpup/cc.h>
 #include <tcpup/tcp_debug.h>
 
-struct cc_algo *default_cc_ptr = &cubic_cc_algo;
+struct cc_algo *default_cc_ptr = &newreno_cc_algo;
 
 int update_vegas_alpha_beta(int alpha, int beta);
 
@@ -59,6 +59,9 @@ void set_cc_algo(const char *name)
 	} else if (strcmp(name, "cubic") == 0) {
 		TCP_DEBUG(1, "use cubic cc algo\n");
 		default_cc_ptr = &cubic_cc_algo;
+	} else if (strcmp(name, "hybla") == 0) {
+		TCP_DEBUG(1, "use hybla cc algo\n");
+		default_cc_ptr = &hybla_cc_algo;
 	}
 
 	if (default_cc_ptr->mod_init) {
