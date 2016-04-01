@@ -130,9 +130,6 @@ static void hybla_ack_received(struct cc_var *ccv, uint16_t type)
 	if (ca->rho == 0)
 		hybla_recalc_param(ccv);
 
-	if (type != CC_ACK) {
-		return;
-	}
 
 	rho_fractions = ca->rho_31s - (ca->rho << 3);
 
