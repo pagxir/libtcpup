@@ -244,6 +244,10 @@ struct tcpcb *tcp_drop(struct tcpcb *tp, int why)
 		return NULL;
 	}
 
+	if (tcp_free(tp) == 0) {
+		return NULL;
+	}
+
 	return tp;
 }
 
