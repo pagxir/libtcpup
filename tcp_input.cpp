@@ -690,6 +690,13 @@ void tcp_input(struct tcpcb *tp, int dst,
 				tp->t_starttime = ticks;
 				tp->t_state = TCPS_ESTABLISHED;
 				TCP_TRACE_START(tp, "TCPS_SYN_SENT -> TCPS_ESTABLISHED\n");
+				if (to.to_tsecr != 0) {
+					u_int t = tcp_ts_getticks() - to.to_tsecr;
+					tcp_xmit_timer(tp, TCP_TS_TO_TICKS(t) + 1);
+				} else if (tp->t_rtttime &&
+						SEQ_GT(th->th_ack, tp->t_rtseq)) {
+					tcp_xmit_timer(tp, ticks - tp->t_rtttime);
+				}
 				cc_conn_init(tp);
 				tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));
 
@@ -1072,6 +1079,13 @@ close:
 			 */
 			tp->t_starttime = ticks;
 			tp->t_state = TCPS_ESTABLISHED;
+			if (to.to_tsecr != 0) {
+				u_int t = tcp_ts_getticks() - to.to_tsecr;
+				tcp_xmit_timer(tp, TCP_TS_TO_TICKS(t) + 1);
+			} else if (tp->t_rtttime &&
+					SEQ_GT(th->th_ack, tp->t_rtseq)) {
+				tcp_xmit_timer(tp, ticks - tp->t_rtttime);
+			}
 			cc_conn_init(tp);
 			tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));
 
