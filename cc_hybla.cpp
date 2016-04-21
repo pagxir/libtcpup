@@ -46,7 +46,7 @@ struct hybla {
 	uint32_t snd_cwnd_cnt;
 };
 
-static int rtt0 = 25;
+static int rtt0 = 37;
 static inline void hybla_recalc_param(struct cc_var *ccv)
 {
         struct hybla *ca;
@@ -56,7 +56,6 @@ static inline void hybla_recalc_param(struct cc_var *ccv)
 	ca->rho = ca->rho_31s >> 3;
 	ca->rho2_71s = (ca->rho_31s * ca->rho_31s) << 1;
 	ca->rho2 = ca->rho2_71s >> 7;
-	printf("abc: %d\n", ca->rho);
 }
 
 static void hybla_post_recovery(struct cc_var *ccv)

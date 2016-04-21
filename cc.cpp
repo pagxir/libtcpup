@@ -62,6 +62,9 @@ void set_cc_algo(const char *name)
 	} else if (strcmp(name, "hybla") == 0) {
 		TCP_DEBUG(1, "use hybla cc algo\n");
 		default_cc_ptr = &hybla_cc_algo;
+	} else if (strcmp(name, "hybla0") == 0) {
+		TCP_DEBUG(1, "use hybla0 cc algo\n");
+		default_cc_ptr = &hybla0_cc_algo;
 	}
 
 	if (default_cc_ptr->mod_init) {
