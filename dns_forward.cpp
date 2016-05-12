@@ -104,6 +104,7 @@ int record_dns_packet(void *packet, size_t length, int netif, const tcpup_addr *
 
 #define DNS_MAGIC_LEN 4
 static int _fwd_handle = 0;
+static int _force_override = 0;
 static struct sockaddr_in _fwd_target = {0};
 
 unsigned char magic[DNS_MAGIC_LEN] = {
@@ -310,7 +311,7 @@ int filter_hook_dns_forward(int netif, void *buf, size_t len, const struct tcpup
 			struct udpuphdr4 *udphdr4 = (struct udpuphdr4 *)udphdr;
 
 			memcpy(&target, &_fwd_target, sizeof(target));
-			if (udphdr->u_tag == 0x84 && udphdr4->addr[0] != 0x08080808) {
+			if (udphdr->u_tag == 0x84 && !_force_override && udphdr4->addr[0] != 0x08080808) {
 				target.sin_family = AF_INET;
 				target.sin_port   = (udphdr->u_port);
 				target.sin_addr.s_addr   = (udphdr4->addr[0]);
@@ -394,12 +395,17 @@ static void module_init(void)
 	_fwd_target.sin_port   = htons(53);
 
 	char *nameserver = getenv("NAMESERVER");
-	if (nameserver == NULL) {
-		_fwd_target.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	} else {
+	_fwd_target.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	if (nameserver != NULL) {
 		_fwd_target.sin_addr.s_addr = inet_addr(nameserver);
+		_force_override = 0;
 	}
 
+	nameserver = getenv("NAMESERVER_OVERRIDE");
+	if (nameserver != NULL) {
+		_fwd_target.sin_addr.s_addr = inet_addr(nameserver);
+		_force_override = 1;
+	}
 }
 
 static void module_clean(void)
