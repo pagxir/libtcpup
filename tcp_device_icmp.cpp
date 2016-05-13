@@ -232,8 +232,8 @@ void tcpup_device::init(int dobind)
 	if (saddr.sin_addr.s_addr != 0)
 		_addr_in.sin_addr = saddr.sin_addr;
 
-	int bufsize = 1024 * 1024;
 #ifdef WIN32
+	int bufsize = 1024 * 1024;
 	setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
 	setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
 	tx_setblockopt(_file, 0);
@@ -365,20 +365,23 @@ void tcpup_device::incoming(void)
 				}
 
 				struct tcphdr *tphdr = (struct tcphdr *)p;
-				if (tphdr->th_magic == MAGIC_UDP_TCP &&
-						(icmphdr->type == 0x08 || _dobind == 0) &&
-						(icmphdr->reserved[0] == 0xECECECEC || icmphdr->type == 0x00)) {
-					this->_t_rcvtime = time(NULL);
-					(*(struct sockaddr_in *)&saaddr).sin_port = icmphdr->u0.seqno;
-					memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
-					_rcvpkt_addr[pktcnt].xdat = icmphdr->u0.pair;
-					_rcvpkt_addr[pktcnt].namlen = salen;
-					_rcvpkt_len[pktcnt++] = (len - offset);
-					p += (len - offset);
-					continue;
+				/* 0x08, _icmp_is_reply == 0, 0xec, reversed */
+				if ((icmphdr->type == 0x08 && icmphdr->reserved[0] == 0xecececec && _icmp_is_reply) ||
+						(_icmp_is_reply == 0 && icmphdr->type == 0x00 && icmphdr->reserved[0] == 0xcececece)) {
+					if (tphdr->th_magic == MAGIC_UDP_TCP) {
+						this->_t_rcvtime = time(NULL);
+						(*(struct sockaddr_in *)&saaddr).sin_port = icmphdr->u0.seqno;
+						memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
+						_rcvpkt_addr[pktcnt].xdat = icmphdr->u0.pair;
+						_rcvpkt_addr[pktcnt].namlen = salen;
+						_rcvpkt_len[pktcnt++] = (len - offset);
+						p += (len - offset);
+						continue;
+					}
 				}
 			}
 
+#if 0
 			if (icmphdr->type == 0x08) {
 				IOVEC iov0;
 				icmphdr->type = 0;
@@ -388,6 +391,7 @@ void tcpup_device::incoming(void)
 				icmp_update_checksum((unsigned char *)&icmphdr->checksum, &iov0, 1);
 				sendto(_file, (char *)icmphdr, len - IPHDR_SKIP_LEN, 0, &saaddr, salen);
 			}
+#endif
 		}
 
 		int handled;
