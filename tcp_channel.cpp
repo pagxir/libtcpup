@@ -76,6 +76,10 @@ class tcp_channel {
 static u_short _forward_port = 0; // 1080
 static u_long  _forward_addr = INADDR_ANY;
 
+static u_short _relay_port = 5030;
+static u_long  _relay_server = INADDR_ANY;
+static void set_relay_info(struct tcpcb *tp, int type, char *host, u_short port);
+
 tcp_channel::tcp_channel(int file)
 	:m_file(file), m_flags(0)
 {
@@ -98,6 +102,13 @@ tcp_channel::tcp_channel(int file)
 	tx_task_init(&m_rwait, loop, tc_callback, this);
 	tx_task_init(&r_evt_peer, loop, tc_callback, this);
 	tx_task_init(&w_evt_peer, loop, tc_callback, this);
+
+	if (_relay_server != INADDR_ANY) {
+		m_flags |= DIRECT_PROTO;
+		m_flags &= ~TF_PROXY_HELLO;
+		unsigned int addr = _relay_server;
+		set_relay_info(m_peer, 0x01, (char *)&addr, _relay_port);
+	}
 }
 
 tcp_channel::~tcp_channel()
@@ -642,8 +653,25 @@ void new_tcp_channel(int fd)
 
 extern "C" void tcp_channel_forward(struct tcpip_info *info)
 {
+	char *env, *p;
+	char  server[128];
+
 	_forward_addr = info->address;
 	_forward_port = info->port;
+
+	env = getenv("RELAYSERVER");
+
+	if (env != NULL) {
+		strcpy(server, env);
+		p = strrchr(server, ':');
+		if (p != NULL) {
+			*p++ = 0;
+			_relay_port = htons(atoi(p));
+		}
+
+		_relay_server = inet_addr(server);
+	}
+
 	return;
 }
 
