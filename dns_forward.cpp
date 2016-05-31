@@ -289,7 +289,7 @@ int filter_hook_dns_forward(int netif, void *buf, size_t len, const struct tcpup
 				target.sin_port   = (udphdr->u_port);
 				target.sin_addr.s_addr   = (uphdr4->addr[0]);
 
-				err = sendto(c->uf_handle, (const char *)payload,
+				err = sendto(c->uf_handle, (const char *)payload + doff,
 						payload_limit - payload - doff, 0, (struct sockaddr *)&target, sizeof(target));
 				tx_timer_reset(&c->uf_timer, 120 * 1000);
 				c->uf_rcvtime = tx_getticks();
