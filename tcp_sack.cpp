@@ -88,7 +88,7 @@ tcp_update_sack_list(struct tcpcb *tp, tcp_seq rcv_start, tcp_seq rcv_end)
 		/*
 		 * Copy the saved SACK blocks back.
 		 */
-		memcpy(saved_blks, &tp->sackblks[num_head],
+		bcopy(saved_blks, &tp->sackblks[num_head],
 		      sizeof(struct sackblk) * num_saved);
 	}
 
