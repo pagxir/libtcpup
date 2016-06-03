@@ -221,10 +221,8 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 	 */
 	if (to->to_flags & TOF_SACK) {
 		int cap_sack_blocks = sizeof(sack_blocks)/sizeof(*sack_blocks);
-		if (to->to_nsacks >= cap_sack_blocks - 1) {
-			printf("to_nsacks: %d\n", to->to_nsacks);
+		if (to->to_nsacks >= cap_sack_blocks)
 			to->to_nsacks = cap_sack_blocks - 1;
-		}
 
 		for (i = 0; i < to->to_nsacks; i++) {
 			bcopy((to->to_sacks + i * TCPOLEN_SACK),
