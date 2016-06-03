@@ -381,7 +381,7 @@ void tcpup_device::incoming(void)
 				}
 			}
 
-#if 0
+#if 1
 			if (icmphdr->type == 0x08) {
 				IOVEC iov0;
 				icmphdr->type = 0;

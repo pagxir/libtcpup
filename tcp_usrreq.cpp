@@ -145,7 +145,7 @@ struct tcpcb * tcp_newtcpcb(int if_fd, tcp_seq conv)
 	tp->snd_max_space = (2 * 1024 * 1024);
 	tp->rgn_snd = rgn_create(512 * 1024);
 	tp->rcv_max_space = (2 * 1024 * 1024);
-	tp->rgn_rcv = rgn_create(128 * 1024);
+	tp->rgn_rcv = rgn_create(512 * 1024);
 
 	tp->snd_cwnd = rgn_size(tp->rgn_snd);
 	tp->snd_ssthresh = rgn_size(tp->rgn_snd);
