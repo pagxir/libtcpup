@@ -232,7 +232,7 @@ void tcpup_device::init(int dobind)
 	if (saddr.sin_addr.s_addr != 0)
 		_addr_in.sin_addr = saddr.sin_addr;
 
-#ifdef WIN32
+#if defined(WIN32) || defined(__APPLE__)
 	int bufsize = 1024 * 1024;
 	setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
 	setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
