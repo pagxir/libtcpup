@@ -402,10 +402,13 @@ int tcp_connected(struct tcpcb *tp)
 int tcp_writable(struct tcpcb *tp)
 {
 	if (tp->t_state == TCPS_ESTABLISHED ||
-			tp->t_state == TCPS_SYN_SENT ||
-			tp->t_state == TCPS_SYN_RECEIVED ||
 			tp->t_state == TCPS_CLOSE_WAIT) {
 		return rgn_rest(tp->rgn_snd) > 0;
+	}
+
+	if (tp->t_state == TCPS_SYN_SENT ||
+			tp->t_state == TCPS_SYN_RECEIVED) {
+		return rgn_len(tp->rgn_snd) == 0;
 	}
 
 	return 1;
@@ -499,6 +502,18 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 			error = 1;
 			break;
 
+		case TCP_CONNECT:
+			if (tp->t_state == TCPS_SYN_SENT ||
+					tp->t_state == TCPS_SYN_RECEIVED) {
+				tx_task_record(&tp->w_event, task);
+				error = 0;
+				break;
+			} 
+
+			tx_task_active(task);
+			error = 1;
+			break;
+
 		case TCP_WRITE:
 			limit = (tp->snd_max - tp->snd_una);
 		   	if (rgn_len(tp->rgn_snd) >= limit + 4096) {
@@ -507,7 +522,7 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 				break;
 		   	} 
 
-			if (rgn_len(tp->rgn_snd) > 1440 &&
+			if (rgn_len(tp->rgn_snd) > 0 &&
 					(tp->t_state == TCPS_SYN_SENT ||
 					 tp->t_state == TCPS_SYN_RECEIVED)) {
 				tx_task_record(&tp->w_event, task);

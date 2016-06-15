@@ -17,6 +17,8 @@ enum {
 #define TCP_WRITE TCP_WRITE
     TCP_ACCEPT,
 #define TCP_ACCEPT TCP_ACCEPT
+    TCP_CONNECT,
+#define TCP_CONNECT TCP_CONNECT
 };
 
 struct tcpcb;
