@@ -194,9 +194,8 @@ struct tcpcb *tcp_accept(struct sockaddr_in *name, size_t *namlen)
 	newtp = NULL;
 	for (tp = tcp_last_tcpcb; tp != NULL; tp = tp->tle_next) {
 		if ((tp->t_flags & SS_NOFDREF) &&
-				(tp->t_state == TCPS_ESTABLISHED ||
-				 tp->t_state == TCPS_SYN_RECEIVED ||
-				 tp->t_state == TCPS_CLOSE_WAIT)) {
+				 ((tp->t_state == TCPS_SYN_RECEIVED && rgn_len(tp->rgn_rcv) > 0) ||
+				(tp->t_state == TCPS_ESTABLISHED || tp->t_state == TCPS_CLOSE_WAIT))) {
 			tp->t_flags &= ~SS_NOFDREF;
 			if (name != NULL && namlen != NULL
 					&& *namlen >= tp->dst_addr.namlen) {

@@ -617,6 +617,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 				TCP_TRACE_AWAYS(tp, "send reset on syn receive\n");
 				goto dropwithreset;
 			}
+			soisconnected(tp);
 			break;
 
         /*
