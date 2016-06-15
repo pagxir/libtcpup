@@ -578,6 +578,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 			tp->t_flags |= TF_ACKNOW;
 			tp->t_state = TCPS_SYN_RECEIVED;
 			TCP_TRACE_START(tp, "TCPS_LISTEN -> TCPS_SYN_RECEIVED\n");
+			soisconnected(tp);
 
 			if ((to.to_flags & TOF_MSS) &&
 					to.to_mss >= 512 && to.to_mss < tp->t_maxseg) {

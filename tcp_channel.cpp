@@ -520,9 +520,11 @@ int tcp_channel::run(void)
 		m_flags &= ~TF_CONNECTING;
 	}
 
+#if 0
 	if (m_flags & TF_CONNECTING) {
 		return 1;
 	}
+#endif
 
 	do {
 		change = 0;

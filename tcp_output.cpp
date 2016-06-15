@@ -135,7 +135,7 @@ again:
 	if (tp->t_maxseg > tp->snd_cwnd) {
 		sendwin = min(tp->snd_wnd, 3 * tp->t_maxseg);
 	} else {
-		sendwin = min(tp->snd_wnd, tp-> snd_cwnd);
+		sendwin = min(tp->snd_wnd, tp->snd_cwnd);
 	}
 
 	TCP_TRACE_CHECK(tp, sendwin < tp->t_maxseg, "snd_wnd %d, snd_cwnd %d\n", tp->snd_wnd, tp-> snd_cwnd) ;
@@ -248,6 +248,17 @@ after_sack_rexmit:
 					len = lmin(len, cwin);
 			  }
 		}
+	}
+
+	/*
+	 * Lop off SYN bit if it has already been sent.  However, if this
+	 * is SYN-SENT state and if segment contains data and if we don't
+	 * know that foreign host supports TAO, suppress sending segment.
+	 */
+	if ((flags & TH_SYN) && SEQ_GT(tp->snd_nxt, tp->snd_una)) {
+		if (tp->t_state != TCPS_SYN_RECEIVED && off > 1)
+			flags &= ~TH_SYN;
+		off--, len++;
 	}
 
 	if (len < 0) {

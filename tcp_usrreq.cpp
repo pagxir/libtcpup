@@ -56,10 +56,13 @@ void sowwakeup(struct tcpcb *tp)
 	switch (tp->t_state) {
 		case TCPS_SYN_SENT:
 		case TCPS_SYN_RECEIVED:
+			if (rgn_len(tp->rgn_snd) < 1400) {
+				tx_task_wakeup(&tp->w_event);
+			}
 			break;
 
 		default:
-		   	if (rgn_rest(tp->rgn_snd) * 2 >=
+		   	if (rgn_rest(tp->rgn_snd) * 4 >=
 				   	rgn_size(tp->rgn_snd)) {
 				int limit = (tp->snd_max - tp->snd_una);
 				if (rgn_len(tp->rgn_snd) < limit + 4096) {
@@ -146,6 +149,7 @@ struct tcpcb * tcp_newtcpcb(int if_fd, tcp_seq conv)
 	tp->rgn_snd = rgn_create(512 * 1024);
 	tp->rcv_max_space = (2 * 1024 * 1024);
 	tp->rgn_rcv = rgn_create(768 * 1024);
+	tp->snd_wnd = tp->t_maxseg;
 
 	tp->snd_cwnd = rgn_size(tp->rgn_snd);
 	tp->snd_ssthresh = rgn_size(tp->rgn_snd);
@@ -190,7 +194,8 @@ struct tcpcb *tcp_accept(struct sockaddr_in *name, size_t *namlen)
 	newtp = NULL;
 	for (tp = tcp_last_tcpcb; tp != NULL; tp = tp->tle_next) {
 		if ((tp->t_flags & SS_NOFDREF) &&
-			   	(tp->t_state == TCPS_ESTABLISHED ||
+				(tp->t_state == TCPS_ESTABLISHED ||
+				 tp->t_state == TCPS_SYN_RECEIVED ||
 				 tp->t_state == TCPS_CLOSE_WAIT)) {
 			tp->t_flags &= ~SS_NOFDREF;
 			if (name != NULL && namlen != NULL
@@ -364,6 +369,10 @@ int tcp_write(struct tcpcb *tp, const void *buf, size_t count)
 	int min_len = min((int)count, rgn_rest(tp->rgn_snd));
 
 	switch (tp->t_state) {
+		case TCPS_SYN_SENT:
+		case TCPS_SYN_RECEIVED:
+			TCP_DEBUG(1, "tcp_write in incorrect state: %d\n", tp->t_state);
+
 		case TCPS_ESTABLISHED:
 		case TCPS_CLOSE_WAIT:
 			rgn_put(tp->rgn_snd, buf, min_len);
@@ -393,6 +402,8 @@ int tcp_connected(struct tcpcb *tp)
 int tcp_writable(struct tcpcb *tp)
 {
 	if (tp->t_state == TCPS_ESTABLISHED ||
+			tp->t_state == TCPS_SYN_SENT ||
+			tp->t_state == TCPS_SYN_RECEIVED ||
 			tp->t_state == TCPS_CLOSE_WAIT) {
 		return rgn_rest(tp->rgn_snd) > 0;
 	}
@@ -490,13 +501,19 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 
 		case TCP_WRITE:
 			limit = (tp->snd_max - tp->snd_una);
-		   	if (rgn_len(tp->rgn_snd) >= limit + 4096 ||
-				   	tp->t_state == TCPS_SYN_SENT ||
-				   	tp->t_state == TCPS_SYN_RECEIVED) {
+		   	if (rgn_len(tp->rgn_snd) >= limit + 4096) {
 			   	tx_task_record(&tp->w_event, task);
 				error = 0;
 				break;
 		   	} 
+
+			if (rgn_len(tp->rgn_snd) > 1440 &&
+					(tp->t_state == TCPS_SYN_SENT ||
+					 tp->t_state == TCPS_SYN_RECEIVED)) {
+				tx_task_record(&tp->w_event, task);
+				error = 0;
+				break;
+			} 
 
 			tx_task_active(task);
 			error = 1;
@@ -505,7 +522,8 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 		case TCP_ACCEPT:
 		   	for (tp = tcp_last_tcpcb; tp != NULL; tp = tp->tle_next) {
 			   	if ((tp->t_flags & SS_NOFDREF) &&
-					   	(tp->t_state == TCPS_ESTABLISHED ||
+						(tp->t_state == TCPS_SYN_RECEIVED ||
+						 tp->t_state == TCPS_ESTABLISHED ||
 						 tp->t_state == TCPS_CLOSE_WAIT)) {
 				   	tx_task_active(task);
 					return 1;
@@ -528,6 +546,7 @@ int tcp_connect(struct tcpcb *tp,
 {
 	if (tp->t_state == TCPS_CLOSED) {
 		tp->iss = tcp_iss;
+		tcp_iss += TCP_ISSINCR / 2;
 		tcp_sendseqinit(tp);
 		tp->t_state = TCPS_SYN_SENT;
 		UTXPL_ASSERT(namlen <= sizeof(tp->dst_addr.name));
