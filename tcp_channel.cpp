@@ -520,7 +520,7 @@ int tcp_channel::run(void)
 		m_flags &= ~TF_CONNECTING;
 	}
 
-#if 1
+#if 0
 	if (m_flags & TF_CONNECTING) {
 		tcp_poll(m_peer, TCP_CONNECT, &w_evt_peer);
 		return 1;

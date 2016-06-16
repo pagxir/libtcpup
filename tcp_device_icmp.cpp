@@ -439,7 +439,7 @@ extern "C" void tcp_backwork(struct tcpip_info *info)
 void __utxpl_assert(const char *expr, const char *path, size_t line)
 {
 	fprintf(stderr, "ASSERT FAILURE: %s:%d %s\n", path, (int)line, expr);
-	exit(-1);
+	abort();
 	return;
 }
 

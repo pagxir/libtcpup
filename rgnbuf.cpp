@@ -129,6 +129,7 @@ int rgn_put(struct rgnbuf *rb, const void *buf, size_t count)
 {
 	int part1, off;
 	const char *pdat = (const char *)buf;
+	RGN_ASSERT(count >= 0);
 	RGN_ASSERT(count + rb->rb_len <= (rb->rb_size));
 	off = (rb->rb_off + rb->rb_len) & (rb->rb_mask);
 	part1 = umin(count, (rb->rb_size) - off);
@@ -163,6 +164,7 @@ int rgn_reass(struct rgnbuf *rb)
 
 	rb->rb_len += count;
 	rb->rb_frgcnt -= left;
+	RGN_ASSERT(rb->rb_len >= 0);
 	memmove(fragments, fragments + left, rb->rb_frgcnt * sizeof(int));
 	return count;
 }
@@ -305,6 +307,7 @@ int rgn_peek(struct rgnbuf *rb, rgn_iovec buf[2], size_t count, size_t off)
 
 int rgn_drop(struct rgnbuf *rb, size_t len)
 {
+	RGN_ASSERT(rb->rb_len >= len);
 	rb->rb_len -= len;
 	rb->rb_off += len;
 	return 0;
