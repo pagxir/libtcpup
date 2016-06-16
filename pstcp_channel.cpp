@@ -531,7 +531,7 @@ int pstcp_channel::run(void)
 	if (r2s.off >= r2s.len) {
 		r2s.off = r2s.len = 0;
 
-		if (r2s.flag == RDF_EOF) {
+		if (r2s.flag == RDF_EOF && tx_writable(&m_sockcbp)) {
 			shutdown(m_file, SD_BOTH);
 			r2s.flag |= RDF_FIN;
 		}
@@ -542,7 +542,7 @@ int pstcp_channel::run(void)
 		error = 1;
 	}
 
-	if (r2s.off < r2s.len && !tx_writable(&m_sockcbp)) {
+	if ((r2s.off < r2s.len || r2s.flag == RDF_EOF) && !tx_writable(&m_sockcbp)) {
 		tx_outcb_prepare(&m_sockcbp, &m_wwait, 0);
 		error = 1;
 	}
