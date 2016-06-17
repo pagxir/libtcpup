@@ -394,17 +394,25 @@ static void module_init(void)
 	_fwd_target.sin_family = AF_INET;
 	_fwd_target.sin_port   = htons(53);
 
+	char tmp[256] = "", *p;
 	char *nameserver = getenv("NAMESERVER");
 	_fwd_target.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	if (nameserver != NULL) {
-		_fwd_target.sin_addr.s_addr = inet_addr(nameserver);
+		strcpy(tmp, nameserver);
 		_force_override = 0;
 	}
 
 	nameserver = getenv("NAMESERVER_OVERRIDE");
 	if (nameserver != NULL) {
-		_fwd_target.sin_addr.s_addr = inet_addr(nameserver);
+		strcpy(tmp, nameserver);
 		_force_override = 1;
+	}
+
+	if (tmp[0] != 0) {
+		p = strchr(tmp, ':');
+		p && (*p++ = 0);
+		p && (_fwd_target.sin_port = htons(atoi(p)));
+		_fwd_target.sin_addr.s_addr = inet_addr(tmp);
 	}
 }
 

@@ -234,7 +234,7 @@ void tcpup_device::init(int dobind)
 
 #if defined(WIN32) || defined(__APPLE__)
 	int bufsize = 1024 * 1024;
-	setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
+	//setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
 	setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
 	tx_setblockopt(_file, 0);
 #endif
