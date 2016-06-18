@@ -256,8 +256,8 @@ after_sack_rexmit:
 	 * know that foreign host supports TAO, suppress sending segment.
 	 */
 	if ((flags & TH_SYN) && SEQ_GT(tp->snd_nxt, tp->snd_una)) {
-		// if (tp->t_state != TCPS_SYN_RECEIVED && off > 1)
-		if (off > 1) flags &= ~TH_SYN;
+		// if (tp->t_state != TCPS_SYN_RECEIVED || off > 1)
+		if (off > 1) { flags &= ~TH_SYN; goto just_return; }
 		off--, len++;
 	}
 

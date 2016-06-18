@@ -324,6 +324,7 @@ failure_closed:
 
 void tcp_channel::sockv5_proto_input(void)
 {
+    int line = 0;
     int len, pat;
     char buf[256];
     char *p, *limit;
@@ -344,7 +345,10 @@ void tcp_channel::sockv5_proto_input(void)
                 buf[1] = 0x00;
 
                 len = tx_outcb_write(&m_sockcbp, buf, 2);
-                if (len != 2) goto failure_closed;
+		if (len != 2) {
+			line = __LINE__;
+			goto failure_closed;
+		}
 
                 up->proto_flags |= AUTHED_Z;
                 limit = up->c2r.buf + up->c2r.len;
@@ -407,6 +411,7 @@ void tcp_channel::sockv5_proto_input(void)
                     memcpy(up->r2c.buf, resp_v5, sizeof(resp_v5));
                     up->r2c.buf[1] = 0x08;
                     tx_outcb_write(&m_sockcbp, up->r2c.buf, sizeof(resp_v5));
+		    line = __LINE__;
                     goto failure_closed;
             }
 
@@ -415,6 +420,7 @@ void tcp_channel::sockv5_proto_input(void)
                 memcpy(up->r2c.buf, resp_v5, sizeof(resp_v5));
                 up->r2c.buf[1] = 0x07;
                 tx_outcb_write(&m_sockcbp, up->r2c.buf, sizeof(resp_v5));
+		line = __LINE__;
                 goto failure_closed;
             }
 
@@ -422,7 +428,11 @@ void tcp_channel::sockv5_proto_input(void)
             up->c2r.len = limit - end;
 
             memcpy(up->r2c.buf, resp_v5, sizeof(resp_v5));
-            tx_outcb_write(&m_sockcbp, up->r2c.buf, sizeof(resp_v5));
+            len = tx_outcb_write(&m_sockcbp, up->r2c.buf, sizeof(resp_v5));
+	    if (len != sizeof(resp_v5)) {
+		    line = __LINE__;
+		    goto failure_closed;
+	    }
 
             up->m_flags &= ~SOCKV5_PROTO;
             up->m_flags |= DIRECT_PROTO;
@@ -433,12 +443,17 @@ void tcp_channel::sockv5_proto_input(void)
 check_protocol:
     if (!buf_overflow(&m)) {
         fprintf(stderr, "socks5 no overflow\n");
+        fprintf(stderr, "socks5 stream closed\n");
+	line = __LINE__;
         goto failure_closed;
     } else if (up->c2r.len == sizeof(up->c2r.buf)) {
         fprintf(stderr, "socks5 buffer full\n");
+        fprintf(stderr, "socks5 stream closed\n");
+	line = __LINE__;
         goto failure_closed;
     } else if (up->c2r.flag & RDF_EOF) {
         fprintf(stderr, "socks5 stream closed\n");
+	line = __LINE__;
         goto failure_closed;
     }
 
@@ -446,6 +461,7 @@ check_protocol:
     return;
 
 failure_closed:
+    fprintf(stderr, "socks5 handshake failure, %d\n", line);
     up->m_flags |= UNKOWN_PROTO;
     return;
 }
