@@ -1099,6 +1099,7 @@ close:
 				/* TODO */
 			}
 			tp->snd_wl1 = th->th_seq - 1;
+			tp->snd_una++; /* Our SYN is Acked T/TCP not suppport yet. */
 			sowwakeup(tp);
 			/* FALLTHROUGH */
 			TCP_TRACE_START(tp, "TCPS_SYN_RECEIVED -> TCPS_ESTABLISHED\n");
@@ -1224,6 +1225,24 @@ close:
 			}
 
 			tp->t_dupacks = 0;
+#if 0
+			/*
+			 * If we reach this point, ACK is not a duplicate,
+			 *     i.e., it ACKs something we sent.
+			 */
+			if (tp->t_flags & TF_NEEDSYN) {
+					/*
+					 * T/TCP: Connection was half-synchronized, and our
+					 * SYN has been ACK'd (so connection is now fully
+					 * synchronized).  Go to non-starred state,
+					 * increment snd_una for ACK of SYN, and check if
+					 * we can do window scaling.
+					 */
+					tp->t_flags &= ~TF_NEEDSYN;
+					tp->snd_una++;
+					/* Do window scaling? */
+			}
+#endif
 
 process_ACK:
 			acked = BYTES_THIS_ACK(tp, th);
