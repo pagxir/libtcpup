@@ -114,7 +114,6 @@ int dns_query_close(int dns_handle)
 	ENTER_DNS_LOCK;
 	item = _dns_items[dns_handle];
 	if (item != NULL) {
-		_dns_items[dns_handle] = NULL;
 		/* automatic decreate */
 		item->task = NULL;
 		if (--item->refcnt == 0) {
@@ -143,8 +142,8 @@ static int do_dns_query(int index)
 		TX_PRINT(TXL_DEBUG, "start query %s\n", item->name);
 		ENTER_DNS_LOCK;
 		if (--item->refcnt == 0) {
-			_dns_items[index] = NULL;
 			if (item->result) freeaddrinfo(item->result);
+			_dns_items[index] = NULL;
 			delete item;
 			freed = 0;
 		}
