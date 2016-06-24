@@ -706,7 +706,7 @@ int tcp_addoptions(struct tcpopt *to, u_char *optp)
 				optlen += TCPOLEN_MAXSEG;
 				*optp++ = TCPOPT_MAXSEG;
 				*optp++ = TCPOLEN_MAXSEG;
-				to->to_mss = htons(to->to_mss + 12);
+				to->to_mss = htons(to->to_mss);
 				bcopy((u_char *)&to->to_mss, optp, sizeof(to->to_mss));
 				optp += sizeof(to->to_mss);
 				break;
@@ -752,19 +752,19 @@ int tcp_addoptions(struct tcpopt *to, u_char *optp)
 					TCPSTAT_INC(tcps_sack_send_blocks);
 					break;
 				}
-            case TOF_DESTINATION:
-                while (!optlen || optlen % 2 != 1) {
-                    optlen += TCPOLEN_NOP;
-                    *optp++ = TCPOPT_NOP;
-                }
-                if (TCP_MAXOLEN - optlen < TCPOLEN_DESTINATION + to->to_dslen)
-                    continue;
-                optlen += (to->to_dslen + TCPOLEN_DESTINATION);
-                *optp++ = TCPOPT_DESTINATION;
-                *optp++ = (to->to_dslen + TCPOLEN_DESTINATION);
-                memcpy(optp, to->to_dsaddr, to->to_dslen);
-                optp += to->to_dslen;
-                break;
+			case TOF_DESTINATION:
+				while (!optlen || optlen % 2 != 1) {
+					optlen += TCPOLEN_NOP;
+					*optp++ = TCPOPT_NOP;
+				}
+				if (TCP_MAXOLEN - optlen < TCPOLEN_DESTINATION + to->to_dslen)
+					continue;
+				optlen += (to->to_dslen + TCPOLEN_DESTINATION);
+				*optp++ = TCPOPT_DESTINATION;
+				*optp++ = (to->to_dslen + TCPOLEN_DESTINATION);
+				memcpy(optp, to->to_dsaddr, to->to_dslen);
+				optp += to->to_dslen;
+				break;
 			case TOF_TS:
 			case TOF_SACKPERM:
 				break;

@@ -127,6 +127,7 @@ static int tcp_stat(void)
 	return 0;
 }
 
+int get_device_mtu();
 void ertt_uma_ctor(void *mem, int size, void *arg, int flags);
 void ertt_uma_dtor(void *mem, int size, void *arg);
 
@@ -144,7 +145,9 @@ struct tcpcb * tcp_newtcpcb(int if_fd, tcp_seq conv)
 	tp->t_rttvar = ((TCPTV_RTOBASE - TCPTV_SRTTBASE) << TCP_RTTVAR_SHIFT) / 4;
 	tp->t_flags = SS_NOFDREF;
 	tp->t_maxseg = TCP_MSS;
+	tp->t_maxseg = get_device_mtu() - sizeof(struct tcphdr);
 
+	TCP_DEBUG(1, "tp->t_maxseg = %u\n", tp->t_maxseg);
 	tp->snd_max_space = (2 * 1024 * 1024);
 	tp->rgn_snd = rgn_create(512 * 1024);
 	tp->rcv_max_space = (2 * 1024 * 1024);

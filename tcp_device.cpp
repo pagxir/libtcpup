@@ -26,6 +26,11 @@ int set_filter_hook(FILTER_HOOK *hook)
 	return 0;
 }
 
+int get_device_mtu()
+{
+	return 1500 - 20 - 8 - 22;
+}
+
 struct tcpup_device {
 	struct tx_aiocb _sockcbp;
 
