@@ -240,7 +240,6 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 				bcopy((char *)cp + 2,
 						(char *)&to->to_mss, sizeof(to->to_mss));
 				to->to_mss = ntohs(to->to_mss);
-				if (to->to_mss > 500) to->to_mss -= 12;
 				break;
 #if 0
 			case TCPOPT_WINDOW:
