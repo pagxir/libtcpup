@@ -62,12 +62,8 @@ void sowwakeup(struct tcpcb *tp)
 			break;
 
 		default:
-		   	if (rgn_rest(tp->rgn_snd) * 4 >=
-				   	rgn_size(tp->rgn_snd)) {
-				int limit = (tp->snd_max - tp->snd_una);
-				if (rgn_len(tp->rgn_snd) < limit + 4096) {
-					tx_task_wakeup(&tp->w_event);
-				}
+			if (rgn_rest(tp->rgn_snd) * 4 >= rgn_size(tp->rgn_snd)) {
+				tx_task_wakeup(&tp->w_event);
 			}
 			break;
 	}
