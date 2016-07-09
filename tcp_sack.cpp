@@ -437,7 +437,7 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 	    (tp->snd_nxt - tp->sack_newdata) + num_segs * tp->t_maxseg);
 	if (tp->snd_cwnd > tp->snd_ssthresh)
 		tp->snd_cwnd = tp->snd_ssthresh;
-	tp->t_flags |= TF_ACKNOW;
+	// tp->t_flags |= TF_ACKNOW;
 	(void) tcp_output(tp);
 }
 

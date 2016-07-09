@@ -1213,7 +1213,6 @@ close:
 							TSTMP_LT(to.to_tsecr, tp->undo_ts_left)) {
 						TCP_TRACE_AWAYS(NULL, "quck recovery %x \n", tp->t_conv);
 						cc_post_recovery(tp, th);
-						tp->undo_ts_left = -1;
 					} else {
 						TCP_TRACE_AWAYS(tp, "slow recovery %x \n", tp->t_conv);
 						tcp_sack_partialack(tp, th);

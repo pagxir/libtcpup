@@ -135,7 +135,7 @@ again:
 	if (tp->t_maxseg > tp->snd_cwnd) {
 		sendwin = min(tp->snd_wnd, 3 * tp->t_maxseg);
 	} else {
-		sendwin = min(tp->snd_wnd, tp->snd_cwnd);
+		sendwin = min(tp->snd_wnd, (tp->snd_cwnd / tp->t_maxseg) * tp->t_maxseg);
 	}
 
 	TCP_TRACE_CHECK(tp, sendwin < tp->t_maxseg, "snd_wnd %d, snd_cwnd %d\n", tp->snd_wnd, tp-> snd_cwnd) ;
