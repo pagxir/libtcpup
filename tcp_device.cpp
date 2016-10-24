@@ -29,7 +29,13 @@ int set_filter_hook(FILTER_HOOK *hook)
 
 int get_device_mtu()
 {
-	return 1500 - 20 - 8 - 22;
+	int mtu = 1500;
+	char *mtup = getenv("MTU");
+	if (mtup != NULL) {
+		int tmp_mtu = atoi(mtup);
+		if (tmp_mtu >= 512 && tmp_mtu < 1500) mtu = tmp_mtu;
+	}
+	return mtu - 20 - 8 - 22;
 }
 
 struct tcpup_device {
