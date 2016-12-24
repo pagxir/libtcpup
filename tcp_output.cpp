@@ -1,5 +1,6 @@
 #include <stdlib.h>
 
+#define TCPUP_LAYER 1
 #include <utx/utxpl.h>
 #include <utx/sobuf.h>
 #include <utx/queue.h>
@@ -431,7 +432,7 @@ sendit:
 			TCPSTAT_INC(tcps_sndpack);
 			TCPSTAT_ADD(tcps_sndbyte, len);
 		}
-		TCP_TRACE_CHECK(tp, off && p, "%x len %d, off %d, optlen %d, %x\n", tp->t_conv, len, off, optlen, to.to_flags);
+		TCP_TRACE_CHECK(tp, off && p, "%x len %d, off %d, optlen %d, %x\n", tp->tp_socket->so_conv, len, off, optlen, to.to_flags);
 		rgn_peek(tp->rgn_snd, iobuf + 1, len, off);
 #if 0
 		if (off + len == rgn_len(tp->rgn_snd))
@@ -473,7 +474,7 @@ sendit:
 	th->th_tsval = (to.to_tsval);
 	th->th_tsecr = (to.to_tsecr);
 	th->th_flags = flags;
-	th->th_conv  = (tp->t_conv);
+	th->th_conv  = (tp->tp_socket->so_conv);
 	tilen   = (u_short)len;
 
 	if (recwin < (long) rgn_size(tp->rgn_rcv) / 4 &&
@@ -497,9 +498,9 @@ sendit:
 	int prev_t_rtttime = tp->t_rtttime;
 
 	if (th->th_flags & TH_FIN) {
-		TCP_TRACE_CHECK(tp, th->th_flags & TH_FIN, "%x FIN sent\n", tp->t_conv);
+		TCP_TRACE_CHECK(tp, th->th_flags & TH_FIN, "%x FIN sent\n", tp->tp_socket->so_conv);
 		TCP_TRACE_CHECK(tp, tilen == 0 && tp->t_state > TCPS_ESTABLISHED,
-				"%x finish ack state %d, rcv_nxt %x, %x, %x\n", tp->t_conv, tp->t_state, tp->rcv_nxt, htonl(th->th_seq), htonl(th->th_ack));
+				"%x finish ack state %d, rcv_nxt %x, %x, %x\n", tp->tp_socket->so_conv, tp->t_state, tp->rcv_nxt, htonl(th->th_seq), htonl(th->th_ack));
 	}
 
 	if (IN_FASTRECOVERY(tp->t_flags)) {
@@ -512,7 +513,7 @@ sendit:
 		}
 	}
 
-	error = utxpl_output(tp->if_dev, iobuf, 3, &tp->dst_addr);
+	error = utxpl_output(tp->tp_socket->so_iface, iobuf, 3, &tp->dst_addr);
 
 	if ((tp->t_flags & TF_FORCEDATA) == 0 || !tcp_timer_active(tp, TT_PERSIST)) {
 		tcp_seq startseq = tp->snd_nxt;
@@ -644,7 +645,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 		th->th_conv = (orig->th_conv);
 		th->th_tsecr = htonl(orig->th_tsval);
 	} else {
-		th->th_conv = (tp->t_conv);
+		th->th_conv = (tp->tp_socket->so_conv);
 		th->th_flags = TH_ACK | ((rgn_len(tp->rgn_snd) || (tp->t_flags & TF_MORETOCOME))? 0: TH_PUSH);
 		th->th_tsecr = htonl(tp->ts_recent);
 	}
@@ -664,7 +665,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 	TCP_TRACE_AWAYS(tp, "tcp_respond: %x flags %x seq %x  ack %x ts %x %x\n",
 			th->th_conv, flags, seq, ack, th->th_tsval, th->th_tsecr);
 
-	error = utxpl_output(tp->if_dev, &iov0, 1, &tp->dst_addr);
+	error = utxpl_output(tp->tp_socket->so_iface, &iov0, 1, &tp->dst_addr);
 	VAR_UNUSED(error);
 	return;
 }

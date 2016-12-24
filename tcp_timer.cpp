@@ -3,6 +3,7 @@
 
 #include <txall.h>
 
+#define TCPUP_LAYER 1
 #include <utx/queue.h>
 #include <utx/utxpl.h>
 #include <utx/socket.h>
@@ -17,6 +18,7 @@
 
 extern int tcp_iss;
 
+int tcp_keepinit = TCPTV_KEEP_INIT;
 int tcp_keepidle = TCPTV_KEEP_IDLE;
 int tcp_keepintvl = TCPTV_KEEPINTVL;
 int tcp_rexmit_slop = TCPTV_CPU_VAR;
@@ -53,7 +55,7 @@ static void tcp_2msl_timo(void *up)
 		tx_timer_reset(&tp->t_timer_2msl, tcp_keepintvl);
    	} else {
 	   	tp->t_state = TCPS_CLOSED;
-	   	soisdisconnected(tp);
+	   	soisdisconnected(tp->tp_socket);
 		tcp_close(tp);
    	}
 
@@ -113,14 +115,14 @@ static void tcp_rexmt_timo(void *up)
 	ticks = tcp_ts_getticks();
 	tcp_free_sackholes(tp);
 
-	TCP_TRACE_AWAYS(tp, "tcp rexmt time out %x\n", tp->t_conv);
+	TCP_TRACE_AWAYS(tp, "tcp rexmt time out %x\n", tp->tp_socket->so_conv);
    	if (++tp->t_rxtshift > TCP_MAXRXTSHIFT) {
 	   	tp->t_rxtshift = TCP_MAXRXTSHIFT;
 	   	tp->t_state = TCPS_CLOSED;
 	   	TCPSTAT_INC(tcps_timeoutdrop);
 	   	sorwakeup(tp);
 	   	sowwakeup(tp);
-	   	soisdisconnected(tp);
+	   	soisdisconnected(tp->tp_socket);
 		tcp_close(tp);
 		return;
    	}
@@ -186,7 +188,7 @@ static void tcp_keep_timo(void *up)
 		if ((tp->t_flags & TF_REC_ADDR) == 0) {
 #if 0
 			tp->dst_addr.xdat = rand();
-			TCP_TRACE_AWAYS(tp, "%x re assign xdat %x\n", tp->t_conv, tp->dst_addr.xdat);
+			TCP_TRACE_AWAYS(tp, "%x re assign xdat %x\n", tp->tp_socket->t_conv, tp->dst_addr.xdat);
 #endif
 		}
 

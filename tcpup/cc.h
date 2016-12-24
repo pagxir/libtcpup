@@ -182,6 +182,9 @@
  extern struct cc_algo *default_cc_ptr;
  
  #define CCV(ccv, what) (ccv)->tcp->what
- #define CC_ALGO(tp) default_cc_ptr
+ #define CC_ALGO(tp) get_cc_ptr(tp)
+
+ struct cc_algo * get_cc_ptr(struct tcpcb *tp);
+
  
  #endif /* _TCPUP_CC_H_ */

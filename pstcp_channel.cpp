@@ -45,7 +45,7 @@ struct relay_data {
 
 class pstcp_channel {
 	public:
-		pstcp_channel(struct tcpcb *tp);
+		pstcp_channel(sockcb_t so);
 		~pstcp_channel();
 
 	public:
@@ -60,8 +60,8 @@ class pstcp_channel {
 		int m_skip_count;
 
 	private:
-		struct tx_task_t m_rwait;
-		struct tx_task_t m_wwait;
+		tx_task_t m_rwait;
+		tx_task_t m_wwait;
 		struct tx_aiocb m_sockcbp;
 
 	private:
@@ -69,15 +69,15 @@ class pstcp_channel {
 		struct relay_data s2r;
 
 	private:
-		struct tcpcb *m_peer;
-		struct tx_task_t r_evt_peer;
-		struct tx_task_t w_evt_peer;
+		sockcb_t m_peer;
+		tx_task_t r_evt_peer;
+		tx_task_t w_evt_peer;
 
 	private:
-		struct tx_task_t xidle;
-		struct tx_timer_t tidle;
+		tx_task_t xidle;
+		tx_timer_t tidle;
 		static void tc_idleclose(void *context);
-		int expend_relay(struct sockaddr_storage *, struct tcpcb *, u_long , u_short , struct tx_task_t *);
+		int expend_relay(struct sockaddr_storage *, sockcb_t , u_long , u_short , struct tx_task_t *);
 };
 
 int pstcp_channel::v4_only = 0;
@@ -107,7 +107,7 @@ static void anybind(int fd, int family)
 	return;
 }
 
-	pstcp_channel::pstcp_channel(struct tcpcb *tp)
+	pstcp_channel::pstcp_channel(sockcb_t so)
 :m_flags(0)
 {
 	int len;
@@ -120,7 +120,7 @@ static void anybind(int fd, int family)
 	r2s.flag = 0;
 	r2s.off = r2s.len = 0;
 
-	m_peer = tp;
+	m_peer = so;
 	m_dns_handle = -1;
 
 	tx_loop_t *loop = tx_loop_default();
@@ -133,7 +133,7 @@ static void anybind(int fd, int family)
 	tx_task_init(&w_evt_peer, loop, tc_callback, this);
 
 	is_v4only = v4_only;
-	len = tcp_relayget(tp, relay, sizeof(relay));
+	len = sooptget_target(so, relay, sizeof(relay));
 	if (len > 4) is_v4only = (relay[0] == 0x01);
 #ifdef USE_SOCKS_BACKEND 
 	is_v4only = 1;
@@ -161,7 +161,7 @@ pstcp_channel::~pstcp_channel()
 	}
 
 	tx_aiocb_fini(&m_sockcbp);
-	tcp_soclose(m_peer);
+	soclose(m_peer);
 
 	tx_timer_stop(&tidle);
 	tx_task_drop(&xidle);
@@ -175,7 +175,7 @@ pstcp_channel::~pstcp_channel()
 	closesocket(m_file);
 }
 
-int pstcp_channel::expend_relay(struct sockaddr_storage *destination, struct tcpcb *tp, u_long defdest, u_short port, struct tx_task_t *task)
+int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t tp, u_long defdest, u_short port, struct tx_task_t *task)
 {
 	int len, typ;
 	struct addrinfo hints;
@@ -188,7 +188,7 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, struct tcp
 		(struct sockaddr_in6 *)destination;
 
 	p = relay;
-	len = tcp_relayget(tp, relay, sizeof(relay));
+	len = sooptget_target(tp, relay, sizeof(relay));
 
 	while (len > 4 && len < sizeof(relay)) {
 		int err = 0;
@@ -263,12 +263,12 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, struct tcp
 	return 0;
 }
 
-int socksv5_connect(struct tcpcb *cb, void *buf, size_t size)
+int socksv5_connect(sockcb_t cb, void *buf, size_t size)
 {
 	char relay[128];
 	char *p = relay;
 
-	int len = tcp_relayget(cb, relay, sizeof(relay));
+	int len = sooptget_target(cb, relay, sizeof(relay));
 
 	while (len > 4 && len < sizeof(relay)) {
 		int typ = *p++;
@@ -440,7 +440,7 @@ int pstcp_channel::run(void)
 			fprintf(stderr, "connect is finish...\n");
 			m_skip_count = 0;
 #if USE_SOCKS_BACKEND
-			r2s.len = sockv4_connect(m_peer, r2s.buf, sizeof(r2s.buf));
+			r2s.len = socksv5_connect(m_peer, r2s.buf, sizeof(r2s.buf));
 			if (r2s.len > 0) m_skip_count = 12;
 #endif
 			m_flags &= ~TF_CONNECTING;
@@ -480,8 +480,8 @@ int pstcp_channel::run(void)
 			}
 		}
 
-		if (tcp_writable(m_peer) && s2r.off < s2r.len) {
-			len = tcp_write(m_peer, s2r.buf + s2r.off, s2r.len - s2r.off);
+		if (sowritable(m_peer) && s2r.off < s2r.len) {
+			len = sowrite(m_peer, s2r.buf + s2r.off, s2r.len - s2r.off);
 			if (len == -1) return 0;
 			change |= (len > 0);
 			s2r.off += len;
@@ -491,8 +491,8 @@ int pstcp_channel::run(void)
 	do {
 		change = 0;
 		if (r2s.off >= r2s.len)  r2s.off = r2s.len = 0;
-		if (tcp_readable(m_peer) && r2s.len < (int)sizeof(r2s.buf) && !r2s.flag) {
-			len = tcp_read(m_peer, r2s.buf + r2s.len, sizeof(r2s.buf) - r2s.len);
+		if (soreadable(m_peer) && r2s.len < (int)sizeof(r2s.buf) && !r2s.flag) {
+			len = soread(m_peer, r2s.buf + r2s.len, sizeof(r2s.buf) - r2s.len);
 			if (len == -1 || len == 0) {
 				r2s.flag |= RDF_EOF;
 				len = 0;
@@ -523,7 +523,7 @@ int pstcp_channel::run(void)
 		s2r.off = s2r.len = 0;
 
 		if (s2r.flag == RDF_EOF) {
-			tcp_shutdown(m_peer);
+			soshutdown(m_peer);
 			s2r.flag |= RDF_FIN;
 		}
 	}
@@ -537,8 +537,8 @@ int pstcp_channel::run(void)
 		}
 	}
 
-	if (s2r.off < s2r.len && !tcp_writable(m_peer)) {
-		tcp_poll(m_peer, TCP_WRITE, &w_evt_peer);
+	if (s2r.off < s2r.len && !sowritable(m_peer)) {
+		sopoll(m_peer, SO_SEND, &w_evt_peer);
 		error = 1;
 	}
 
@@ -553,9 +553,9 @@ int pstcp_channel::run(void)
 		error = 1;
 	}
 
-	if ((r2s.flag == 0) && !tcp_readable(m_peer) &&
+	if ((r2s.flag == 0) && !soreadable(m_peer) &&
 			r2s.len < (int)sizeof(r2s.buf)) {
-		tcp_poll(m_peer, TCP_READ, &r_evt_peer);
+		sopoll(m_peer, SO_RECEIVE, &r_evt_peer);
 		error = 1;
 	}
 
@@ -583,13 +583,13 @@ void pstcp_channel::tc_callback(void *context)
 	return;
 }
 
-void new_pstcp_channel(struct tcpcb *tp)
+void new_pstcp_channel(sockcb_t tp)
 {
 	pstcp_channel *chan;
 	chan = new pstcp_channel(tp);
 
 	if (chan == NULL) {
-		tcp_soclose(tp);
+		soclose(tp);
 		return;
 	}
 

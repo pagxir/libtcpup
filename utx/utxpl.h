@@ -87,6 +87,8 @@ u_short utx_ntohs(u_short v);
 extern int ticks;
 extern u_int tx_getticks(void);
 
+#endif
+
 enum {
     UTXECONNRESET = 100,
 #define UTXECONNRESET UTXECONNRESET
@@ -101,8 +103,6 @@ enum {
 	UTXTIMEDOUT
 #define UTXTIMEDOUT UTXTIMEDOUT
 };
-
-#endif
 
 struct tcpup_addr {
     size_t namlen;

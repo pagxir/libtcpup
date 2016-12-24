@@ -1,5 +1,6 @@
 #include <unistd.h>
 
+#define TCPUP_LAYER 1
 #include <utx/utxpl.h>
 #include <utx/queue.h>
 #include <utx/sobuf.h>
@@ -298,7 +299,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 	return sizeof(tcphdr) + oldcnt;
 }
 
-void tcp_input(struct tcpcb *tp, int dst,
+void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 		const char *buf, size_t len, const struct tcpup_addr *from)
 {
 	int tlen;
@@ -328,7 +329,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 	/* STAR HERE */
 	thflags = th->th_flags;
 	tp->sackhint.last_sack_ack = 0;
-	TCP_TRACE_CHECK(tp, thflags & TH_FIN, "receive FIN: %x\n", tp->t_conv);
+	TCP_TRACE_CHECK(tp, thflags & TH_FIN, "receive FIN: %x\n", so->so_conv);
 
 	/*
 	 * Segment received on connection.
@@ -392,7 +393,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 
 		if ((to.to_flags & TOF_MSS) &&
 				to.to_mss >= 512 && to.to_mss < tp->t_maxseg) {
-			TCP_TRACE_AWAYS(tp, "%x update mss from peer\n", tp->t_conv);
+			TCP_TRACE_AWAYS(tp, "%x update mss from peer\n", so->so_conv);
 			tp->t_maxseg = to.to_mss;
 		}
 	}
@@ -557,7 +558,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 	switch (tp->t_state) {
 		case TCPS_LISTEN:
 			if (thflags & TH_RST) {
-				TCP_TRACE_AWAYS(tp, "drop %x\n", tp->t_conv);
+				TCP_TRACE_AWAYS(tp, "drop %x\n", so->so_conv);
 				goto drop;
 			}
 
@@ -567,7 +568,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 			}
 
 			if ((thflags & TH_SYN) == 0) {
-				TCP_TRACE_AWAYS(tp, "drop %x\n", tp->t_conv);
+				TCP_TRACE_AWAYS(tp, "drop %x\n", so->so_conv);
 				goto drop;
 			}
 
@@ -577,11 +578,11 @@ void tcp_input(struct tcpcb *tp, int dst,
 			tp->t_flags |= TF_ACKNOW;
 			tp->t_state = TCPS_SYN_RECEIVED;
 			TCP_TRACE_START(tp, "TCPS_LISTEN -> TCPS_SYN_RECEIVED\n");
-			soisconnected(tp);
+			soisconnected(so);
 
 			if ((to.to_flags & TOF_MSS) &&
 					to.to_mss >= 512 && to.to_mss < tp->t_maxseg) {
-				TCP_TRACE_AWAYS(tp, "%x update mss from peer\n", tp->t_conv);
+				TCP_TRACE_AWAYS(tp, "%x update mss from peer\n", so->so_conv);
 				tp->t_maxseg = to.to_mss;
 			}
 
@@ -590,7 +591,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 
 			if ((to.to_flags & TOF_DESTINATION) &&
 					to.to_dslen >= 4 && to.to_dslen < 60) {
-				TCP_TRACE_AWAYS(tp, "%x update relay from peer\n", tp->t_conv);
+				TCP_TRACE_AWAYS(tp, "%x update relay from peer\n", so->so_conv);
 				memcpy(tp->relay_target, to.to_dsaddr, to.to_dslen);
 				tp->relay_len = to.to_dslen;
 			}
@@ -616,7 +617,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 				TCP_TRACE_AWAYS(tp, "send reset on syn receive\n");
 				goto dropwithreset;
 			}
-			soisconnected(tp);
+			soisconnected(so);
 			break;
 
         /*
@@ -665,7 +666,7 @@ void tcp_input(struct tcpcb *tp, int dst,
 
 			if (thflags & TH_ACK) {
 				TCPSTAT_INC(tcps_connects);
-				soisconnected(tp);
+				soisconnected(so);
 
 				/* Do window scaling on this connection? */
 				tp->rcv_adv += min(tp->rcv_wnd,
@@ -816,7 +817,7 @@ trimthenstep6:
          */
 
         if (thflags & TH_RST) {
-				TCP_TRACE_AWAYS(tp, "drop since RST %x\n", tp->t_conv);
+				TCP_TRACE_AWAYS(tp, "drop since RST %x\n", so->so_conv);
                 if (SEQ_GEQ(th->th_seq, tp->last_ack_sent - 1) &&
                     SEQ_LEQ(th->th_seq, tp->last_ack_sent + tp->rcv_wnd)) {
                         switch (tp->t_state) {
@@ -831,7 +832,7 @@ trimthenstep6:
 										!(SEQ_GEQ(th->th_seq, tp->last_ack_sent - 1) &&
 											SEQ_LEQ(th->th_seq, tp->last_ack_sent + 1))) {
 									/* TCPSTAT_INC(tcps_badrst); */
-									TCP_TRACE_AWAYS(tp, "drop %x\n", tp->t_conv);
+									TCP_TRACE_AWAYS(tp, "drop %x\n", so->so_conv);
 									goto drop;
 								}
 								/* FALLTHROUGH */
@@ -890,9 +891,9 @@ close:
 				th->th_seq == tp->rcv_nxt &&
 				th->th_ack == tp->snd_una &&
 				TSTMP_LT(tp->ts_recent, to.to_tsval + tp->t_rttmin)) {
-				TCP_TRACE_AWAYS(tp, "handle reorder %x\n", tp->t_conv);
+				TCP_TRACE_AWAYS(tp, "handle reorder %x\n", so->so_conv);
 			} else {
-				TCP_TRACE_AWAYS(tp, "drop %x\n", tp->t_conv);
+				TCP_TRACE_AWAYS(tp, "drop %x\n", so->so_conv);
 				goto drop;
 			}
 		}
@@ -964,8 +965,6 @@ close:
 		size_t namlen = tp->dst_addr.namlen;
 		TCP_TRACE_AWAYS(tp, "send syn wait %d %d %x %x\n", tp->t_state, tlen, th->th_seq, tp->rcv_nxt);
 
-		tcb.if_dev = tp->if_dev;
-		tcb.t_conv = tp->t_conv;
 		UTXPL_ASSERT(namlen <= sizeof(tcb.dst_addr.name));
 		memcpy(tcb.dst_addr.name, tp->dst_addr.name, namlen);
 		tcb.dst_addr.namlen = namlen;
@@ -1036,7 +1035,7 @@ close:
 	 * error and we send an RST and drop the connection.
 	 */
 	if (thflags & TH_SYN) {
-		TCP_TRACE_AWAYS(tp, "drop %x\n", tp->t_conv);
+		TCP_TRACE_AWAYS(tp, "drop %x\n", so->so_conv);
 		tp = tcp_drop(tp, UTXECONNRESET);
 		/* rstreason = BANDLIM_UNLIMITED; */
 		goto drop;
@@ -1053,7 +1052,7 @@ close:
 		else if (tp->t_flags & TF_ACKNOW)
 			goto dropafterack;
 		else {
-			TCP_TRACE_AWAYS(tp, "drop %x\n", tp->t_conv);
+			TCP_TRACE_AWAYS(tp, "drop %x\n", so->so_conv);
 			goto drop;
 		}
 	}
@@ -1070,7 +1069,7 @@ close:
          */
 		case TCPS_SYN_RECEIVED:
 			TCPSTAT_INC(tcps_connects);
-			soisconnected(tp);
+			soisconnected(so);
 			tp->snd_wnd = tiwin;
 
 			/*
@@ -1211,10 +1210,10 @@ close:
 				if (SEQ_LT(th->th_ack, tp->snd_recover)) {
 					if (tp->undo_ts_left > 0 &&
 							TSTMP_LT(to.to_tsecr, tp->undo_ts_left)) {
-						TCP_TRACE_AWAYS(NULL, "quck recovery %x \n", tp->t_conv);
+						TCP_TRACE_AWAYS(NULL, "quck recovery %x \n", so->so_conv);
 						cc_post_recovery(tp, th);
 					} else {
-						TCP_TRACE_AWAYS(tp, "slow recovery %x \n", tp->t_conv);
+						TCP_TRACE_AWAYS(tp, "slow recovery %x \n", so->so_conv);
 						tcp_sack_partialack(tp, th);
 					}
 				} else {
@@ -1304,7 +1303,7 @@ process_ACK:
 						tcp_timer_activate(tp, TT_2MSL, TP_KEEPCNT(tp) * TP_KEEPINTVL(tp));
 						tp->t_state = TCPS_FIN_WAIT_2;
 						TCP_TRACE_AWAYS(tp, "TCPS_FIN_WAIT_1 -> TCPS_FIN_WAIT_2\n");
-						soisdisconnected(tp);
+						soisdisconnected(so);
 					}
 					break;
 
@@ -1321,7 +1320,7 @@ process_ACK:
 					if (ourfinisacked) {
 						TCP_TRACE_AWAYS(tp, "TCPS_LAST_ACK -> TCPS_CLOSED\n");
 						tp->t_state = TCPS_CLOSED;
-						soisdisconnected(tp);
+						soisdisconnected(so);
 						tcp_close(tp);
 						tp = NULL;
 						goto drop;
@@ -1416,9 +1415,9 @@ dodata:
 	}
 
 	if (thflags & TH_FIN) {
-		TCP_TRACE_AWAYS(tp, "FIN received %x\n", tp->t_conv);
+		TCP_TRACE_AWAYS(tp, "FIN received %x\n", so->so_conv);
 		if (TCPS_HAVERCVDFIN(tp->t_state) == 0) {
-			TCP_TRACE_AWAYS(tp, "do FIN acked %x\n", tp->t_conv);
+			TCP_TRACE_AWAYS(tp, "do FIN acked %x\n", so->so_conv);
 			socantrcvmore(tp->rgn_rcv);
 			tp->t_flags |= TF_ACKNOW;
 			tp->rcv_nxt++;

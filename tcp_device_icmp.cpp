@@ -9,6 +9,7 @@
 
 #include <txall.h>
 
+#define TCPUP_LAYER 1
 #include <utx/utxpl.h>
 #include <utx/socket.h>
 
@@ -95,8 +96,7 @@ void set_ping_reply(int mode)
 	return;
 }
 
-struct tcpcb;
-struct tcpcb *tcp_create(uint32_t conv)
+sockcb_t socreate(so_conv_t conv)
 {
 #ifndef _DNS_CLIENT_
 	int offset = 0;
@@ -135,7 +135,7 @@ struct tcpcb *tcp_create(uint32_t conv)
 		_paging_devices[offset] = this_device;
 	}
 
-	return tcp_create(offset, conv);
+	return socreate(offset, conv);
 }
 
 static void dev_idle_callback(void *uup)

@@ -1,5 +1,7 @@
 #include <stdlib.h>
+#include <errno.h>
 
+#define TCPUP_LAYER 1
 #include <utx/queue.h>
 #include <utx/utxpl.h>
 #include <utx/sobuf.h>
@@ -18,32 +20,6 @@
 
 extern int tcp_iss;
 int tcp_rexmit_min = TCPTV_MIN;
-struct tcpcb *tcp_last_tcpcb = 0;
-
-static int _accept_evt_init = 0;
-static tx_task_q _accept_evt_list;
-static int tcp_free(struct tcpcb *tp);
-
-void soisconnected(struct tcpcb *tp)
-{
-	struct rgnbuf *sndbuf;
-
-	if (_accept_evt_init == 0) {
-		LIST_INIT(&_accept_evt_list);
-		_accept_evt_init = 1;
-	}
-
-	if ((tp->t_flags & SS_NOFDREF)) {
-		tx_task_wakeup(&_accept_evt_list);
-	}
-
-	sndbuf = tp->rgn_snd;
-	if (sndbuf->rb_flags & SBS_CANTSENDMORE) {
-		tcp_shutdown(tp);
-	}
-
-	return;
-}
 
 void sorwakeup(struct tcpcb *tp)
 {
@@ -127,162 +103,159 @@ int get_device_mtu();
 void ertt_uma_ctor(void *mem, int size, void *arg, int flags);
 void ertt_uma_dtor(void *mem, int size, void *arg);
 
-struct tcpcb * tcp_newtcpcb(int if_fd, tcp_seq conv)
+int tcp_usr_accept(sockcb_t so, struct sockaddr **nam)
 {
 	struct tcpcb *tp;
-	tp = (struct tcpcb *) malloc(sizeof(*tp));
-	memset(tp, 0, sizeof(*tp));
 
-	tp->t_conv = conv;
-	tp->if_dev = if_fd;
-	tp->t_state = TCPS_CLOSED;
-	tp->t_srtt  = TCPTV_SRTTBASE;
-	tp->t_rxtcur = TCPTV_RTOBASE;
-	tp->t_rttvar = ((TCPTV_RTOBASE - TCPTV_SRTTBASE) << TCP_RTTVAR_SHIFT) / 4;
-	tp->t_flags = SS_NOFDREF;
-	tp->t_maxseg = TCP_MSS;
-	tp->t_maxseg = get_device_mtu() - sizeof(struct tcphdr);
+	if (so->so_state & SS_ISDISCONNECTED)
+		return (ECONNABORTED);
 
-	TCP_DEBUG(1, "tp->t_maxseg = %u\n", tp->t_maxseg);
-	tp->snd_max_space = (2 * 1024 * 1024);
-	tp->rgn_snd = rgn_create(512 * 1024);
-	tp->rcv_max_space = (2 * 1024 * 1024);
-	tp->rgn_rcv = rgn_create(768 * 1024);
-	tp->snd_wnd = tp->t_maxseg;
+	if (nam != NULL) {
+		size_t cplen;
+		static struct sockaddr_in so_addr;
+		*nam = (struct sockaddr *)&so_addr;
 
-	tp->snd_cwnd = rgn_size(tp->rgn_snd);
-	tp->snd_ssthresh = rgn_size(tp->rgn_snd);
-	tp->t_rcvtime = ticks;
-	tp->t_rttmin  = tcp_rexmit_min;
-	tp->ts_recent = 0;
-	tp->ts_offset = 0;
-	tp->ts_recent_age = 0;
-
-	tx_taskq_init(&tp->w_event);
-	tx_taskq_init(&tp->r_event);
-
-	tp->t_rttupdated = 0;
-	tp->t_keepidle  = 600 * hz;
-	tp->t_keepintvl = 6 * hz;
-
-	tp->relay_len = 0;
-
-	tp->osd = (struct osd *)malloc(sizeof(*tp->osd));
-	ertt_uma_ctor(tp->osd, 0, NULL, 0);
-	tcp_setuptimers(tp);
-
-	tp->ccv = (struct cc_var *)tp->cc_mem;
-	memset(tp->ccv, 0, sizeof(struct cc_var));
-	tp->ccv->tcp = tp;
-    if (CC_ALGO(tp)->cb_init != NULL)
-        CC_ALGO(tp)->cb_init(tp->ccv);
-
-	tp->tle_flags = 0;
-	tp->tle_next = NULL;
-	tp->tle_prev = &tp->tle_next;
-	TAILQ_INIT(&tp->snd_holes);
-
-	return tp;
-}
-
-struct tcpcb *tcp_accept(struct sockaddr_in *name, size_t *namlen)
-{
-	struct tcpcb *tp;
-	struct tcpcb *newtp;
-
-	newtp = NULL;
-	for (tp = tcp_last_tcpcb; tp != NULL; tp = tp->tle_next) {
-		if ((tp->t_flags & SS_NOFDREF) &&
-				(tp->t_state == TCPS_SYN_RECEIVED  ||
-				 tp->t_state == TCPS_ESTABLISHED || tp->t_state == TCPS_CLOSE_WAIT)) {
-			tp->t_flags &= ~SS_NOFDREF;
-			if (name != NULL && namlen != NULL
-					&& *namlen >= tp->dst_addr.namlen) {
-				size_t cplen =  tp->dst_addr.namlen;
-				memcpy(name, tp->dst_addr.name, cplen);
-				*namlen = cplen;
-			}
-			newtp = tp;
-			break;
-		}
+		tp = so->so_pcb;
+		cplen =  tp->dst_addr.namlen;
+		cplen = (cplen > sizeof(so_addr)? sizeof(so_addr): cplen);
+		memcpy(&so_addr, tp->dst_addr.name, cplen);
 	}
-
-	return newtp;
-}
-
-int tcp_attach(struct tcpcb *tp)
-{
-	UTXPL_ASSERT((tp->tle_flags & LF_QUEUED) == 0);
-	tp->tle_flags |= LF_QUEUED;
-	tp->tle_next = tcp_last_tcpcb;
-	tp->tle_prev = &tcp_last_tcpcb;
-	if (tcp_last_tcpcb != NULL)
-		tcp_last_tcpcb->tle_prev = &tp->tle_next;
-	tcp_last_tcpcb = tp;
 
 	return 0;
 }
 
-static int tcp_detach(struct tcpcb *tp)
+static int tcp_attach(sockcb_t so)
 {
-	UTXPL_ASSERT(tp->tle_flags & LF_QUEUED);
-	*tp->tle_prev = tp->tle_next;
-	if (tp->tle_next != NULL)
-		tp->tle_next->tle_prev = tp->tle_prev;
-	tp->tle_prev = &tp->tle_next;
-	tp->tle_flags &= ~LF_QUEUED;
+	struct tcpcb *tp;
+	int error = 0;
 
+	tp = tcp_newtcpcb(so);
+	assert(tp != NULL);
+
+	tp->t_state = TCPS_CLOSED;
+	return error;
+}
+
+/*
+ * TCP attaches to socket via pru_attach(), reserving space,
+ * and an internet control block.
+ */
+static int tcp_usr_attach(sockcb_t so)
+{
+	struct tcpcb *tp = NULL;
+	int error;
+
+	error = tcp_attach(so);
+	if (error)
+		goto out;
+
+out:
+	return error;
+}
+
+/*
+ * tcp_detach is called when the socket layer loses its final reference
+ * to the socket, be it a file descriptor reference, a reference from TCP,
+ * etc.  At this point, there is only one case in which we will keep around
+ * inpcb state: time wait.
+ *
+ * This function can probably be re-absorbed back into tcp_usr_detach() now
+ * that there is a single detach path.
+ */
+static void tcp_detach(sockcb_t so, struct tcpcb *tp)
+{
+	assert(tp == so->so_pcb);
+	assert(tp->tp_socket == so);
+
+	if (tp->t_state < TCPS_SYN_SENT) {
+		tcp_discardcb(tp);
+	} else {
+		abort();
+	}
+
+	return;
+}
+
+/*
+ * pru_detach() detaches the TCP protocol from the socket.
+ * If the protocol state is non-embryonic, then can't
+ * do this directly: have to initiate a pru_disconnect(),
+ * which may finish later; embryonic TCB's can just
+ * be discarded here.
+ */
+static int tcp_usr_detach(sockcb_t so)
+{
+	tcp_detach(so, so->so_pcb);
 	return 0;
 }
 
 struct tcpcb *tcp_drop(struct tcpcb *tp, int why)
 {
-	tp->t_state = TCPS_CLOSED;
-	soisdisconnected(tp);
+	sockcb_t so;
+
+	so = tp->tp_socket;
+	soisdisconnected(so);
 
 	if (tp->t_flags & TF_PROTOREF) {
 		tp->t_flags &= ~TF_PROTOREF;
-		TCP_TRACE_AWAYS(tp, "T1 drop %x\n", tp->t_flags & SS_NOFDREF);
-		tcp_free(tp);
-		return NULL;
+		so->so_state &= ~SS_PROTOREF;
+		sofree(so);
+		return (NULL);
 	}
 
-	if (tcp_free(tp) == 0) {
-		return NULL;
-	}
-
-	return tp;
+	return (tp);
 }
 
-int tcp_free(struct tcpcb *tp)
+void tcp_discardcb(struct tcpcb *tp)
 {
-	UTXPL_ASSERT(tp->tle_flags & LF_QUEUED);
-	if ((tp->t_flags & SS_NOFDREF) == 0 ||
-			(tp->t_flags & TF_PROTOREF) == TF_PROTOREF)
-		return -1;
+	sockcb_t so = tp->tp_socket;
 
  	TCP_TRACE_END(tp, "tcp_free %p %x\n", tp, tp->t_flags & SS_NOFDREF);
 	UTXPL_ASSERT(tx_taskq_empty(&tp->r_event));
 	UTXPL_ASSERT(tx_taskq_empty(&tp->w_event));
 	
+	tcp_cleantimers(tp);
 	rgn_destroy(tp->rgn_snd);
 	rgn_destroy(tp->rgn_rcv);
+	tcp_free_sackholes(tp);
     if (CC_ALGO(tp)->cb_destroy != NULL)
         CC_ALGO(tp)->cb_destroy(tp->ccv);
 	ertt_uma_dtor(tp->osd, 0, 0);
 	free(tp->osd);
-	tcp_free_sackholes(tp);
-	tcp_cleantimers(tp);
-	tcp_detach(tp);
-	tcp_stat();
+
+	// CC_ALGO(tp) = NULL;
+	tp->tp_tag = 0xDEAD;
+	tp->tp_socket = NULL;
+	so->so_pcb = NULL;
 	free(tp);
 
+	tcp_stat();
 	run_tcp_free_hook();
-	return 0;
+	return;
 }
 
-void soisdisconnected(struct tcpcb *tp)
+void soisdisconnecting(sockcb_t so)
 {
+	struct tcpcb *tp;
+	so->so_state &= ~SS_ISCONNECTING;
+	so->so_state |= SS_ISDISCONNECTING;
+
+	tp = so->so_pcb;
+	tp->rgn_rcv->rb_flags |= SBS_CANTRCVMORE;
+	sorwakeup(tp);
+
+	tp->rgn_snd->rb_flags |= SBS_CANTSENDMORE;
+	tx_task_wakeup(&tp->w_event);
+	return;
+}
+
+void soisdisconnected(sockcb_t so)
+{
+	struct tcpcb *tp;
+	so->so_state &= ~(SS_ISCONNECTING| SS_ISCONNECTED| SS_ISDISCONNECTING);
+	so->so_state |= SS_ISDISCONNECTED;
+
+	tp = so->so_pcb;
 	tp->rgn_rcv->rb_flags |= SBS_CANTRCVMORE;
 	sorwakeup(tp);
 
@@ -476,10 +449,6 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 
 	tx_task_drop(task);
 
-	if (_accept_evt_init == 0) {
-		LIST_INIT(&_accept_evt_list);
-		_accept_evt_init = 1;
-	}
 
    	switch (typ) {
 		case TCP_READ:
@@ -495,7 +464,7 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 				break;
 			}
 
-			TCP_TRACE_CHECK(tp, tp->t_state != TCPS_ESTABLISHED, "not TCPS_ESTABLISHED %d\n");
+			TCP_TRACE_CHECK(tp, tp->t_state != TCPS_ESTABLISHED, "not TCPS_ESTABLISHED %d\n", tp->tp_socket->so_conv);
 		   	tx_task_record(&tp->r_event, task);
 			error = 1;
 			break;
@@ -532,20 +501,6 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 			error = 1;
 			break;
 
-		case TCP_ACCEPT:
-		   	for (tp = tcp_last_tcpcb; tp != NULL; tp = tp->tle_next) {
-			   	if ((tp->t_flags & SS_NOFDREF) &&
-						(tp->t_state == TCPS_SYN_RECEIVED ||
-						 tp->t_state == TCPS_ESTABLISHED ||
-						 tp->t_state == TCPS_CLOSE_WAIT)) {
-				   	tx_task_active(task);
-					return 1;
-			   	}
-		   	}
-
-			tx_task_record(&_accept_evt_list, task);
-			break;
-
 		default:
 			TCP_DEBUG(1, "tcp poll error\n");
 			break;
@@ -555,20 +510,18 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 }
 
 int tcp_connect(struct tcpcb *tp,
-		const struct sockaddr_in *name, size_t namlen)
+		const struct sockaddr_in *name)
 {
 	if (tp->t_state == TCPS_CLOSED) {
 		tp->iss = tcp_iss;
 		tcp_iss += TCP_ISSINCR / 2;
 		tcp_sendseqinit(tp);
 		tp->t_state = TCPS_SYN_SENT;
-		UTXPL_ASSERT(namlen <= sizeof(tp->dst_addr.name));
-		memcpy(tp->dst_addr.name, name, namlen);
-		tp->dst_addr.namlen = namlen;
-		tp->dst_addr.xdat = tp->t_conv;
+		memcpy(tp->dst_addr.name, name, sizeof(*name));
+		tp->dst_addr.namlen = sizeof(*name);
+		tp->dst_addr.xdat = tp->tp_socket->so_conv;
 		TCP_TRACE_AWAYS(tp, "TCPS_CLOSED -> TCPS_SYN_SENT\n");
-		(void)tcp_output(tp);
-		return 1;
+		return 0;
 	}
 
 	tp->t_error = UTXEINVAL;
@@ -587,24 +540,51 @@ int tcp_listen(struct tcpcb *tp)
 	return -1;
 }
 
-struct tcpcb *tcp_close(struct tcpcb *tp)
+void tcp_usrclosed(struct tcpcb *tp)
 {
-	soisdisconnected(tp);
+	switch (tp->t_state) {
+		case TCPS_LISTEN:
+			/* FALLTHROUGH */
+		case TCPS_CLOSED:
+			tcp_state_change(tp, TCPS_CLOSED);
+			tp = tcp_close(tp);
+			/*
+			 * tcp_close() should never return NULL here as the socket is
+			 * still open.
+			 */
+			break;
 
-	if (tp->t_flags & TF_PROTOREF) {
-		tp->t_flags &= ~TF_PROTOREF;
-		TCP_TRACE_AWAYS(tp, "T1 close %p %x\n", tp, tp->t_flags & SS_NOFDREF);
-		tcp_free(tp);
-		return NULL;
+		case TCPS_SYN_SENT:
+		case TCPS_SYN_RECEIVED:
+			tp->t_flags |= TF_NEEDFIN;
+			break;
+
+		case TCPS_ESTABLISHED:
+			tcp_state_change(tp, TCPS_FIN_WAIT_1);
+			break;
+
+		case TCPS_CLOSE_WAIT:
+			tcp_state_change(tp, TCPS_LAST_ACK);
+			break;
 	}
 
-	if (tcp_free(tp) == 0) {
-		return NULL;
-	}
+	if (tp->t_state >= TCPS_FIN_WAIT_2) {
+		soisdisconnected(tp->tp_socket);
+		/* Prevent the connection hanging in FIN_WAIT_2 forever. */
+		if (tp->t_state == TCPS_FIN_WAIT_2) {
+			int timeout;
 
-	return tp;
+#if 0
+			timeout = (tcp_fast_finwait2_recycle) ? 
+				tcp_finwait2_timeout : TP_MAXIDLE(tp);
+#endif
+			timeout = TP_MAXIDLE(tp);
+			tcp_timer_activate(tp, TT_2MSL, timeout);
+		}
+	}
 }
 
+#if 0
 int tcp_soclose(struct tcpcb *tp)
 {
 	tcp_shutdown(tp);
@@ -615,14 +595,14 @@ int tcp_soclose(struct tcpcb *tp)
 
 	TCP_TRACE_AWAYS(tp, "tcp_soclose %p\n", tp);
 	tp->t_flags |= SS_NOFDREF;
-	tcp_free(tp);
+	sofree(tp->tp_socket);
 	return 0;
 }
+#endif
 
 int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_addr *from)
 {
 	int handled = 0;
-	tcp_seq conv = 0;
 	struct tcpcb *tp;
 	struct tcphdr *th;
 
@@ -630,34 +610,36 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 	if (len < sizeof(*th) ||
 			(th->th_magic != MAGIC_UDP_TCP)) {
 		TCP_DEBUG(len >= sizeof(*th), "BAD TCPUP MAGIC: %x\n", th->th_magic);
+		TCP_DEBUG(1, "BAD TCPUP MAGIC: %x\n", th->th_magic);
 		return -1;
 	}
 
-	conv = (th->th_conv);
-	for (tp = tcp_last_tcpcb; tp != NULL; tp = tp->tle_next) {
-		if (conv == tp->t_conv) {
-			tcp_input(tp, dst, buf, len, from);
-			handled = 1;
-			break;
-		}
+	sockcb_t so = solookup(th->th_conv);
+	if (so != NULL) {
+		tcp_input(so, so->so_pcb, dst, buf, len, from);
+		handled = 1;
 	}
 
 #define TH_CONNECT (TH_SYN | TH_ACK | TH_RST)
 	if (handled == 0 && (th->th_flags & TH_CONNECT) == TH_SYN) {
-		tp = tcp_newtcpcb(dst, conv);
-		if (tp != NULL) {
-			tcp_attach(tp);
+		sockcb_t sonew = sonewconn(dst, th->th_conv);
+		if (sonew != NULL) {
+			tp = sonew->so_pcb;
 			tp->t_state = TCPS_LISTEN;
 			tp->dst_addr = *from;
-			tcp_input(tp, dst, buf, len, from);
+			tcp_input(so, tp, dst, buf, len, from);
 			handled = 1;
 		}
 	} else if (handled == 0 && (th->th_flags & TH_CONNECT) == TH_ACK) {
 		if (th->th_magic == MAGIC_UDP_TCP) {
 			struct tcpcb tcb = {0};
-			tcb.if_dev = dst;
-			tcb.t_conv = conv;
+			struct sockcb sob = {0};
 			tcb.dst_addr = *from;
+			tcb.tp_socket = &sob;
+
+			sob.so_pcb = &tcb;
+			sob.so_iface = dst;
+			sob.so_conv  = th->th_conv;
 			tcp_respond(&tcb, th, 0, ntohl(th->th_ack), TH_RST);
 			handled = 1;
 		}
@@ -681,3 +663,81 @@ void set_tcp_free_hook(void (*func)(void))
 	_tcp_free_hook = func;
 	return;
 }
+
+/*
+ * Initiate connection to peer.
+ * Create a template for use in transmissions on this connection.
+ * Enter SYN_SENT state, and mark socket as connecting.
+ * Start keep-alive timer, and seed output sequence space.
+ * Send initial segment on connection.
+ */
+static int tcp_usr_connect(sockcb_t so, const struct sockaddr *nam, size_t len)
+{
+	int error = 0;
+	struct tcpcb *tp = NULL;
+	struct sockaddr_in *sinp;
+
+	sinp = (struct sockaddr_in *)nam;
+	if (len != sizeof (*sinp)) {
+		TCP_DEBUG(1, "tcp_usr_connect failure\n");
+		return (EINVAL);
+	}
+
+	tp = so->so_pcb;
+	if ((error = tcp_connect(tp, (struct sockaddr_in *)nam)) != 0)
+		goto out;
+
+	tcp_timer_activate(tp, TT_KEEP, TP_KEEPINIT(tp));
+	error = tcp_output(tp);
+out:
+	return (error);
+}
+
+/*
+ * Initiate (or continue) disconnect.
+ * If embryonic state, just send reset (once).
+ * If in ``let data drain'' option and linger null, just drop.
+ * Otherwise (hard), mark socket disconnecting and drop
+ * current input data; switch states based on user close, and
+ * send segment to peer (with FIN).
+ */
+static void tcp_disconnect(struct tcpcb *tp)
+{
+        sockcb_t so = tp->tp_socket;
+
+        /*
+         * Neither tcp_close() nor tcp_drop() should return NULL, as the
+         * socket is still open.
+         */
+        if (tp->t_state < TCPS_ESTABLISHED) {
+                tp = tcp_close(tp);
+        } else {
+                soisdisconnecting(so);
+				tcp_usrclosed(tp);
+				if (tp->t_state != TCPS_CLOSED) {
+					tcp_output(tp);
+				}
+        }
+}
+
+
+static int tcp_usr_close(sockcb_t so)
+{
+	struct tcpcb *tp = NULL;
+
+	tp = so->so_pcb;
+	tcp_disconnect(tp);
+
+	if (tp->t_state != TCPS_CLOSED) {
+		so->so_state |= SS_PROTOREF;
+		tp->t_flags |= TF_SOCKREF;
+	}
+}
+
+
+struct so_usrreqs tcp_usrreqs = {
+	.so_attach  = tcp_usr_attach,
+	.so_detach  = tcp_usr_detach,
+	.so_connect = tcp_usr_connect,
+	.so_close = tcp_usr_close
+};

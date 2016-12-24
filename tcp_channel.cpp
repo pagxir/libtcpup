@@ -59,8 +59,8 @@ class tcp_channel {
 		int proto_flags;
 
 	private:
-		struct tx_task_t m_wwait;
-		struct tx_task_t m_rwait;
+		tx_task_t m_wwait;
+		tx_task_t m_rwait;
 		struct tx_aiocb  m_sockcbp;
 
 	private:
@@ -68,9 +68,9 @@ class tcp_channel {
         struct relay_data r2c;
 
 	private:
-		struct tx_task_t r_evt_peer;
-		struct tx_task_t w_evt_peer;
-		struct tcpcb *m_peer;
+		tx_task_t r_evt_peer;
+		tx_task_t w_evt_peer;
+		sockcb_t  m_peer;
 };
 
 static u_short _forward_port = 0; // 1080
@@ -78,13 +78,13 @@ static u_long  _forward_addr = INADDR_ANY;
 
 static u_short _relay_port = 5030;
 static u_long  _relay_server = INADDR_ANY;
-static void set_relay_info(struct tcpcb *tp, int type, char *host, u_short port);
+static void set_relay_info(sockcb_t tp, int type, char *host, u_short port);
 
 tcp_channel::tcp_channel(int file)
 	:m_file(file), m_flags(0)
 {
 	static u_long conv = time(NULL);
-	m_peer = tcp_create(conv++);
+	m_peer = socreate(conv++);
 	assert(m_peer != NULL);
 
     m_flags = TF_PROXY_HELLO;
@@ -121,7 +121,7 @@ tcp_channel::~tcp_channel()
 	fprintf(stderr, "tcp_channel::~tcp_channel\n");
 	tx_aiocb_fini(&m_sockcbp);
 	closesocket(m_file);
-	tcp_soclose(m_peer);
+	soclose(m_peer);
 }
 
 static const int SUPPORTED_PROTO = UNKOWN_PROTO| SOCKV4_PROTO| SOCKV5_PROTO| DIRECT_PROTO ;
@@ -220,7 +220,7 @@ enum socksv5_proto_flags {
     AUTHED_Z = (1 << 2)
 };
 
-static void set_relay_info(struct tcpcb *tp, int type, char *host, u_short port)
+static void set_relay_info(sockcb_t tp, int type, char *host, u_short port)
 {
 	int len;
 	char *p, buf[60];
@@ -243,7 +243,7 @@ static void set_relay_info(struct tcpcb *tp, int type, char *host, u_short port)
 	memcpy(p, host, len);
 	p += len;
 
-	tcp_relayto(tp, buf, p - buf);
+	sooptset_target(tp, buf, p - buf);
 	return;
 }
 
@@ -517,10 +517,10 @@ int tcp_channel::run(void)
 		name.sin_port   = (_forward_port);
 		name.sin_addr.s_addr = (_forward_addr);
 
-	   	error = tcp_connect(m_peer, &name, sizeof(name));
+	   	error = soconnect(m_peer, (struct sockaddr *)&name, sizeof(name));
 		m_flags |= TF_CONNECT;
 		if (error == 1) {
-			tcp_poll(m_peer, TCP_WRITE, &w_evt_peer);
+			sopoll(m_peer, SO_SEND, &w_evt_peer);
 			m_flags |= TF_CONNECTING;
 			return 1;
 		}
@@ -532,13 +532,13 @@ int tcp_channel::run(void)
 	}
 
 	if ((m_flags & TF_CONNECTING)
-			&& tcp_connected(m_peer)) {
+			&& soconnected(m_peer)) {
 		m_flags &= ~TF_CONNECTING;
 	}
 
 #if 0
 	if (m_flags & TF_CONNECTING) {
-		tcp_poll(m_peer, TCP_CONNECT, &w_evt_peer);
+		sopoll(m_peer, SO_CONNECT, &w_evt_peer);
 		return 1;
 	}
 #endif
@@ -560,8 +560,8 @@ int tcp_channel::run(void)
 				return 0;
 		}
 
-		if (tcp_writable(m_peer) && c2r.off < c2r.len) {
-			len = tcp_write(m_peer, c2r.buf + c2r.off, c2r.len - c2r.off);
+		if (sowritable(m_peer) && c2r.off < c2r.len) {
+			len = sowrite(m_peer, c2r.buf + c2r.off, c2r.len - c2r.off);
 			if (len == -1) return 0;
 			change |= (len > 0);
 			c2r.off += len;
@@ -571,8 +571,8 @@ int tcp_channel::run(void)
 	do {
 		change = 0;
 		if (r2c.off >= r2c.len)  r2c.off = r2c.len = 0;
-		if (tcp_readable(m_peer) && r2c.len < (int)sizeof(r2c.buf) && !r2c.flag) {
-			len = tcp_read(m_peer, r2c.buf + r2c.len, sizeof(r2c.buf) - r2c.len);
+		if (soreadable(m_peer) && r2c.len < (int)sizeof(r2c.buf) && !r2c.flag) {
+			len = soread(m_peer, r2c.buf + r2c.len, sizeof(r2c.buf) - r2c.len);
 			if (len == -1 || len == 0) {
 				r2c.flag |= RDF_EOF;
 				len = 0;
@@ -603,7 +603,7 @@ int tcp_channel::run(void)
         c2r.off = c2r.len = 0;
 
 		if (c2r.flag == RDF_EOF) {
-			tcp_shutdown(m_peer);
+			soshutdown(m_peer);
             c2r.flag |= RDF_FIN;
         }
 	}
@@ -618,8 +618,8 @@ int tcp_channel::run(void)
 		}
 	}
 
-    if (c2r.off < c2r.len && !tcp_writable(m_peer)) {
-		tcp_poll(m_peer, TCP_WRITE, &w_evt_peer);
+    if (c2r.off < c2r.len && !sowritable(m_peer)) {
+		sopoll(m_peer, SO_SEND, &w_evt_peer);
 		error = 1;
 	}
 
@@ -634,9 +634,9 @@ int tcp_channel::run(void)
         error = 1;
     }
 
-    if ((r2c.flag == 0) && !tcp_readable(m_peer) &&
+    if ((r2c.flag == 0) && !soreadable(m_peer) &&
             r2c.len < (int)sizeof(r2c.buf)) {
-        tcp_poll(m_peer, TCP_READ, &r_evt_peer);
+        sopoll(m_peer, SO_RECEIVE, &r_evt_peer);
         error = 1;
     }
 

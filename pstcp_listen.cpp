@@ -51,24 +51,24 @@ static void accept_statecb(void *ignore)
 
 	if (state == 1) {
 		fprintf(stderr, "listen_start\n");
-		tcp_poll(NULL, TCP_ACCEPT, &_event);
+		sopoll(NULL, SO_ACCEPT, &_event);
 	}
 }
 
 static void accept_callback(void *context)
 {
-	struct tcpcb *newtp;
+	sockcb_t newtp;
 	struct sockaddr_in newaddr;
 	size_t newlen = sizeof(newaddr);
 
-	newtp = tcp_accept(&newaddr, &newlen);
+	newtp = soaccept(NULL, (struct sockaddr *)&newaddr, &newlen);
 	if (newtp != NULL) {
 		fprintf(stderr, "new client: %s:%u\n",
 				inet_ntoa(newaddr.sin_addr), ntohs(newaddr.sin_port));
 		new_pstcp_channel(newtp);
 	}
 
-	tcp_poll(NULL, TCP_ACCEPT, &_event);
+	sopoll(NULL, SO_ACCEPT, &_event);
 }
 
 struct module_stub pstcp_listen_mod = {

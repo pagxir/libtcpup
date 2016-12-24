@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <assert.h>
 
 #include <utx/utxpl.h>
 #include <utx/queue.h>
@@ -72,4 +73,10 @@ void set_cc_algo(const char *name)
 	}
 
 	return;
+}
+
+struct cc_algo * get_cc_ptr(struct tcpcb *tp)
+{
+	assert(default_cc_ptr != NULL);
+	return default_cc_ptr;
 }

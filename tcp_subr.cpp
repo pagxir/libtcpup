@@ -1,24 +1,19 @@
-#include <utx/utxpl.h>
+#define TCPUP_LAYER 1
 #include <utx/queue.h>
+#include <utx/utxpl.h>
+#include <utx/sobuf.h>
+#include <utx/socket.h>
 
+#include <tcpup/cc.h>
+#include <tcpup/tcp.h>
+#include <tcpup/h_ertt.h>
+#include <tcpup/tcp_seq.h>
 #include <tcpup/tcp_var.h>
-#include <tcpup/tcp_var.h>
+#include <tcpup/tcp_fsm.h>
 #include <tcpup/tcp_timer.h>
+#include <tcpup/tcp_debug.h>
 
 int tcp_maxpersistidle = TCPTV_KEEP_IDLE;
-
-struct tcpcb *tcp_create(int file, uint32_t conv)
-{
-	struct tcpcb *tp;
-
-	tp = tcp_newtcpcb(file, conv);
-	UTXPL_ASSERT(tp != NULL);
-
-	tp->t_flags &= ~SS_NOFDREF;
-	tcp_attach(tp);
-
-	return tp;
-}
 
 u_short utx_ntohs(u_short v)
 {
@@ -44,3 +39,92 @@ u_long utx_ntohl(u_long v)
 #endif
 }
 
+int get_device_mtu();
+void ertt_uma_ctor(void *mem, int size, void *arg, int flags);
+
+struct tcpcb * tcp_newtcpcb(sockcb_t so)
+{
+	struct tcpcb *tp;
+	tp = (struct tcpcb *) calloc(1, sizeof(*tp));
+	so->priv.tcp = tp;
+	tp->tp_socket = so;
+	tp->tp_tag    = 0xEFED;
+
+	tp->t_state = TCPS_CLOSED;
+	tp->t_srtt  = TCPTV_SRTTBASE;
+	tp->t_rxtcur = TCPTV_RTOBASE;
+	tp->t_rttvar = ((TCPTV_RTOBASE - TCPTV_SRTTBASE) << TCP_RTTVAR_SHIFT) / 4;
+	tp->t_flags = SS_NOFDREF;
+	tp->t_maxseg = TCP_MSS;
+	tp->t_maxseg = get_device_mtu() - sizeof(struct tcphdr);
+
+	TCP_DEBUG(1, "tp->t_maxseg = %u\n", tp->t_maxseg);
+	tp->snd_max_space = (2 * 1024 * 1024);
+	tp->rgn_snd = rgn_create(512 * 1024);
+	tp->rcv_max_space = (2 * 1024 * 1024);
+	tp->rgn_rcv = rgn_create(768 * 1024);
+	tp->snd_wnd = tp->t_maxseg;
+
+	tp->snd_cwnd = rgn_size(tp->rgn_snd);
+	tp->snd_ssthresh = rgn_size(tp->rgn_snd);
+	tp->t_rcvtime = ticks;
+	tp->t_rttmin  = tcp_rexmit_min;
+	tp->ts_recent = 0;
+	tp->ts_offset = 0;
+	tp->ts_recent_age = 0;
+
+	tx_taskq_init(&tp->w_event);
+	tx_taskq_init(&tp->r_event);
+
+	tp->t_rttupdated = 0;
+	tp->t_keepidle  = 600 * hz;
+	tp->t_keepintvl = 6 * hz;
+
+	tp->relay_len = 0;
+
+	tp->osd = (struct osd *)malloc(sizeof(*tp->osd));
+	ertt_uma_ctor(tp->osd, 0, NULL, 0);
+	tcp_setuptimers(tp);
+
+	tp->ccv = (struct cc_var *)tp->cc_mem;
+	memset(tp->ccv, 0, sizeof(struct cc_var));
+	tp->ccv->tcp = tp;
+	TAILQ_INIT(&tp->snd_holes);
+    if (CC_ALGO(tp)->cb_init != NULL)
+        CC_ALGO(tp)->cb_init(tp->ccv);
+
+	return tp;
+}
+
+/*
+ * Attempt to close a TCP control block, marking it as dropped, and freeing
+ * the socket if we hold the only reference.
+ */
+struct tcpcb *
+tcp_close(struct tcpcb *tp)
+{
+	sockcb_t so;
+
+	so = tp->tp_socket;
+	soisdisconnected(so);
+
+	if (tp->t_flags & TF_SOCKREF) {
+		tp->t_flags &= ~TF_SOCKREF;
+		so->so_state &= ~SS_PROTOREF;
+		sofree(so);
+		return (NULL);
+	}
+
+	return (tp);
+}
+
+/*
+ * A subroutine which makes it easy to track TCP state changes with DTrace.
+ * This function shouldn't be called for t_state initializations that don't
+ * correspond to actual TCP state transitions.
+ */
+void
+tcp_state_change(struct tcpcb *tp, int newstate)
+{
+	tp->t_state = newstate;
+}

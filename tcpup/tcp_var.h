@@ -93,11 +93,15 @@ do {                                                            \
 #define ND6_HINT(tp)
 #endif
 
+typedef struct sockcb *sockcb_t;
+
 /*
  * Tcp control block, one per tcp; fields:
  * Organized for 16 byte cacheline efficiency.
  */
 struct tcpcb {
+		int tp_tag;
+        sockcb_t tp_socket;
         struct  tsegqe_head t_segq;     /* segment reassembly queue */
         void    *t_pspare[2];           /* new reassembly queue */
         int     t_segqlen;              /* segment reassembly queue length */
@@ -217,14 +221,7 @@ struct tcpcb {
         void    *t_pspare2[4];          /* 1 TCP_SIGNATURE, 3 TBD */
         uint64_t _pad[6];               /* 6 TBD (1-2 CC/RTT?) */
 
-		/* ADDITION FIELD FOR USER MODE STREAM */
-		int tle_flags;
-		struct tcpcb *tle_next;
-		struct tcpcb **tle_prev;
-
-		int if_dev;
 		int t_error;
-		tcp_seq t_conv;
 		uint32_t rcv_max_space;
 		struct rgnbuf *rgn_rcv;
 
@@ -292,7 +289,7 @@ TAILQ_HEAD(sackhole_head, sackhole);
 
 #define WINDOW_SCALE	7
 #define TCP_ISSINCR		0x01000000
-#define SS_NOFDREF      TF_NOOPT
+#define TF_SOCKREF      TF_NOOPT
 #define TF_DEVBUSY      TF_SIGNATURE
 #define TF_PROTOREF     TF_LQ_OVERFLOW
 int tcp_attach(struct tcpcb *tp);
@@ -719,7 +716,7 @@ void     tcp_reass_destroy(void);
 #if 0
 void     tcp_input(struct mbuf *, int);
 #endif
-void tcp_input(struct tcpcb *tp, int dst, const char *buf, size_t len, const struct tcpup_addr *from);
+void tcp_input(sockcb_t so, struct tcpcb *tp, int dst, const char *buf, size_t len, const struct tcpup_addr *from);
 u_long   tcp_maxmtu(struct in_conninfo *, struct tcp_ifcap *);
 u_long   tcp_maxmtu6(struct in_conninfo *, struct tcp_ifcap *);
 void     tcp_mss_update(struct tcpcb *, int, int, struct hc_metrics_lite *,
@@ -730,8 +727,7 @@ struct inpcb *
          tcp_drop_syn_sent(struct inpcb *, int);
 struct inpcb *
          tcp_mtudisc(struct inpcb *, int);
-struct tcpcb *
-         tcp_newtcpcb(int fildes, tcp_seq conv);
+struct tcpcb * tcp_newtcpcb(sockcb_t so);
 int      tcp_output(struct tcpcb *);
 void     tcp_state_change(struct tcpcb *, int);
 #if 0
@@ -772,7 +768,7 @@ u_long   tcp_hc_getmtu(struct in_conninfo *);
 void     tcp_hc_updatemtu(struct in_conninfo *, u_long);
 void     tcp_hc_update(struct in_conninfo *, struct hc_metrics_lite *);
 
-extern  struct pr_usrreqs tcp_usrreqs;
+extern  struct so_usrreqs tcp_usrreqs;
 tcp_seq tcp_new_isn(struct tcpcb *);
 
 void     tcp_sack_doack(struct tcpcb *, struct tcpopt *, tcp_seq);

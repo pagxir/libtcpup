@@ -13,6 +13,7 @@
 
 #include <utx/utxpl.h>
 #include <utx/dns_fwd.h>
+#include <utx/socket.h>
 
 #include <tcpup/tcp_device.h>
 
