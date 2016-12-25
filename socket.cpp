@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #define TCPUP_LAYER 1
 #include <utx/utxpl.h>
@@ -63,6 +64,8 @@ sockcb_t sonewconn(int iface, so_conv_t conv)
 	so->so_iface = iface;
 	so->usrreqs = &tcp_usrreqs;
 	so->so_state |= SS_NOFDREF;
+	so->so_count = 0;
+
 	(*so->usrreqs->so_attach)(so);
 	return so;
 }
@@ -78,7 +81,10 @@ void soisconnected(sockcb_t so)
 	}
 
 	tp = so->so_pcb;
-	if ((tp->t_flags & SS_NOFDREF)) {
+	so->so_state &= ~(SS_ISCONNECTING| SS_ISDISCONNECTING);
+	so->so_state |= SS_ISCONNECTED;
+
+	if ((so->so_state & SS_NOFDREF)) {
 		tx_task_wakeup(&_accept_evt_list);
 	}
 
@@ -117,7 +123,7 @@ sockcb_t soaccept(sockcb_t lso, struct sockaddr *address, size_t *address_len)
 	sockcb_t soacc = NULL, cur, next;
 
 	LIST_FOREACH_SAFE(cur, &so_list_head, entries, next) {
-		if ((cur->so_state & SS_ISDISCONNECTED) && (cur->so_state & SS_NOFDREF)) {
+		if ((cur->so_state & SS_ISCONNECTED) && (cur->so_state & SS_NOFDREF)) {
 			soacc = cur;
 			break;
 		}
@@ -126,6 +132,8 @@ sockcb_t soaccept(sockcb_t lso, struct sockaddr *address, size_t *address_len)
 	if (soacc != NULL) {
 		struct sockaddr *addr = NULL;
 		soacc->so_state &= ~SS_NOFDREF;
+		soacc->so_count++;
+
 		(*soacc->usrreqs->so_accept)(soacc, &addr);
 		if (addr != NULL && address != NULL) {
 			if (address_len && *address_len >= sizeof(struct sockaddr_in)) {
@@ -159,7 +167,7 @@ int sopoll(sockcb_t so, SocketOps ops, tx_task_t *cb)
 
 	if (ops == SO_ACCEPT) {
 		LIST_FOREACH_SAFE(cur, &so_list_head, entries, next) {
-			if ((cur->so_state & SS_ISDISCONNECTED) && (cur->so_state & SS_NOFDREF)) {
+			if ((cur->so_state & SS_ISCONNECTED) && (cur->so_state & SS_NOFDREF)) {
 				tx_task_active(cb);
 				return 0;
 			}

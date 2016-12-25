@@ -627,7 +627,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 			tp = sonew->so_pcb;
 			tp->t_state = TCPS_LISTEN;
 			tp->dst_addr = *from;
-			tcp_input(so, tp, dst, buf, len, from);
+			tcp_input(sonew, tp, dst, buf, len, from);
 			handled = 1;
 		}
 	} else if (handled == 0 && (th->th_flags & TH_CONNECT) == TH_ACK) {
@@ -709,15 +709,15 @@ static void tcp_disconnect(struct tcpcb *tp)
          * Neither tcp_close() nor tcp_drop() should return NULL, as the
          * socket is still open.
          */
-        if (tp->t_state < TCPS_ESTABLISHED) {
-                tp = tcp_close(tp);
-        } else {
-                soisdisconnecting(so);
-				tcp_usrclosed(tp);
-				if (tp->t_state != TCPS_CLOSED) {
-					tcp_output(tp);
-				}
-        }
+	if (tp->t_state < TCPS_ESTABLISHED) {
+		tp = tcp_close(tp);
+	} else {
+		soisdisconnecting(so);
+		tcp_usrclosed(tp);
+		if (tp->t_state != TCPS_CLOSED) {
+			tcp_output(tp);
+		}
+	}
 }
 
 
@@ -732,12 +732,15 @@ static int tcp_usr_close(sockcb_t so)
 		so->so_state |= SS_PROTOREF;
 		tp->t_flags |= TF_SOCKREF;
 	}
+
+	return 0;
 }
 
 
 struct so_usrreqs tcp_usrreqs = {
-	.so_attach  = tcp_usr_attach,
-	.so_detach  = tcp_usr_detach,
+	.so_attach = tcp_usr_attach,
+	.so_detach = tcp_usr_detach,
 	.so_connect = tcp_usr_connect,
+	.so_accept = tcp_usr_accept,
 	.so_close = tcp_usr_close
 };

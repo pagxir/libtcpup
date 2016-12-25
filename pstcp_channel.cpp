@@ -198,7 +198,6 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 		dst4->sin_family = AF_INET;
 		dst4->sin_addr.s_addr = inet_addr("127.0.0.1");
 		dst4->sin_port = htons(5030);
-		printf("use socks backend\n");
 		return 0;
 	}
 

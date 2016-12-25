@@ -1,3 +1,5 @@
+#include <stdlib.h>
+
 #define TCPUP_LAYER 1
 #include <utx/queue.h>
 #include <utx/utxpl.h>
