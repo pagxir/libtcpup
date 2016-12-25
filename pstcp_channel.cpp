@@ -57,7 +57,9 @@ class pstcp_channel {
 		int m_flags;
 		int m_dns_handle;
 		static int v4_only;
+
 		int m_skip_count;
+		int use_socks_backend;
 
 	private:
 		tx_task_t m_rwait;
@@ -83,6 +85,7 @@ class pstcp_channel {
 int pstcp_channel::v4_only = 0;
 u_short _forward_port = 1080;
 u_long  _forward_addr = INADDR_LOOPBACK;
+static int get_backend(const char relay[], size_t len);
 
 static void anybind(int fd, int family)
 {
@@ -135,9 +138,10 @@ static void anybind(int fd, int family)
 	is_v4only = v4_only;
 	len = sooptget_target(so, relay, sizeof(relay));
 	if (len > 4) is_v4only = (relay[0] == 0x01);
-#ifdef USE_SOCKS_BACKEND 
-	is_v4only = 1;
-#endif
+	use_socks_backend = get_backend(relay, len);
+	if (use_socks_backend) {
+		is_v4only = 1;
+	}
 
 	m_file = socket(is_v4only? AF_INET: AF_INET6, SOCK_STREAM, 0);
 #ifndef WIN32
@@ -190,6 +194,14 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 	p = relay;
 	len = sooptget_target(tp, relay, sizeof(relay));
 
+	if (use_socks_backend) {
+		dst4->sin_family = AF_INET;
+		dst4->sin_addr.s_addr = inet_addr("127.0.0.1");
+		dst4->sin_port = htons(5030);
+		printf("use socks backend\n");
+		return 0;
+	}
+
 	while (len > 4 && len < sizeof(relay)) {
 		int err = 0;
 		unsigned short p0;
@@ -198,15 +210,6 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 
 		memcpy(&p0, p, sizeof(p0));
 		p += 2;
-
-#if USE_SOCKS_BACKEND
-		if (typ == 0x01 || typ == 0x04) {
-			dst4->sin_family = AF_INET;
-			dst4->sin_addr.s_addr = inet_addr("204.44.89.146");
-			dst4->sin_port = htons(30008);
-			return 0;
-		}
-#endif
 
 		switch (typ) {
 			case 0x01:
@@ -260,6 +263,54 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 	dst4->sin_port   = htons(port);
 	dst4->sin_addr.s_addr = htonl(defdest);
 	fprintf(stderr, "relay: len %d\n", len);
+	return 0;
+}
+
+static int get_backend(const char *relay, size_t len)
+{
+	int prefix = 0;
+	unsigned netmask;
+
+	int family = *relay++;
+	unsigned destip = 0x0;
+
+	if (*relay++ != 0) { 
+		return 0;
+	}
+
+	relay += sizeof(short);
+	memcpy(&destip, relay, sizeof(destip));
+	if (family == 0x04) {
+		return 1;
+	}
+
+	if (family != 0x01) {
+		return 0;
+	}
+
+	struct {
+		const char *network;
+		int prefix;
+	} arr[] = {
+		{"104.16.0.0", 12}, {"184.84.0.0", 14}, {"23.64.0.0", 14},
+		{"23.32.0.0", 11}, {"96.6.0.0", 15}, {"162.125.0.0", 16},
+		{"203.0.0.0", 8}, {"66.6.32.0", 20}, {"199.59.148.0", 22},
+        {"31.13.70.0", 23}, {"108.160.160.0", 20}, {"8.8.0.0", 16},
+        {"64.18.0.0", 20}, {"64.233.160.0", 19}, {"66.102.0.0", 20},
+        {"66.249.80.0", 20}, {"72.14.192.0", 18}, {"74.125.0.0", 16},
+        {"108.177.8.0", 21}, {"173.194.0.0", 16}, {"207.126.144.0", 20},
+        {"209.85.128.0", 17}, {"216.58.192.0", 19}, {"216.239.32.0", 19},
+        {"172.217.0.0", 19}
+	};
+
+	for (int i = 0; i < sizeof(arr) / sizeof(arr[0]); i++) {
+		prefix = (32 - arr->prefix);
+		netmask = (1 << prefix) - 1;
+		if ((htonl(~netmask) & destip) == inet_addr(arr->network)) {
+			return 1;
+		}
+	}
+
 	return 0;
 }
 
@@ -439,10 +490,10 @@ int pstcp_channel::run(void)
 				&& (m_flags & TF_CONNECTING)) {
 			fprintf(stderr, "connect is finish...\n");
 			m_skip_count = 0;
-#if USE_SOCKS_BACKEND
-			r2s.len = socksv5_connect(m_peer, r2s.buf, sizeof(r2s.buf));
-			if (r2s.len > 0) m_skip_count = 12;
-#endif
+			if (use_socks_backend) {
+				r2s.len = socksv5_connect(m_peer, r2s.buf, sizeof(r2s.buf));
+				if (r2s.len > 0) m_skip_count = 12;
+			}
 			m_flags &= ~TF_CONNECTING;
 			m_flags |= TF_CONNECTED;
 		}
