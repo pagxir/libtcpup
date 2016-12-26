@@ -197,7 +197,7 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 	if (use_socks_backend) {
 		dst4->sin_family = AF_INET;
 		dst4->sin_addr.s_addr = inet_addr("127.0.0.1");
-		dst4->sin_port = htons(5030);
+		dst4->sin_port = htons(1080);
 		return 0;
 	}
 
@@ -303,9 +303,9 @@ static int get_backend(const char *relay, size_t len)
 	};
 
 	for (int i = 0; i < sizeof(arr) / sizeof(arr[0]); i++) {
-		prefix = (32 - arr->prefix);
+		prefix = (32 - arr[i].prefix);
 		netmask = (1 << prefix) - 1;
-		if ((htonl(~netmask) & destip) == inet_addr(arr->network)) {
+		if ((htonl(~netmask) & destip) == inet_addr(arr[i].network)) {
 			return 1;
 		}
 	}
@@ -472,6 +472,9 @@ int pstcp_channel::run(void)
 				fprintf(stderr, "connect is pending\n");
 				m_flags |= TF_CONNECTING;
 				return 1;
+			} else if (use_socks_backend) {
+				r2s.len = socksv5_connect(m_peer, r2s.buf, sizeof(r2s.buf));
+				if (r2s.len > 0) m_skip_count = 12;
 			}
 
 			fprintf(stderr, "connect all pending\n");
