@@ -196,6 +196,11 @@ struct tcpcb *tcp_drop(struct tcpcb *tp, int why)
 	so = tp->tp_socket;
 	soisdisconnected(so);
 
+	if (TCPS_HAVERCVDSYN(tp->t_state)) {
+		tcp_state_change(tp, TCPS_CLOSED);
+		(void) tcp_output(tp);
+	}
+
 	if (tp->t_flags & TF_PROTOREF) {
 		tp->t_flags &= ~TF_PROTOREF;
 		so->so_state &= ~SS_PROTOREF;

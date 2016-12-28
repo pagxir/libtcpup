@@ -110,6 +110,8 @@ tcp_close(struct tcpcb *tp)
 	so = tp->tp_socket;
 	soisdisconnected(so);
 
+	/* in_pcbdrop(inp); */
+	tp->t_state = TCPS_CLOSED;
 	if (tp->t_flags & TF_SOCKREF) {
 		tp->t_flags &= ~TF_SOCKREF;
 		so->so_state &= ~SS_PROTOREF;
