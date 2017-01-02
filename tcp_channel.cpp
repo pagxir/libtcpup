@@ -276,13 +276,13 @@ void tcp_channel::sockv4_proto_input(void)
 			addrp = end;
 			end += sizeof(int);
 
-			end = (char *)memchr(end, 0, limit - buf);
+			end = (char *)memchr(end, 0, limit - end);
 			if (end != NULL) {
 				type = 0x01;
 				if (!memcmp(addrp, "\000\000\000", 3)) {
 					addrp = ++end;
 					type = 0x03;
-					end = (char *)memchr(end, 0, limit - buf);
+					end = (char *)memchr(end, 0, limit - end);
 				}
 
 				if (end != NULL) {
@@ -298,7 +298,11 @@ void tcp_channel::sockv4_proto_input(void)
 					up->m_flags &= ~SOCKV4_PROTO;
 					up->m_flags |= DIRECT_PROTO;
 					return;
+				} else {
+					goto more_to_come;
 				}
+			} else {
+				goto more_to_come;
 			}
 		}
 	}
@@ -306,7 +310,10 @@ void tcp_channel::sockv4_proto_input(void)
 	if (!buf_overflow(&m)) {
 		fprintf(stderr, "socks4 no overflow\n");
 		goto failure_closed;
-	} else if (up->c2r.len == sizeof(up->c2r.buf)) {
+	}
+
+more_to_come:
+	if (up->c2r.len == sizeof(up->c2r.buf)) {
 		fprintf(stderr, "socks4 buffer full\n");
 		goto failure_closed;
 	} else if (up->c2r.flag & RDF_EOF) {
