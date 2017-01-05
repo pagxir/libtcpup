@@ -249,7 +249,6 @@ static void set_relay_info(sockcb_t tp, int type, char *host, u_short port)
 
 void tcp_channel::sockv4_proto_input(void)
 {
-	char buf[256];
 	char *limit;
 	struct buf_match m;
 	static u_char resp_v4[] = {
