@@ -1480,6 +1480,13 @@ dropwithreset:
 		goto drop;
 
 	if (tp == NULL) {
+		static struct sockcb sob = {0};
+		tcb.dst_addr = *from;
+		tcb.tp_socket = &sob;
+
+		sob.so_pcb = &tcb;
+		sob.so_iface = dst;
+		sob.so_conv  = th->th_conv;
 		tp = &tcb;
 	}
 
