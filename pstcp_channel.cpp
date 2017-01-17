@@ -27,6 +27,7 @@
 #include <netdb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #define SD_BOTH SHUT_RDWR
 #define WSAEINPROGRESS EINPROGRESS
 #else
@@ -218,8 +219,8 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 					dst4->sin_port   = p0;
 					memcpy(&dst4->sin_addr, p, 4);
 					if (dst4->sin_addr.s_addr == htonl(0x0a030081)) dst4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-					char buf[64];
-					fprintf(stderr, "target: %s\n", inet_ntop(AF_INET, &dst4->sin_addr, buf, sizeof(buf)));
+					//char buf[64];
+					//fprintf(stderr, "target: %s\n", inet_ntop(AF_INET, &dst4->sin_addr, buf, sizeof(buf)));
 					return 0;
 				}
 
@@ -251,8 +252,6 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 					dst6->sin6_family = AF_INET6;
 					dst6->sin6_port   = p0;
 					memcpy(&dst6->sin6_addr, p, 16);
-					char buf[64];
-					fprintf(stderr, "target: %s\n", inet_ntop(AF_INET6, &dst6->sin6_addr, buf, sizeof(buf)));
 					return 0;
 				}
 
