@@ -31,7 +31,7 @@ LOCAL_CXXFLAGS += -g -Wall -Wno-sign-compare -I.
 
 VPATH := $(THIS_PATH)/libtx:$(THIS_PATH)
 
-TARGETS = server.udp server.icm client.udp client.raw
+TARGETS = server.udp server.icm client.udp client.raw server.http
 
 ifeq ($(BUILD_TARGET), mingw)
 LOCAL_LDFLAGS += -static
@@ -70,6 +70,9 @@ server.udp: $(SRV_OBJ) $(LOCAL_OBJECTS) tcp_device.o
 server.icm: $(SRV_OBJ) $(LOCAL_OBJECTS) tcp_device_icmp.o
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
+server.http: $(USRV_OBJ) $(LOCAL_OBJECTS) tcp_device.o
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
+
 WINSRVOBJ = tcp_device.o server_srv.o pstcp_channel.o pstcp_listen.o dns_txasync.o winsrv.o dns_forward.o
 server.srv: $(WINSRVOBJ) $(LOCAL_OBJECTS) 
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
@@ -83,8 +86,8 @@ client.icm: $(CLT_OBJ) $(LOCAL_OBJECTS) tcp_device_icmp_user.o
 client.raw: $(CLT_OBJ) $(LOCAL_OBJECTS) tcp_device_icmp.o
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-server_srv.o: server.o
-	$(CXX) $(CXXFLAGS) -D_WINSRV_ -o server_srv.o server.cpp
+server_srv.o: server.cpp
+	$(CXX) -c $(CXXFLAGS) -D_WINSRV_ $< -o server_srv.o 
 
 tcp_device_icmp_user.o: tcp_device_icmp.o
 	$(CXX) $(CXXFLAGS) -D_DNS_CLIENT_ -o tcp_device_icmp_user.o tcp_device_icmp.cpp
