@@ -102,7 +102,7 @@ int record_dns_packet(void *packet, size_t length, int netif, const tcpup_addr *
 	return 1;
 }
 
-#define DNS_MAGIC_LEN 4
+#define DNS_MAGIC_LEN 8
 static int _fwd_handle = 0;
 static int _force_override = 0;
 static struct sockaddr_in _fwd_target = {0};

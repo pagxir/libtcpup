@@ -406,6 +406,10 @@ sendit:
 		to.to_sacks = (u_char *)tp->sackblks;
 	}
 
+	to.to_flags = TOF_TS;
+	to.to_tsval = htonl(tcp_snd_getticks);
+	to.to_tsecr = htonl(tp->ts_recent);
+
 	optlen = tcp_addoptions(&to, (u_char *)(th + 1));
 	rcv_numsacks = (optlen >> 2);
 #if 0
@@ -464,15 +468,9 @@ sendit:
 		tp->sackhint.sack_bytes_rexmit += len;
 	}
 
-	to.to_flags = TOF_TS;
-	to.to_tsval = htonl(tcp_snd_getticks);
-	to.to_tsecr = htonl(tp->ts_recent);
-
 	th->th_magic = MAGIC_UDP_TCP;
 	th->th_opten = rcv_numsacks;
 	th->th_ack = htonl(tp->rcv_nxt);
-	th->th_tsval = (to.to_tsval);
-	th->th_tsecr = (to.to_tsecr);
 	th->th_flags = flags;
 	th->th_conv  = (tp->tp_socket->so_conv);
 	tilen   = (u_short)len;
@@ -505,7 +503,7 @@ sendit:
 
 	if (IN_FASTRECOVERY(tp->t_flags)) {
 		tcp_seq seq = htonl(th->th_seq);
-		u_int32_t ts = htonl(th->th_tsval);
+		u_int32_t ts = to.to_tsval;
 		if (tp->undo_seq_left == 0 && SEQ_LT(seq, tp->snd_recover)) {
 			tp->undo_ts_left = ts;
 			tp->undo_seq_left = seq;
@@ -630,8 +628,8 @@ timer:
 void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq, int flags)
 {
 	int error;
-    struct rgn_iovec iov0;
-    struct tcphdr tcpup_th0;
+	struct rgn_iovec iov0;
+	struct tcphdr tcpup_th0;
 	struct tcphdr *th = &tcpup_th0;
 
 	th->th_magic = MAGIC_UDP_TCP;
@@ -643,14 +641,14 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 
 	if (orig != NULL) {
 		th->th_conv = (orig->th_conv);
-		th->th_tsecr = htonl(orig->th_tsval);
+		// th->th_tsecr = htonl(orig->th_tsval);
 	} else {
 		th->th_conv = (tp->tp_socket->so_conv);
 		th->th_flags = TH_ACK | ((rgn_len(tp->rgn_snd) || (tp->t_flags & TF_MORETOCOME))? 0: TH_PUSH);
-		th->th_tsecr = htonl(tp->ts_recent);
+		// th->th_tsecr = htonl(tp->ts_recent);
 	}
 
-	th->th_tsval = htonl(tcp_ts_getticks());
+	// th->th_tsval = htonl(tcp_ts_getticks());
 
 	if (tp != NULL && tp->rgn_rcv) {
 		long recwin = rgn_rest(tp->rgn_rcv);
@@ -659,11 +657,11 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 		th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
 	}
 
-    iov0.iov_len = sizeof(tcpup_th0);
-    iov0.iov_base = &tcpup_th0;
+	iov0.iov_len = sizeof(tcpup_th0);
+	iov0.iov_base = &tcpup_th0;
 
 	TCP_TRACE_AWAYS(tp, "tcp_respond: %x flags %x seq %x  ack %x ts %x %x\n",
-			th->th_conv, flags, seq, ack, th->th_tsval, th->th_tsecr);
+			th->th_conv, flags, seq, ack, 0, 0);
 
 	error = utxpl_output(tp->tp_socket->so_iface, &iov0, 1, &tp->dst_addr);
 	VAR_UNUSED(error);
@@ -767,6 +765,23 @@ int tcp_addoptions(struct tcpopt *to, u_char *optp)
 				optp += to->to_dslen;
 				break;
 			case TOF_TS:
+				while (!optlen || optlen % 4 != 2) {
+					optlen += TCPOLEN_NOP;
+					*optp++ = TCPOPT_NOP;
+				}
+				if (TCP_MAXOLEN - optlen < TCPOLEN_TIMESTAMP)
+					continue;
+				optlen += TCPOLEN_TIMESTAMP;
+				*optp++ = TCPOPT_TIMESTAMP;
+				*optp++ = TCPOLEN_TIMESTAMP;
+				to->to_tsval = htonl(to->to_tsval);
+				to->to_tsecr = htonl(to->to_tsecr);
+				bcopy((u_char *)&to->to_tsval, optp, sizeof(to->to_tsval));
+				optp += sizeof(to->to_tsval);
+				bcopy((u_char *)&to->to_tsecr, optp, sizeof(to->to_tsecr));
+				optp += sizeof(to->to_tsecr);
+				break;
+
 			case TOF_SACKPERM:
 				break;
 			default:

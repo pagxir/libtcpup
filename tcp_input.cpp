@@ -251,6 +251,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 				to->to_flags |= TOF_SCALE;
 				to->to_wscale = min(cp[2], TCP_MAX_WINSHIFT);
 				break;
+#endif
 			case TCPOPT_TIMESTAMP:
 				if (optlen != TCPOLEN_TIMESTAMP)
 					continue;
@@ -262,6 +263,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 						(char *)&to->to_tsecr, sizeof(to->to_tsecr));
 				to->to_tsecr = ntohl(to->to_tsecr);
 				break;
+#if 0
 			case TCPOPT_SACK_PERMITTED:
 				if (optlen != TCPOLEN_SACK_PERMITTED)
 					continue;
@@ -366,9 +368,6 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 		TCP_DEBUG(len < hdrlen, "incorrect paket %d %d\n", len, hdrlen);
 		return;
 	}
-	to.to_flags |= TOF_TS;
-	to.to_tsval = htonl(th->th_tsval);
-	to.to_tsecr = htonl(th->th_tsecr);
 	tlen = len - hdrlen;
 	dat  = buf + hdrlen;
 

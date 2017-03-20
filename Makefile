@@ -13,6 +13,10 @@ LOCAL_CXXFLAGS := -I$(THIS_PATH)/libtx/include -I$(THIS_PATH)
 LOCAL_CFLAGS := $(LOCAL_CXXFLAGS)
 LOCAL_LDLIBS := -lstdc++
 
+ifeq ($(BUILD_TARGET), )
+BUILD_TARGET := $(shell uname)
+endif
+
 ifeq ($(BUILD_TARGET), mingw)
 LOCAL_LDFLAGS += -static
 LOCAL_LDLIBS += -lws2_32
