@@ -407,8 +407,8 @@ sendit:
 	}
 
 	to.to_flags = TOF_TS;
-	to.to_tsval = htonl(tcp_snd_getticks);
-	to.to_tsecr = htonl(tp->ts_recent);
+	to.to_tsval = (tcp_snd_getticks);
+	to.to_tsecr = (tp->ts_recent);
 
 	optlen = tcp_addoptions(&to, (u_char *)(th + 1));
 	rcv_numsacks = (optlen >> 2);
