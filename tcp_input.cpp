@@ -479,6 +479,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 				cc_ack_received(tp, th, CC_ACK);
 
 				tp->snd_una = th->th_ack;
+
 				/*
 				 * Pull snd_wl2 up to prevent seq wrap relative
 				 * to th_ack.

@@ -89,6 +89,7 @@ int tcp_output(struct tcpcb *tp)
 {
 	int error;
 	int tilen = 0;
+	int is_frag = 0;
 	int rcv_numsacks;
 	long len, sendwin, recwin;
 	int off, flags;
@@ -112,6 +113,9 @@ int tcp_output(struct tcpcb *tp)
 		return -1;
 	}
 #endif
+	if (tp->snd_frag && SEQ_LT(tp->snd_frag, tp->snd_una)) {
+		tp->snd_frag = 0;
+	}
 
 	idle = (tp->t_flags & TF_LASTIDLE) || (tp->snd_max == tp->snd_una);
 	if (idle && TSTMP_GEQ(ticks, tp->t_rcvtime + tp->t_rxtcur))
@@ -297,8 +301,12 @@ after_sack_rexmit:
 		if (len >= tp->t_maxseg)
 			goto sendit;
 
-		if (idle && len + off >= rgn_len(tp->rgn_snd))
+		if ((idle || tp->snd_frag == 0)
+				&& !(tp->t_flags & TF_MORETOCOME)
+				&& len + off >= rgn_len(tp->rgn_snd)) {
+			is_frag = 1;
 			goto sendit;
+		}
 
 		if (tp->t_flags & TF_FORCEDATA)
 			goto sendit;
@@ -512,6 +520,11 @@ sendit:
 	}
 
 	error = utxpl_output(tp->tp_socket->so_iface, iobuf, 3, &tp->dst_addr);
+
+	if (is_frag) {
+		tp->snd_frag = tp->snd_nxt;
+		is_frag = 0;
+	}
 
 	if ((tp->t_flags & TF_FORCEDATA) == 0 || !tcp_timer_active(tp, TT_PERSIST)) {
 		tcp_seq startseq = tp->snd_nxt;
