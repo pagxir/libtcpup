@@ -354,6 +354,8 @@ int tcp_write(struct tcpcb *tp, const void *buf, size_t count)
 			rgn_put(tp->rgn_snd, buf, min_len);
 			if (min_len < count)
 				tp->t_flags |= TF_MORETOCOME;
+			else if (rgn_rest(tp->rgn_snd))
+				tp->t_flags &= ~TF_MORETOCOME;
 			tcp_output(tp);
 			break;
 
