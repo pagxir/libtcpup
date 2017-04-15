@@ -58,6 +58,7 @@ class pstcp_channel {
 		int m_flags;
 		int m_dns_handle;
 		static int v4_only;
+		static int total_instance;
 
 		int m_skip_count;
 		int use_socks_backend;
@@ -84,6 +85,8 @@ class pstcp_channel {
 };
 
 int pstcp_channel::v4_only = 0;
+int pstcp_channel::total_instance = 0;
+
 u_short _forward_port = 1080;
 u_long  _forward_addr = INADDR_LOOPBACK;
 static int get_backend(const char relay[], size_t len);
@@ -156,6 +159,7 @@ static void anybind(int fd, int family)
 	tx_setblockopt(m_file, 0);
 	anybind(m_file, AF_INET);
 	tx_aiocb_init(&m_sockcbp, loop, m_file);
+	total_instance++;
 }
 
 pstcp_channel::~pstcp_channel()
@@ -178,6 +182,7 @@ pstcp_channel::~pstcp_channel()
 
 	fprintf(stderr, "pstcp_channel::~pstcp_channel\n");
 	closesocket(m_file);
+	total_instance--;
 }
 
 int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t tp, u_long defdest, u_short port, struct tx_task_t *task)
@@ -377,6 +382,14 @@ int socksv5_connect(sockcb_t cb, void *buf, size_t size)
 	return 0;
 }
 
+static int get_keepalive(int count)
+{
+	int keepalive = 16 * 60 / count;
+	if (keepalive < 1) keepalive = 1;
+	if (keepalive > 60) keepalive = 60;
+	return keepalive;
+}
+
 int pstcp_channel::run(void)
 {
 	int len = 0;
@@ -386,7 +399,7 @@ int pstcp_channel::run(void)
 	socklen_t namelen;
 	struct sockaddr_storage name;
 
-	tx_timer_reset(&tidle, 1000 * 180); // close after 3 min idle time
+	tx_timer_reset(&tidle, 1000 * get_keepalive(total_instance)); // close after 3 min idle time
 
 #define TF_RESOLVABLE(flags) (0x0 == (flags&(TF_RESOLVING|TF_RESOLVED)))
 	if (TF_RESOLVABLE(m_flags)) {
