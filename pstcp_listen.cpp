@@ -11,7 +11,13 @@
 static struct tx_task_t _event;
 static struct tx_task_t _runstop;
 static struct tx_task_t _runstart;
+static struct tx_task_t _syn_keeper;
 
+static int _syn_count = 0;
+static tx_timer_t _reset_timer = {0};
+static void reset_counter(void *ignore);
+
+static void reset_counter(void *count);
 static void accept_statecb(void *ignore);
 static void accept_callback(void *context);
 
@@ -21,8 +27,13 @@ static void module_init(void)
 	tx_task_init(&_event, loop, accept_callback, NULL);
 	tx_task_init(&_runstop, loop, accept_statecb, (void *)0);
 	tx_task_init(&_runstart, loop, accept_statecb, (void *)1);
+	tx_task_init(&_syn_keeper, loop, reset_counter, &_reset_timer);
 
 	tx_task_active(&_runstart);
+
+	tx_timer_ring *provider = tx_timer_ring_get(loop);
+	tx_timer_init(&_reset_timer, provider, &_syn_keeper);
+	tx_timer_reset(&_reset_timer, 1000);
 #if 0
 	slotwait_atstop(&_runstop);
 #endif
@@ -30,11 +41,20 @@ static void module_init(void)
 
 static void module_clean(void)
 {
+	tx_timer_stop(&_reset_timer);
 	tx_task_drop(&_event);
 	tx_task_drop(&_runstop);
 	tx_task_drop(&_runstart);
+	tx_task_drop(&_syn_keeper);
 
 	fprintf(stderr, "tcp_listen: exiting\n");
+}
+
+static void reset_counter(void *t)
+{
+	tx_timer_t *timer = (tx_timer_t *)t;
+	tx_timer_reset(timer, 1000);
+	_syn_count = 0;
 }
 
 static void accept_statecb(void *ignore)
@@ -65,7 +85,10 @@ static void accept_callback(void *context)
 	if (newtp != NULL) {
 		fprintf(stderr, "new client: %s:%u\n",
 				inet_ntoa(newaddr.sin_addr), ntohs(newaddr.sin_port));
-		new_pstcp_channel(newtp);
+		if (_syn_count++ < 64)
+			new_pstcp_channel(newtp);
+		else
+			soclose(newtp);
 	}
 
 	sopoll(NULL, SO_ACCEPT, &_event);

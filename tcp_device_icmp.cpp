@@ -111,6 +111,7 @@ sockcb_t socreate(so_conv_t conv)
 #endif
 	tcpup_device *this_device = _paging_devices[offset];
 
+#ifndef _DNS_CLIENT_
 	if (this_device != NULL && this_device->_dobind == 0) {
 		int idle, idleout;
 		time_t now = time(NULL);
@@ -140,6 +141,7 @@ sockcb_t socreate(so_conv_t conv)
 
 		_paging_devices[offset] = this_device;
 	}
+#endif
 
 	return socreate(offset, conv);
 }
