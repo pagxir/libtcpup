@@ -81,10 +81,15 @@ void soisconnected(sockcb_t so)
 	}
 
 	tp = so->so_pcb;
+	int oldstat = so->so_state;
+	if (oldstat & SS_ISDISCONNECTED) {
+		return;
+	}
+
 	so->so_state &= ~(SS_ISCONNECTING| SS_ISDISCONNECTING);
 	so->so_state |= SS_ISCONNECTED;
 
-	if ((so->so_state & SS_NOFDREF)) {
+	if ((so->so_state & SS_NOFDREF) && !(oldstat & SS_ISCONNECTED)) {
 		tx_task_wakeup(&_accept_evt_list);
 	}
 
@@ -123,6 +128,10 @@ sockcb_t soaccept(sockcb_t lso, struct sockaddr *address, size_t *address_len)
 	sockcb_t soacc = NULL, cur, next;
 
 	LIST_FOREACH_SAFE(cur, &so_list_head, entries, next) {
+		if ((cur->so_state & SS_ISDISCONNECTED)) {
+			continue;
+		}
+
 		if ((cur->so_state & SS_ISCONNECTED) && (cur->so_state & SS_NOFDREF)) {
 			soacc = cur;
 			break;
