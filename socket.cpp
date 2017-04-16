@@ -64,6 +64,7 @@ sockcb_t sonewconn(int iface, so_conv_t conv)
 	so->so_iface = iface;
 	so->usrreqs = &tcp_usrreqs;
 	so->so_state |= SS_NOFDREF;
+	so->so_state |= SS_ACCEPTABLE;
 	so->so_count = 0;
 
 	(*so->usrreqs->so_attach)(so);
@@ -83,6 +84,7 @@ void soisconnected(sockcb_t so)
 	tp = so->so_pcb;
 	int oldstat = so->so_state;
 	if (oldstat & SS_ISDISCONNECTED) {
+		assert(0);
 		return;
 	}
 
@@ -128,11 +130,13 @@ sockcb_t soaccept(sockcb_t lso, struct sockaddr *address, size_t *address_len)
 	sockcb_t soacc = NULL, cur, next;
 
 	LIST_FOREACH_SAFE(cur, &so_list_head, entries, next) {
-		if ((cur->so_state & SS_ISDISCONNECTED)) {
+		int sostat = cur->so_state;
+
+		if ((sostat & SS_ISDISCONNECTED) || !(sostat & SS_ACCEPTABLE)) {
 			continue;
 		}
 
-		if ((cur->so_state & SS_ISCONNECTED) && (cur->so_state & SS_NOFDREF)) {
+		if ((sostat & SS_ISCONNECTED) && (sostat & SS_NOFDREF)) {
 			soacc = cur;
 			break;
 		}
@@ -140,7 +144,7 @@ sockcb_t soaccept(sockcb_t lso, struct sockaddr *address, size_t *address_len)
 
 	if (soacc != NULL) {
 		struct sockaddr *addr = NULL;
-		soacc->so_state &= ~SS_NOFDREF;
+		soacc->so_state &= ~(SS_NOFDREF| SS_ACCEPTABLE);
 		soacc->so_count++;
 
 		(*soacc->usrreqs->so_accept)(soacc, &addr);
@@ -176,7 +180,13 @@ int sopoll(sockcb_t so, SocketOps ops, tx_task_t *cb)
 
 	if (ops == SO_ACCEPT) {
 		LIST_FOREACH_SAFE(cur, &so_list_head, entries, next) {
-			if ((cur->so_state & SS_ISCONNECTED) && (cur->so_state & SS_NOFDREF)) {
+			int sostat = cur->so_state;
+
+			if ((sostat & SS_ISDISCONNECTED) || !(sostat & SS_ACCEPTABLE)) {
+				continue;
+			}
+
+			if ((sostat & SS_ISCONNECTED) && (sostat & SS_NOFDREF)) {
 				tx_task_active(cb);
 				return 0;
 			}

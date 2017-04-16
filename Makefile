@@ -31,7 +31,7 @@ LOCAL_CXXFLAGS += -g -Wall -Wno-sign-compare -I.
 
 VPATH := $(THIS_PATH)/libtx:$(THIS_PATH)
 
-TARGETS = server.udp server.icm client.udp client.raw server.http
+TARGETS = server.udp server.icm client.udp client.raw 
 
 ifeq ($(BUILD_TARGET), mingw)
 LOCAL_LDFLAGS += -static

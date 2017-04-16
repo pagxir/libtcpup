@@ -47,6 +47,7 @@ extern struct so_usrreqs tcp_usrreqs;
 #define SS_ISDISCONNECTING      0x0008
 #define SS_PROTOREF             0x4000  /* strong protocol reference */
 #define SS_ISDISCONNECTED       0x2000
+#define SS_ACCEPTABLE           0x1000
 
 struct sockcb {
 	int so_tag;
