@@ -414,7 +414,7 @@ sendit:
 		to.to_sacks = (u_char *)tp->sackblks;
 	}
 
-	to.to_flags = TOF_TS;
+	to.to_flags |= TOF_TS;
 	to.to_tsval = (tcp_snd_getticks);
 	to.to_tsecr = (tp->ts_recent);
 
