@@ -387,8 +387,10 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 	if (tp->t_state == TCPS_SYN_SENT && (thflags & TH_SYN)) {
 		tp->snd_wnd = tiwin;
 
-		tp->ts_recent = to.to_tsval;
-		tp->ts_recent_age = tcp_ts_getticks();
+		if (to.to_flags & TOF_TS) {
+			tp->ts_recent = to.to_tsval;
+			tp->ts_recent_age = tcp_ts_getticks();
+		}
 
 		if ((to.to_flags & TOF_MSS) &&
 				to.to_mss >= 512 && to.to_mss < tp->t_maxseg) {
@@ -398,7 +400,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 	}
 
 	if ((tp->t_flags & TF_REC_ADDR) &&
-			TSTMP_GEQ(to.to_tsval, tp->ts_recent)
+			(!(to.to_flags & TOF_TS) || TSTMP_GEQ(to.to_tsval, tp->ts_recent))
 			&& memcmp(&tp->dst_addr, from, sizeof(*from))) {
 		/* TCP_TRACE_AWAYS(tp, "update dst_addr\n"); */
 		if (memcmp(&tp->sav_addr, from, sizeof(*from))) {
@@ -414,7 +416,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 			tp->snd_nxt == tp->snd_max &&
 			tiwin && tiwin == tp->snd_wnd &&
 			rgn_frgcnt(tp->rgn_rcv) == 0 &&
-			TSTMP_GEQ(to.to_tsval, tp->ts_recent)) {
+			(!(to.to_flags & TOF_TS) || TSTMP_GEQ(to.to_tsval, tp->ts_recent))) {
 
 		/*
 		 * If last ACK falls within this segment's sequence numbers,
@@ -422,7 +424,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 		 * NOTE that the test is modified according to the latest
 		 * proposal of the tcplw@cray.com list (Braden 1993/04/26).
 		 */
-		if (SEQ_LEQ(th->th_seq, tp->last_ack_sent)) {
+		if (SEQ_LEQ(th->th_seq, tp->last_ack_sent) && (to.to_flags & TOF_TS)) {
 			tp->ts_recent_age = tcp_ts_getticks();
 			tp->ts_recent = to.to_tsval;
 		}
@@ -586,8 +588,10 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 				tp->t_maxseg = to.to_mss;
 			}
 
-			tp->ts_recent = to.to_tsval;
-			tp->ts_recent_age = tcp_ts_getticks();
+			if (to.to_flags & TOF_TS) {
+				tp->ts_recent = to.to_tsval;
+				tp->ts_recent_age = tcp_ts_getticks();
+			}
 
 			if ((to.to_flags & TOF_DESTINATION) &&
 					to.to_dslen >= 4 && to.to_dslen < 60) {
@@ -864,7 +868,7 @@ close:
 	 * RFC 1323 PAWS: If we have a timestamp reply on this segment
 	 * and it's less than ts_recent, drop it.
 	 */
-	if (tp->ts_recent && TSTMP_LT(to.to_tsval, tp->ts_recent)) {
+	if (tp->ts_recent && (to.to_flags & TOF_TS) && TSTMP_LT(to.to_tsval, tp->ts_recent)) {
 		/* Check to see if ts_recent is over 24 days old.  */
 		if (tcp_ts_getticks() - tp->ts_recent_age > TCP_PAWS_IDLE) {
 			/*
@@ -1023,9 +1027,10 @@ close:
 	 *    Vol. 2 p.869. In such cases, we can still calculate the
 	 *    RTT correctly when RCV.NXT == Last.ACK.Sent.
 	 */
-	if (SEQ_LEQ(th->th_seq, tp->last_ack_sent) &&
-		SEQ_LEQ(tp->last_ack_sent, th->th_seq + tlen +
-		((thflags & (TH_SYN|TH_FIN)) != 0))) {
+	if ((to.to_flags & TOF_TS) && 
+			SEQ_LEQ(th->th_seq, tp->last_ack_sent) &&
+			SEQ_LEQ(tp->last_ack_sent, th->th_seq + tlen +
+				((thflags & (TH_SYN|TH_FIN)) != 0))) {
 		tp->ts_recent_age = tcp_ts_getticks();
 		tp->ts_recent = to.to_tsval;
 	}
