@@ -387,7 +387,7 @@ static int get_keepalive(int count)
 	int keepalive = 16 * 60 / count;
 	if (keepalive < 1) keepalive = 1;
 	if (keepalive > 60) keepalive = 60;
-	return keepalive;
+	return 100 * keepalive;
 }
 
 int pstcp_channel::run(void)
