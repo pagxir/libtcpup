@@ -223,8 +223,8 @@ void tcp_discardcb(struct tcpcb *tp)
 	rgn_destroy(tp->rgn_snd);
 	rgn_destroy(tp->rgn_rcv);
 	tcp_free_sackholes(tp);
-    if (CC_ALGO(tp)->cb_destroy != NULL)
-        CC_ALGO(tp)->cb_destroy(tp->ccv);
+	if (CC_ALGO(tp)->cb_destroy != NULL)
+		CC_ALGO(tp)->cb_destroy(tp->ccv);
 	ertt_uma_dtor(tp->osd, 0, 0);
 	free(tp->osd);
 

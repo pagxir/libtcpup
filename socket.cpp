@@ -13,6 +13,7 @@
 #include <tcpup/tcp_var.h>
 #include <tcpup/tcp_debug.h>
 
+static int _total_socket = 0;
 static int _accept_evt_init = 0;
 static sockcb_q so_list_head = {0};
 static tx_task_q _accept_evt_list = {0};
@@ -27,6 +28,8 @@ sockcb_t mksockcb()
 	so->so_state = 0;
 
 	LIST_INSERT_HEAD(&so_list_head, so, entries);
+	_total_socket++;
+	TCP_DEBUG(_total_socket > 10, "total socket count: %d\n", _total_socket);
 	return so;
 }
 
@@ -41,6 +44,7 @@ void sofree(sockcb_t so)
 	so->so_tag = 0xDEAD;
 	LIST_REMOVE(so, entries);
 	free(so);
+	_total_socket--;
 }
 
 sockcb_t solookup(so_conv_t conv)

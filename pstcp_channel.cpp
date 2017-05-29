@@ -12,6 +12,8 @@
 #define TF_RESOLVED   0x10
 #define TF_RESOLVING  0x20
 
+#define LOG_DEBUG(format, args...) fprintf(stderr, format, ##args)
+
 #define TF_CONNECTED  0x40
 #define TF_CONNECTING 0x80
 
@@ -180,7 +182,7 @@ pstcp_channel::~pstcp_channel()
 	tx_task_drop(&m_wwait);
 	tx_task_drop(&m_rwait);
 
-	fprintf(stderr, "pstcp_channel::~pstcp_channel\n");
+	LOG_DEBUG("pstcp_channel::~pstcp_channel: %d\n", total_instance);
 	closesocket(m_file);
 	total_instance--;
 }
@@ -220,12 +222,13 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 			case 0x01:
 				/* IPv4 (8 byte): atyp=0x01 + 0x0 + port[2]+ addr[4]. */
 				if (len == 8) {
+					int hport = ntohs(p0);
 					dst4->sin_family = AF_INET;
 					dst4->sin_port   = p0;
 					memcpy(&dst4->sin_addr, p, 4);
-					if (dst4->sin_addr.s_addr == htonl(0x0a030081)) dst4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-					//char buf[64];
-					//fprintf(stderr, "target: %s\n", inet_ntop(AF_INET, &dst4->sin_addr, buf, sizeof(buf)));
+					if ((hport >= 65216 && hport <= 65279) &&
+							dst4->sin_addr.s_addr == htonl(0x0100007f))
+						dst4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 					return 0;
 				}
 
@@ -245,7 +248,7 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 
 				m_dns_handle = dns_query_open(relay + 4, serv, &hints, task);
 				if (m_dns_handle >= 0) {
-					fprintf(stderr, "dns query is pending: %s\n", relay + 4);
+					LOG_DEBUG("dns query is pending: %s\n", relay + 4);
 					return 1;
 				}
 
@@ -269,7 +272,7 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 	dst4->sin_family = AF_INET;
 	dst4->sin_port   = htons(port);
 	dst4->sin_addr.s_addr = htonl(defdest);
-	fprintf(stderr, "relay: len %d\n", len);
+	LOG_DEBUG("relay: len %d\n", len);
 	return 0;
 }
 
@@ -390,6 +393,15 @@ static int get_keepalive(int count)
 	return 100 * keepalive;
 }
 
+static int _keep_init = 0;
+static tx_timer_t _t_checktimer = {};
+static struct tx_task_q _q_keepdead = {};
+static struct tx_task_q _q_keepalive = {};
+
+static void keepalive_check(void *context)
+{
+}
+
 int pstcp_channel::run(void)
 {
 	int len = 0;
@@ -405,7 +417,7 @@ int pstcp_channel::run(void)
 	if (TF_RESOLVABLE(m_flags)) {
 		error = expend_relay(&name, m_peer, _forward_addr, _forward_port, &m_wwait);
 		if (error == -1) {
-			fprintf(stderr, "do dns resolv error\n");
+			LOG_DEBUG("do dns resolv error\n");
 			return 0;
 		}
 
@@ -424,7 +436,7 @@ int pstcp_channel::run(void)
 		if (m_dns_handle != -1 && (m_flags & TF_RESOLVING)) {
 			error = dns_query_result(m_dns_handle, &result);
 			if (error) {
-				fprintf(stderr, "do dns async resolv failure\n");
+				LOG_DEBUG("do dns async resolv failure\n");
 				return 0;
 			}
 
@@ -449,29 +461,29 @@ int pstcp_channel::run(void)
 						m_file = rsoket;
 						if (error) {
 							m_flags |= TF_CONNECTING;
-							fprintf(stderr, "connect is pending: error = %d\n", errno);
+							LOG_DEBUG("connect is pending: error = %d\n", errno);
 							dns_query_close(m_dns_handle);
 							m_dns_handle = -1;
 							return 1;
 						}
 
 						m_flags |= TF_CONNECTED;
-						fprintf(stderr, "connect all pending\n");
+						LOG_DEBUG("connect all pending\n");
 						dns_query_close(m_dns_handle);
 						m_dns_handle = -1;
 						return 1;
 					}
 
-					fprintf(stderr, "connect error code: %d\n", errno);
+					LOG_DEBUG("connect error code: %d\n", errno);
 					tx_aiocb_fini(&m_sockcbp);
 					closesocket(rsoket);
 				}
 
-				fprintf(stderr, "connect all failure\n");
+				LOG_DEBUG("connect all failure\n");
 				return 0;
 			}
 
-			fprintf(stderr, "query is pending\n");
+			LOG_DEBUG("query is pending\n");
 			return 1;
 		}
 	}
@@ -486,7 +498,7 @@ int pstcp_channel::run(void)
 		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, namelen, &m_wwait);
 		if (error == 0 || error == -WSAEINPROGRESS) {
 			if (error) {
-				fprintf(stderr, "connect is pending\n");
+				LOG_DEBUG("connect is pending\n");
 				m_flags |= TF_CONNECTING;
 				return 1;
 			} else if (use_socks_backend) {
@@ -494,12 +506,12 @@ int pstcp_channel::run(void)
 				if (r2s.len > 0) m_skip_count = 12;
 			}
 
-			fprintf(stderr, "connect all pending\n");
+			LOG_DEBUG("connect all pending\n");
 			m_flags |= TF_CONNECTED;
 			return 1;
 		}
 
-		fprintf(stderr, "tcp connect error: %s\n", strerror(errno));
+		LOG_DEBUG("tcp connect error: %s\n", strerror(errno));
 #ifndef WIN32
 		v4_only = (errno == EINVAL? 1: v4_only);
 #endif
@@ -507,7 +519,7 @@ int pstcp_channel::run(void)
 	} else {
 		if (tx_writable(&m_sockcbp)
 				&& (m_flags & TF_CONNECTING)) {
-			fprintf(stderr, "connect is finish...\n");
+			LOG_DEBUG("connect is finish...\n");
 			m_skip_count = 0;
 			if (use_socks_backend) {
 				r2s.len = socksv5_connect(m_peer, r2s.buf, sizeof(r2s.buf));
@@ -518,7 +530,7 @@ int pstcp_channel::run(void)
 		}
 
 		if ((m_flags & TF_CONNECTED) == 0) {
-			fprintf(stderr, "%p connect is inprogress...\n", this);
+			LOG_DEBUG("%p connect is inprogress...\n", this);
 			return 1;
 		}
 	}

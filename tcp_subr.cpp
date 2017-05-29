@@ -92,8 +92,8 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 	memset(tp->ccv, 0, sizeof(struct cc_var));
 	tp->ccv->tcp = tp;
 	TAILQ_INIT(&tp->snd_holes);
-    if (CC_ALGO(tp)->cb_init != NULL)
-        CC_ALGO(tp)->cb_init(tp->ccv);
+	if (CC_ALGO(tp)->cb_init != NULL)
+		CC_ALGO(tp)->cb_init(tp->ccv);
 
 	return tp;
 }
