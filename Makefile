@@ -54,7 +54,7 @@ CC_OBJS =  cc_hybla.o cc_hybla0.o cc_newreno.o cc_cubic.o cc.o cc_htcp.o cc_vega
 CC_OBJS +=  cc_vegasab.o 
 LOCAL_OBJECTS := libtx.a socket.o rgnbuf.o tcp_debug.o \
 		  tcp_input.o tcp_output.o tcp_timer.o tcp_subr.o \
-		  tcp_usrreq.o tcp_sack.o $(CC_OBJS) tcp_crypt.o
+		  tcp_usrreq.o tcp_sack.o $(CC_OBJS) tcp_crypt.o client_track.o
 
 $(TARGETS): OBJECTS:=$(LOCAL_OBJECTS)
 

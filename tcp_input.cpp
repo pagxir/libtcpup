@@ -15,6 +15,8 @@
 #include <tcpup/tcp_timer.h>
 #include <tcpup/tcp_debug.h>
 
+#include "client_track.h"
+
 #define DELAY_ACK(tp) (!tcp_timer_active(tp, TT_DELACK))
 
 int tcp_iss = 0;
@@ -404,6 +406,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 			&& memcmp(&tp->dst_addr, from, sizeof(*from))) {
 		/* TCP_TRACE_AWAYS(tp, "update dst_addr\n"); */
 		if (memcmp(&tp->sav_addr, from, sizeof(*from))) {
+			client_track_update(th->th_conv, from, sizeof(*from), ticks);
 			needoutput = 1;
 		}
 		tp->sav_addr = tp->dst_addr;
@@ -603,6 +606,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 			tcp_timer_activate(tp, TT_KEEP, TCPTV_KEEP_INIT);
 			tcp_rcvseqinit(tp);
 			tcp_sendseqinit(tp);
+			client_track_update(th->th_conv, from, sizeof(*from), ticks);
 			tp->dst_addr = *from;
 			tp->t_flags |= TF_REC_ADDR;
 			TCPSTAT_INC(tcps_accepts);

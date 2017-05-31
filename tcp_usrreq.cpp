@@ -634,6 +634,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 			tp = sonew->so_pcb;
 			tp->t_state = TCPS_LISTEN;
 			tp->dst_addr = *from;
+			tp->sav_addr = *from;
 			tcp_input(sonew, tp, dst, buf, len, from);
 			handled = 1;
 		}
