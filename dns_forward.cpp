@@ -254,7 +254,7 @@ struct udp_forward_context * udp_forward_create(int conv, int type)
 
 		tx_task_init(&ctx->uf_kill, loop, on_udp_idle, (void *)ctx);
 		tx_timer_init(&ctx->uf_timer, loop, &ctx->uf_kill);
-		tx_timer_reset(&ctx->uf_timer, 120 * 1000);
+		tx_timer_reset(&ctx->uf_timer, 300 * 1000);
 
 		LIST_INSERT_HEAD(ctxq, ctx, entries);
 	}
@@ -291,7 +291,7 @@ int filter_hook_dns_forward(int netif, void *buf, size_t len, const struct tcpup
 
 				err = sendto(c->uf_handle, (const char *)payload + doff,
 						payload_limit - payload - doff, 0, (struct sockaddr *)&target, sizeof(target));
-				tx_timer_reset(&c->uf_timer, 120 * 1000);
+				tx_timer_reset(&c->uf_timer, 300 * 1000);
 				c->uf_rcvtime = tx_getticks();
 				c->uf_from = *from;
 			}

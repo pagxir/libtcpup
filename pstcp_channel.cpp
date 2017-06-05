@@ -66,6 +66,7 @@ class pstcp_channel {
 		int use_socks_backend;
 
 	private:
+		int m_interactive;
 		tx_task_t m_rwait;
 		tx_task_t m_wwait;
 		struct tx_aiocb m_sockcbp;
@@ -117,7 +118,7 @@ static void anybind(int fd, int family)
 }
 
 	pstcp_channel::pstcp_channel(sockcb_t so)
-:m_flags(0)
+:m_flags(0), m_interactive(0)
 {
 	int len;
 	int is_v4only;
@@ -229,6 +230,7 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 					if ((hport >= 65216 && hport <= 65279) &&
 							dst4->sin_addr.s_addr == htonl(0x0100007f))
 						dst4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+					if (hport == 5228) m_interactive = 1;
 					return 0;
 				}
 
@@ -393,14 +395,8 @@ static int get_keepalive(int count)
 	return 100 * keepalive;
 }
 
-static int _keep_init = 0;
-static tx_timer_t _t_checktimer = {};
-static struct tx_task_q _q_keepdead = {};
-static struct tx_task_q _q_keepalive = {};
-
-static void keepalive_check(void *context)
-{
-}
+#define MAX(a, b) ((a) < (b)? (b): (a))
+#define MIN(a, b) ((a) < (b)? (a): (b))
 
 int pstcp_channel::run(void)
 {
@@ -411,7 +407,13 @@ int pstcp_channel::run(void)
 	socklen_t namelen;
 	struct sockaddr_storage name;
 
-	tx_timer_reset(&tidle, 1000 * get_keepalive(total_instance)); // close after 3 min idle time
+	int timeout = 1000 * get_keepalive(total_instance);
+	if ((s2r.flag & RDF_FIN) || (RDF_FIN & r2s.flag)) {
+		timeout = MIN(timeout, 1000 * 120);
+	} else if (m_interactive == 1) {
+		timeout = MAX(timeout, 1000 * 1800);
+	}
+	tx_timer_reset(&tidle, timeout); // close after 3 min idle time
 
 #define TF_RESOLVABLE(flags) (0x0 == (flags&(TF_RESOLVING|TF_RESOLVED)))
 	if (TF_RESOLVABLE(m_flags)) {
