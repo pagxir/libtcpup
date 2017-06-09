@@ -564,6 +564,7 @@ void tcp_usrclosed(struct tcpcb *tp)
 		case TCPS_SYN_SENT:
 		case TCPS_SYN_RECEIVED:
 			tp->t_flags |= TF_NEEDFIN;
+			tcp_state_change(tp, TCPS_FIN_WAIT_1);
 			break;
 
 		case TCPS_ESTABLISHED:
@@ -739,6 +740,16 @@ static int tcp_usr_close(sockcb_t so)
 	if (tp->t_state != TCPS_CLOSED) {
 		so->so_state |= SS_PROTOREF;
 		tp->t_flags |= TF_SOCKREF;
+	}
+
+	if (tp->rgn_rcv) {
+		int ignore = rgn_len(tp->rgn_rcv);
+		rgn_drop(tp->rgn_rcv, ignore);
+		tp->rgn_rcv = rgn_trim(tp->rgn_rcv);
+	}
+
+	if (tp->rgn_snd) {
+		tp->rgn_snd = rgn_trim(tp->rgn_snd);
 	}
 
 	return 0;

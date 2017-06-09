@@ -968,7 +968,7 @@ close:
 	 * user processes are gone, then RST the other end.
 	 */
 	/* Do not support half open connect. */
-	if ((tp->t_flags & SS_NOFDREF) &&
+	if ((so->so_state & SS_NOFDREF) &&
 			tp->t_state > TCPS_CLOSE_WAIT && tlen) {
 		size_t namlen = tp->dst_addr.namlen;
 		TCP_TRACE_AWAYS(tp, "send syn wait %d %d %x %x\n", tp->t_state, tlen, th->th_seq, tp->rcv_nxt);
