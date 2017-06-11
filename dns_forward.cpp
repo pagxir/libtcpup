@@ -151,7 +151,9 @@ struct udp_forward_context {
 
 	tx_task_t uf_kill;
 	tx_timer_t uf_timer;
-    	LIST_ENTRY(udp_forward_context) entries;
+	LIST_ENTRY(udp_forward_context) entries;
+
+	struct sockaddr *(*get_dest)(struct udpuphdr *hdr, socklen_t *len);
 };
 
 typedef LIST_HEAD(udp_forward_context_q, udp_forward_context) udp_forward_context_q;
@@ -172,6 +174,54 @@ static void on_udp_idle(void *upp)
 
 	delete ctx;
 }
+
+static void on_udp6_receive(void *upp)
+{
+	int len;
+	socklen_t salen;
+	struct sockaddr_in6 saaddr;
+	char packet[RCVPKT_MAXSIZ];
+	char udp_packet[RCVPKT_MAXSIZ];
+	struct udp_forward_context *ctx = (struct udp_forward_context *)upp;
+
+	while (tx_readable(&ctx->uf_aiocb)) {
+		salen = sizeof(saaddr);
+		len = recvfrom(ctx->uf_handle, packet, RCVPKT_MAXSIZ, MSG_DONTWAIT, (struct sockaddr *)&saaddr, &salen);
+		tx_aincb_update(&ctx->uf_aiocb, len);
+		if (len > 0) {
+			rgn_iovec dns_pkt[2];
+			dns_pkt[0].iov_base = magic1;
+			dns_pkt[0].iov_len  = DNS_MAGIC_LEN;
+			if (len > 1420) {
+				TCP_DEBUG(len > 1420, "packet is trim from %d to 1420\n", len);
+				len = 1420;
+			}
+
+			struct udpuphdr6 *up = (struct udpuphdr6 *)udp_packet;
+
+			up->uh.u_conv = ctx->uf_conv;
+			up->uh.u_magic = 0xcc;
+			up->uh.u_doff = (sizeof(*up) >> 2);
+			up->uh.u_frag = 0;
+			up->uh.u_flag = 0;
+			up->uh.u_tag = 0x86;
+			up->uh.u_len = 20;
+			up->uh.u_port = saaddr.sin6_port;
+			memcpy(up->addr, &saaddr.sin6_addr, sizeof(up->addr));
+			assert(len + sizeof(*up) < sizeof(udp_packet));
+			memcpy(up + 1, packet, len);
+
+			dns_pkt[1].iov_base = udp_packet;
+			dns_pkt[1].iov_len  = len + sizeof(*up);
+
+			utxpl_output(0, dns_pkt, 2, &ctx->uf_from);
+		}
+	}
+
+	tx_aincb_active(&ctx->uf_aiocb, &ctx->uf_ready);
+	return;
+}
+
 
 static void on_udp_receive(void *upp)
 {
@@ -208,6 +258,7 @@ static void on_udp_receive(void *upp)
 			up4->addr[0] = saaddr.sin_addr.s_addr;
 			assert(len + sizeof(*up4) < sizeof(udp_packet));
 			memcpy(up4 + 1, packet, len);
+
 			dns_pkt[1].iov_base = udp_packet;
 			dns_pkt[1].iov_len  = len + sizeof(*up4);
 
@@ -219,10 +270,72 @@ static void on_udp_receive(void *upp)
 	return;
 }
 
-struct udp_forward_context * udp_forward_create(int conv, int type)
+static int get_port(struct sockaddr *in)
+{
+	struct sockaddr_in *sin = (struct sockaddr_in *)in;
+	return htons(sin->sin_port);
+}
+
+static struct sockaddr *udp4_get_dest(struct udpuphdr *up, socklen_t *plen)
+{
+	static struct sockaddr_in sin = {};
+	struct udpuphdr4 *uphdr4 = (struct udpuphdr4 *)up;
+
+	sin.sin_family = AF_INET;
+	sin.sin_port   = (up->u_port);
+	sin.sin_addr.s_addr   = (uphdr4->addr[0]);
+
+	if (plen != NULL) *plen = sizeof(sin);
+	return (struct sockaddr *)&sin;
+}
+
+static void udp4_forward_init(struct udp_forward_context *ctx)
 {
 	int err;
-	struct sockaddr sa = {0};
+	struct sockaddr_in sa = {0};
+	struct sockaddr * sap = (struct sockaddr *)&sa;
+
+	ctx->uf_handle = socket(AF_INET, SOCK_DGRAM, 0);
+	assert(ctx->uf_handle != -1);
+
+	sa.sin_family = AF_INET;
+	err = bind(ctx->uf_handle, sap, sizeof(sa));
+	assert(err == 0);
+
+	ctx->get_dest  = udp4_get_dest;
+}
+
+static struct sockaddr *udp6_get_dest(struct udpuphdr *up, socklen_t *plen)
+{
+	static struct sockaddr_in6 sin = {0};
+	struct udpuphdr6 *uphdr = (struct udpuphdr6 *)up;
+
+	sin.sin6_family = AF_INET6;
+	sin.sin6_port   = (up->u_port);
+	memcpy(&sin.sin6_addr,  uphdr->addr, sizeof(sin.sin6_addr));
+
+	if (plen != NULL) *plen = sizeof(sin);
+	return (struct sockaddr *)&sin;
+}
+
+static void udp6_forward_init(struct udp_forward_context *ctx)
+{
+	int err;
+	struct sockaddr_in6 sa = {0};
+	struct sockaddr * sap = (struct sockaddr *)&sa;
+
+	ctx->uf_handle = socket(AF_INET6, SOCK_DGRAM, 0);
+	assert(ctx->uf_handle != -1);
+
+	sa.sin6_family = AF_INET6;
+	err = bind(ctx->uf_handle, sap, sizeof(sa));
+	assert(err == 0);
+
+	ctx->get_dest  = udp6_get_dest;
+}
+
+struct udp_forward_context * udp_forward_create(int conv, int type)
+{
 	struct udp_forward_context *ctx;
 	struct udp_forward_context_q *ctxq = &_forward_header;
 
@@ -233,12 +346,16 @@ struct udp_forward_context * udp_forward_create(int conv, int type)
 	ctx = new udp_forward_context;
 	/* start udp process forward request */
 	if (ctx != NULL) {
-		ctx->uf_handle = socket(AF_INET, SOCK_DGRAM, 0);
 		ctx->uf_conv   = conv;
+		tx_loop_t *loop = tx_loop_default();
 
-		sa.sa_family = AF_INET;
-		err = bind(ctx->uf_handle, &sa, sizeof(sa));
-		assert(err == 0);
+		if (type == 0x84) {
+			udp4_forward_init(ctx);
+			tx_task_init(&ctx->uf_ready, loop, on_udp_receive, (void *)ctx);
+		} else {
+			udp6_forward_init(ctx);
+			tx_task_init(&ctx->uf_ready, loop, on_udp6_receive, (void *)ctx);
+		}
 
 #ifdef WIN32
 		int bufsize = 8192;
@@ -246,16 +363,13 @@ struct udp_forward_context * udp_forward_create(int conv, int type)
 		tx_setblockopt(ctx->uf_handle, 0);
 #endif
 
-		tx_loop_t *loop = tx_loop_default();
 		tx_aiocb_init(&ctx->uf_aiocb, loop, ctx->uf_handle);
-
-		tx_task_init(&ctx->uf_ready, loop, on_udp_receive, (void *)ctx);
-		tx_aincb_active(&ctx->uf_aiocb, &ctx->uf_ready);
 
 		tx_task_init(&ctx->uf_kill, loop, on_udp_idle, (void *)ctx);
 		tx_timer_init(&ctx->uf_timer, loop, &ctx->uf_kill);
-		tx_timer_reset(&ctx->uf_timer, 300 * 1000);
+		tx_timer_reset(&ctx->uf_timer, 10 * 1000);
 
+		tx_aincb_active(&ctx->uf_aiocb, &ctx->uf_ready);
 		LIST_INSERT_HEAD(ctxq, ctx, entries);
 	}
 
@@ -280,23 +394,23 @@ int filter_hook_dns_forward(int netif, void *buf, size_t len, const struct tcpup
 		if (payload_limit - payload >= sizeof(*udphdr) && 
 				udphdr->u_flag == 0 && udphdr->u_magic == 0xcc) {
 			int doff = (udphdr->u_doff << 2);
-			struct sockaddr_in target = {0};
-			struct udpuphdr4 *uphdr4 = (struct udpuphdr4 *)udphdr;
+			struct sockaddr *target;
 
-			struct udp_forward_context *c = udp_forward_create(udphdr->u_conv, udphdr->u_tag != 0x84);
-			if (udphdr->u_tag == 0x84 && c != NULL) {
-				target.sin_family = AF_INET;
-				target.sin_port   = (udphdr->u_port);
-				target.sin_addr.s_addr   = (uphdr4->addr[0]);
+			struct udp_forward_context *c = udp_forward_create(udphdr->u_conv, udphdr->u_tag);
+			if (c != NULL) {
+				socklen_t target_len = 0;
+				target = c->get_dest(udphdr, &target_len);
 
 				err = sendto(c->uf_handle, (const char *)payload + doff,
-						payload_limit - payload - doff, 0, (struct sockaddr *)&target, sizeof(target));
-				tx_timer_reset(&c->uf_timer, 300 * 1000);
+						payload_limit - payload - doff, 0, target, target_len);
+				assert (err > 0);
+				int timeout = 25;
+				if (get_port(target) != 53) timeout = 300;
+				tx_timer_reset(&c->uf_timer, timeout * 1000);
 				c->uf_rcvtime = tx_getticks();
 				c->uf_from = *from;
 			}
 
-			TCP_DEBUG(udphdr->u_tag != 0x84, "found udp packet forward request\n");
 			return 1;
 		}
 	}
