@@ -141,6 +141,7 @@ struct udpuphdr6 {
 };
 
 struct udp_forward_context {
+	int do_nat;
 	int uf_conv;
 	int uf_handle;
 	long uf_rcvtime;
@@ -153,7 +154,7 @@ struct udp_forward_context {
 	tx_timer_t uf_timer;
 	LIST_ENTRY(udp_forward_context) entries;
 
-	struct sockaddr *(*get_dest)(struct udpuphdr *hdr, socklen_t *len);
+	struct sockaddr *(*get_dest)(struct udp_forward_context *ctx, struct udpuphdr *hdr, socklen_t *len);
 };
 
 typedef LIST_HEAD(udp_forward_context_q, udp_forward_context) udp_forward_context_q;
@@ -245,6 +246,13 @@ static void on_udp_receive(void *upp)
 				len = 1420;
 			}
 
+			if (ctx->do_nat && 
+					saaddr.sin_port == _fwd_target.sin_port &&
+					saaddr.sin_addr.s_addr == _fwd_target.sin_addr.s_addr) {
+				saaddr.sin_port = htons(53);
+				saaddr.sin_addr.s_addr = 0x08080808;
+			}
+
 			struct udpuphdr4 *up4 = (struct udpuphdr4 *)udp_packet;
 
 			up4->uh.u_conv = ctx->uf_conv;
@@ -276,14 +284,21 @@ static int get_port(struct sockaddr *in)
 	return htons(sin->sin_port);
 }
 
-static struct sockaddr *udp4_get_dest(struct udpuphdr *up, socklen_t *plen)
+static struct sockaddr *udp4_get_dest(struct udp_forward_context *ctx, struct udpuphdr *up, socklen_t *plen)
 {
 	static struct sockaddr_in sin = {};
 	struct udpuphdr4 *uphdr4 = (struct udpuphdr4 *)up;
 
 	sin.sin_family = AF_INET;
 	sin.sin_port   = (up->u_port);
-	sin.sin_addr.s_addr   = (uphdr4->addr[0]);
+	if ((uphdr4->addr[0] == 0x08080808) && (up->u_port == htons(53))) {
+		sin.sin_addr = _fwd_target.sin_addr;
+		sin.sin_port = _fwd_target.sin_port;
+		ctx->do_nat = 1;
+	} else {
+		sin.sin_addr.s_addr   = (uphdr4->addr[0]);
+		ctx->do_nat = 0;
+	}
 
 	if (plen != NULL) *plen = sizeof(sin);
 	return (struct sockaddr *)&sin;
@@ -305,7 +320,7 @@ static void udp4_forward_init(struct udp_forward_context *ctx)
 	ctx->get_dest  = udp4_get_dest;
 }
 
-static struct sockaddr *udp6_get_dest(struct udpuphdr *up, socklen_t *plen)
+static struct sockaddr *udp6_get_dest(struct udp_forward_context *ignore, struct udpuphdr *up, socklen_t *plen)
 {
 	static struct sockaddr_in6 sin = {0};
 	struct udpuphdr6 *uphdr = (struct udpuphdr6 *)up;
@@ -346,6 +361,7 @@ struct udp_forward_context * udp_forward_create(int conv, int type)
 	ctx = new udp_forward_context;
 	/* start udp process forward request */
 	if (ctx != NULL) {
+		ctx->do_nat    = 0;
 		ctx->uf_conv   = conv;
 		tx_loop_t *loop = tx_loop_default();
 
@@ -399,7 +415,7 @@ int filter_hook_dns_forward(int netif, void *buf, size_t len, const struct tcpup
 			struct udp_forward_context *c = udp_forward_create(udphdr->u_conv, udphdr->u_tag);
 			if (c != NULL) {
 				socklen_t target_len = 0;
-				target = c->get_dest(udphdr, &target_len);
+				target = c->get_dest(c, udphdr, &target_len);
 
 				err = sendto(c->uf_handle, (const char *)payload + doff,
 						payload_limit - payload - doff, 0, target, target_len);

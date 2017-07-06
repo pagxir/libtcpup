@@ -77,6 +77,9 @@ struct rgnbuf *rgn_trim(struct rgnbuf* old)
 	}
 
 	newbuf->rb_frgcnt = old->rb_frgcnt;
+	if (newbuf->rb_frgcnt > newbuf->rb_frgsize)
+		newbuf->rb_frgcnt = newbuf->rb_frgsize;
+
 	for (cp = 0; cp < newbuf->rb_frgcnt; cp++)
 		newbuf->rb_fragments[cp] = old->rb_fragments[cp] - old->rb_off;
 	free(old);

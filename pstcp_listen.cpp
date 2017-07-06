@@ -53,7 +53,7 @@ static void module_clean(void)
 static void reset_counter(void *t)
 {
 	tx_timer_t *timer = (tx_timer_t *)t;
-	tx_timer_reset(timer, 1000);
+	tx_timer_reset(timer, 10000);
 	_syn_count = 0;
 }
 
@@ -85,7 +85,7 @@ static void accept_callback(void *context)
 	if (newtp != NULL) {
 		fprintf(stderr, "new client: %s:%u\n",
 				inet_ntoa(newaddr.sin_addr), ntohs(newaddr.sin_port));
-		if (_syn_count++ < 64)
+		if (_syn_count++ < 2 * 640)
 			new_pstcp_channel(newtp);
 		else
 			soclose(newtp);

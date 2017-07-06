@@ -230,6 +230,7 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 					if ((hport >= 65216 && hport <= 65279) &&
 							dst4->sin_addr.s_addr == htonl(0x0100007f))
 						dst4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+					if (hport == 14000) m_interactive = 1;
 					if (hport == 5228) m_interactive = 1;
 					return 0;
 				}
