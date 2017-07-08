@@ -1387,6 +1387,11 @@ dodata:
 			rgn_put(tp->rgn_rcv, dat, tlen);
 			sorwakeup(tp);
 		} else {
+			if (thflags & TH_FIN) {
+				tp->rcv_frs = (th->th_seq + tlen);
+				tp->t_flags |= TF_GOTFIN;
+			}
+
 			if (tlen > 0) {
 				if (SEQ_GT(th->th_seq, tp->rcv_nxt)) {
 					int off = (th->th_seq - tp->rcv_nxt);
@@ -1396,23 +1401,20 @@ dodata:
 					rgn_put(tp->rgn_rcv, dat, tlen);
 					tp->rcv_nxt += rgn_reass(tp->rgn_rcv);
 					tp->rcv_nxt += tlen;
+
+					if ((tp->t_flags & TF_GOTFIN)  && 
+							(tp->rcv_frs == tp->rcv_nxt)) {
+						assert(rgn_frgcnt(tp->rgn_rcv) == 0);
+						thflags |= TH_FIN;
+					}
+
 					sorwakeup(tp);
 				}
-				tp->t_flags |= TF_ACKNOW;
 			}
 
 			/* thflags = rgn_frgcnt(tp->rgn_rcv)? 0: (thflags & TH_FIN); */
-			if (thflags & TH_FIN) {
-				tp->rcv_frs = (th->th_seq + tlen);
-				tp->t_flags |= TF_GOTFIN;
-				thflags = 0;
-			} else if ((tp->t_flags & TF_GOTFIN)  && 
-					rgn_frgcnt(tp->rgn_rcv) == 0 &&
-					(tp->rcv_frs == tp->rcv_nxt)){
-				if (tlen > 0) {
-					thflags |= TH_FIN;
-				}
-			}
+
+			tp->t_flags |= TF_ACKNOW;
 		}
 
 		if (tlen > 0) {
