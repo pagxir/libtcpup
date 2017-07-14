@@ -9,6 +9,9 @@
 #include "tcp_channel.h"
 #include "pstcp_channel.h"
 
+#define STACK2TASK(s) (&(s)->tx_sched)
+#define LOG_VERBOSE(fmt, args...)
+
 #define TF_RESOLVED   0x10
 #define TF_RESOLVING  0x20
 
@@ -42,6 +45,7 @@ struct relay_data {
 	int len;
 #define RDF_EOF 0x01
 #define RDF_FIN 0x02
+#define RDF_BROKEN 0x04
 	int flag;
 	char buf[4096];
 };
@@ -53,11 +57,12 @@ class pstcp_channel {
 
 	public:
 		int run(void);
-		static void tc_callback(void *context);
+		int run0(void);
+		int reset_keepalive();
+		static void tc_callback(void *context, tx_task_stack_t *sta);
 
 	private:
 		int m_file;
-		int m_flags;
 		int m_dns_handle;
 		static int v4_only;
 		static int total_instance;
@@ -67,18 +72,15 @@ class pstcp_channel {
 
 	private:
 		int m_interactive;
-		tx_task_t m_rwait;
-		tx_task_t m_wwait;
-		struct tx_aiocb m_sockcbp;
 
-	private:
+	public:
+		int m_flags;
 		struct relay_data r2s;
 		struct relay_data s2r;
 
-	private:
 		sockcb_t m_peer;
-		tx_task_t r_evt_peer;
-		tx_task_t w_evt_peer;
+		tx_aiocb m_sockcbp;
+		tx_task_stack_t m_tasklet;
 
 	private:
 		tx_task_t xidle;
@@ -137,10 +139,8 @@ static void anybind(int fd, int family)
 	tx_task_init(&xidle, loop, tc_idleclose, this);
 	tx_timer_init(&tidle, loop, &xidle);
 
-	tx_task_init(&m_rwait, loop, tc_callback, this);
-	tx_task_init(&m_wwait, loop, tc_callback, this);
-	tx_task_init(&r_evt_peer, loop, tc_callback, this);
-	tx_task_init(&w_evt_peer, loop, tc_callback, this);
+	tx_task_stack_init(&m_tasklet, loop);
+	tx_task_stack_push(&m_tasklet, tc_callback, this);
 
 	is_v4only = v4_only;
 	len = sooptget_target(so, relay, sizeof(relay));
@@ -178,10 +178,7 @@ pstcp_channel::~pstcp_channel()
 	tx_timer_stop(&tidle);
 	tx_task_drop(&xidle);
 
-	tx_task_drop(&w_evt_peer);
-	tx_task_drop(&r_evt_peer);
-	tx_task_drop(&m_wwait);
-	tx_task_drop(&m_rwait);
+	tx_task_stack_drop(&m_tasklet);
 
 	LOG_DEBUG("pstcp_channel::~pstcp_channel: %d\n", total_instance);
 	closesocket(m_file);
@@ -399,7 +396,7 @@ static int get_keepalive(int count)
 #define MAX(a, b) ((a) < (b)? (b): (a))
 #define MIN(a, b) ((a) < (b)? (a): (b))
 
-int pstcp_channel::run(void)
+int pstcp_channel::run0(void)
 {
 	int len = 0;
 	int error = -1;
@@ -418,7 +415,7 @@ int pstcp_channel::run(void)
 
 #define TF_RESOLVABLE(flags) (0x0 == (flags&(TF_RESOLVING|TF_RESOLVED)))
 	if (TF_RESOLVABLE(m_flags)) {
-		error = expend_relay(&name, m_peer, _forward_addr, _forward_port, &m_wwait);
+		error = expend_relay(&name, m_peer, _forward_addr, _forward_port, STACK2TASK(&m_tasklet));
 		if (error == -1) {
 			LOG_DEBUG("do dns resolv error\n");
 			return 0;
@@ -458,7 +455,7 @@ int pstcp_channel::run(void)
 					anybind(rsoket, rp->ai_family);
 
 					tx_aiocb_init(&m_sockcbp, loop, rsoket);
-					error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)rp->ai_addr, rp->ai_addrlen, &m_wwait);
+					error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)rp->ai_addr, rp->ai_addrlen, STACK2TASK(&m_tasklet));
 
 					if (error == 0 || error == -WSAEINPROGRESS) {
 						m_file = rsoket;
@@ -498,7 +495,7 @@ int pstcp_channel::run(void)
 			namelen = sizeof(struct sockaddr_in6);
 		}
 
-		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, namelen, &m_wwait);
+		error = tx_aiocb_connect(&m_sockcbp, (struct sockaddr *)&name, namelen, STACK2TASK(&m_tasklet));
 		if (error == 0 || error == -WSAEINPROGRESS) {
 			if (error) {
 				LOG_DEBUG("connect is pending\n");
@@ -538,113 +535,361 @@ int pstcp_channel::run(void)
 		}
 	}
 
-	do {
-		change = 0;
-		if (s2r.off >= s2r.len) s2r.off = s2r.len = 0;
-
-		if (tx_readable(&m_sockcbp) && s2r.len < (int)sizeof(s2r.buf) && !s2r.flag) {
-			len = recv(m_file, s2r.buf + s2r.len, sizeof(s2r.buf) - s2r.len, 0);
-			tx_aincb_update(&m_sockcbp, len);
-
-			change |= (len > 0);
-			if (len > 0)
-				s2r.len += len;
-			else if (len == 0)
-				s2r.flag |= RDF_EOF;
-			else if (tx_readable(&m_sockcbp)) // socket meet error condiction
-				return 0;
-		}
-
-		if (m_skip_count > 0) {
-			if (m_skip_count + s2r.off < s2r.len) {
-				s2r.off += m_skip_count;
-				m_skip_count = 0;
-			} else {
-				m_skip_count -= (s2r.len - s2r.off);
-				s2r.off = s2r.len;
-			}
-		}
-
-		if (sowritable(m_peer) && s2r.off < s2r.len) {
-			len = sowrite(m_peer, s2r.buf + s2r.off, s2r.len - s2r.off);
-			if (len == -1) return 0;
-			change |= (len > 0);
-			s2r.off += len;
-		}
-	} while (change);
-
-	do {
-		change = 0;
-		if (r2s.off >= r2s.len)  r2s.off = r2s.len = 0;
-		if (soreadable(m_peer) && r2s.len < (int)sizeof(r2s.buf) && !r2s.flag) {
-			len = soread(m_peer, r2s.buf + r2s.len, sizeof(r2s.buf) - r2s.len);
-			if (len == -1 || len == 0) {
-				r2s.flag |= RDF_EOF;
-				len = 0;
-			}
-
-			change |= (len > 0);
-			r2s.len += len;
-		}
-
-		if (tx_writable(&m_sockcbp) && r2s.off < r2s.len) {
-			do {
-				len = tx_outcb_write(&m_sockcbp, r2s.buf + r2s.off, r2s.len - r2s.off);
-				if (len > 0) {
-					r2s.off += len;
-					change |= (len > 0);
-				} else if (tx_writable(&m_sockcbp)) {
-					return 0;
-				}
-			} while (len > 0 && r2s.off < r2s.len);
-		}
-
-	} while (change);
-
-
-	error = 0;
-
-	if (s2r.off >= s2r.len) {
-		s2r.off = s2r.len = 0;
-
-		if (s2r.flag == RDF_EOF) {
-			soshutdown(m_peer);
-			s2r.flag |= RDF_FIN;
-		}
-	}
-
-	if (r2s.off >= r2s.len) {
-		r2s.off = r2s.len = 0;
-
-		if (r2s.flag == RDF_EOF && tx_writable(&m_sockcbp)) {
-			shutdown(m_file, SD_BOTH);
-			r2s.flag |= RDF_FIN;
-		}
-	}
-
-	if (s2r.off < s2r.len && !sowritable(m_peer)) {
-		sopoll(m_peer, SO_SEND, &w_evt_peer);
-		error = 1;
-	}
-
-	if ((r2s.off < r2s.len || r2s.flag == RDF_EOF) && !tx_writable(&m_sockcbp)) {
-		tx_outcb_prepare(&m_sockcbp, &m_wwait, 0);
-		error = 1;
-	}
-
-	if ((s2r.flag == 0) && !tx_readable(&m_sockcbp) &&
-			s2r.len < (int)sizeof(s2r.buf)) {
-		tx_aincb_active(&m_sockcbp, &m_rwait);
-		error = 1;
-	}
-
-	if ((r2s.flag == 0) && !soreadable(m_peer) &&
-			r2s.len < (int)sizeof(r2s.buf)) {
-		sopoll(m_peer, SO_RECEIVE, &r_evt_peer);
-		error = 1;
-	}
 
 	return error;
+}
+
+int pstcp_channel::reset_keepalive()
+{
+	int timeout = 1000 * get_keepalive(total_instance);
+
+	if ((s2r.flag & RDF_FIN) || (RDF_FIN & r2s.flag)) {
+		timeout = MIN(timeout, 1000 * 120);
+	} else if (m_interactive == 1) {
+		timeout = MAX(timeout, 1000 * 1800);
+	}
+
+	tx_timer_reset(&tidle, timeout); // close after 3 min idle time
+	return 0;
+}
+
+enum {
+	INDEX_BASE = 1,
+	INDEX_BROKEN,
+	INDEX_RESOLVED,
+	INDEX_CONNECTED,
+	INDEX_TRANSFERED,
+
+	INDEX_CONNECTING,
+};
+
+#define FLAG_ZERO        (0)
+#define FLAG_BASE        (1 << INDEX_BASE)
+#define FLAG_BROKEN      (1 << INDEX_BROKEN)
+#define FLAG_RESOLVED    (1 << INDEX_RESOLVED)
+#define FLAG_CONNECTED   (1 << INDEX_CONNECTED)
+#define FLAG_TRANSFERED  (1 << INDEX_TRANSFERED)
+#define FLAG_CONNECTING  (1 << INDEX_CONNECTING)
+
+#define FLAG_GET(flags, mask) ((flags) & (mask))
+
+void do_name_resovled(void *upp, tx_task_stack_t *sta)
+{
+	return;
+}
+
+static void bug_check(int cond)
+{
+	if (cond) return;
+	abort();
+	return;
+}
+
+#define AFTYP_INET   1
+#define AFTYP_DOMAIN 3
+#define AFTYP_INET6  4
+
+static int peer_info_expend(const char *relay, size_t len, char *domain, size_t size, struct sockaddr_storage *ss)
+{
+	int type;
+	const char *p = relay;
+	unsigned short val_short;
+	struct sockaddr_in *inp;
+	struct sockaddr_in6 *in6p;
+
+	type = *p++;
+	bug_check(*p++ == 0);
+
+	memcpy(&val_short, p, sizeof(val_short));
+	p += sizeof(val_short);
+
+	switch (type) {
+		case AFTYP_INET:
+			/* IPv4 (8 byte): atyp=0x01 + 0x0 + port[2]+ addr[4]. */
+			bug_check(len == 8);
+			inp = (struct sockaddr_in *)ss;
+			inp->sin_family = AF_INET;
+			inp->sin_port   = val_short;
+			inp->sin_addr   = *(struct in_addr *)p;
+			break;
+
+		case AFTYP_INET6:
+			/* IPv6 (8 byte): atyp=0x04 + 0x0 + port[2] + addr6[16]. */
+			bug_check(len == 20);
+			in6p = (struct sockaddr_in6 *)ss;
+			in6p->sin6_family = AF_INET6;
+			in6p->sin6_port   = val_short;
+			in6p->sin6_addr   = *(struct in6_addr *)p;
+			break;
+
+		case AFTYP_DOMAIN:
+			/* FQDN (4 + x byte): atyp=0x01 + 0x0 + port[2] + fqdn[4]. */
+			strncpy(domain, p, size);
+			break;
+
+		default:
+			abort();
+			break;
+	}
+
+	return type;
+}
+
+static void do_peer_connect(void *upp, tx_task_stack_t *sta)
+{
+	int len;
+	int type;
+	char relay[64], domain[64];
+	pstcp_channel *up = (pstcp_channel *)upp;
+	struct sockaddr_storage sa_store = {};
+
+	len = sooptget_target(up->m_peer, relay, sizeof(relay));
+	assert (len > 4 && len < sizeof(relay));
+
+	up->reset_keepalive();
+	up->m_flags |= FLAG_CONNECTED;
+
+	relay[len] = 0;
+	type = peer_info_expend(relay, len, domain, sizeof(domain), &sa_store);
+	if (type == AFTYP_DOMAIN) {
+		tx_task_stack_raise(sta);
+		return;
+	}
+
+	if (FLAG_ZERO == FLAG_GET(up->m_flags, FLAG_CONNECTING| FLAG_ZERO| FLAG_BROKEN)) {
+		tx_aiocb_connect(&up->m_sockcbp, (struct sockaddr *)&sa_store, sizeof(sa_store), STACK2TASK(sta));
+		up->m_flags |= FLAG_CONNECTING;
+		return;
+	}
+
+	if (tx_writable(&up->m_sockcbp)) {
+		tx_task_stack_pop0(sta);
+		tx_task_stack_active(sta);
+	}
+
+	return;
+}
+
+static int fill_data(struct relay_data *d, tx_aiocb *f)
+{
+	int len;
+	int change = 0;
+
+	if (d->off >= d->len) {
+		d->off = d->len = 0;
+	}
+
+	if (tx_readable(f) && d->len < sizeof(d->buf) && !d->flag) {
+		len = recv(f->tx_fd, d->buf + d->len, sizeof(d->buf) - d->len, 0);
+		tx_aincb_update(f, len);
+
+		change |= (len > 0);
+		if (len > 0)
+			d->len += len;
+		else if (len == 0)
+			d->flag |= RDF_EOF;
+		else if (tx_readable(f)) // socket meet error condiction
+			d->flag |= RDF_BROKEN;
+	}
+
+	return (d->flag & RDF_BROKEN)? (2|change): change;
+}
+
+static int fill_data(struct relay_data *d, sockcb_t f)
+{
+	int len;
+	int change = 0;
+
+	if (d->off >= d->len) {
+		d->off = d->len = 0;
+	}
+
+	if (soreadable(f) && d->len < sizeof(d->buf) && !d->flag) {
+		len = soread(f, d->buf + d->len, sizeof(d->buf) - d->len);
+
+		change |= (len > 0);
+		if (len > 0)
+			d->len += len;
+		else if (len == 0)
+			d->flag |= RDF_EOF;
+		else if (soreadable(f)) // socket meet error condiction
+			d->flag |= RDF_BROKEN;
+	}
+
+	return (d->flag & RDF_BROKEN)? (2|change): change;
+}
+
+static int flush_data(struct relay_data *d, tx_aiocb *f)
+{
+	int len;
+	int change = 0;
+
+	if (tx_writable(f) && d->off < d->len) {
+		len = tx_outcb_write(f, d->buf + d->off, d->len - d->off);
+		if (len > 0) {
+			d->off += len;
+			change |= (len > 0);
+		} else if (tx_writable(f)) {
+			d->flag |= RDF_BROKEN;
+			return 0;
+		}
+	}
+
+	return change;
+}
+
+static int flush_data(struct relay_data *d, sockcb_t f)
+{
+	int len;
+	int change = 0;
+
+	if (sowritable(f) && d->off < d->len) {
+		len = sowrite(f, d->buf + d->off, d->len - d->off);
+
+		if (len > 0) {
+			d->off += len;
+			change |= (len > 0);
+		} else if (sowritable(f)) {
+			d->flag |= RDF_BROKEN;
+			return 0;
+		}
+	}
+
+	return change;
+}
+
+#define FLAG_OUTGOING 1
+#define FLAG_INCOMING 2
+
+static int try_shutdown(struct relay_data *d, tx_aiocb *f)
+{
+	int change = FLAG_INCOMING| FLAG_OUTGOING;
+
+	if (d->off == d->len) {
+		change &= ~FLAG_OUTGOING;
+		d->off = d->len = 0;
+	}
+
+	if (d->len == sizeof(d->buf)) {
+		change &= ~FLAG_INCOMING;
+	}
+
+	if (d->flag & RDF_EOF) {
+		change &= ~FLAG_INCOMING;
+	}
+
+	if (d->flag & RDF_FIN) {
+		assert (change == 0);
+		return change;
+	}
+
+	if (change == 0) {
+		shutdown(f->tx_fd, SD_BOTH);
+		d->flag |= RDF_FIN;
+	}
+
+	return change;
+}
+
+static int try_shutdown(struct relay_data *d, sockcb_t f)
+{
+	int change = FLAG_INCOMING| FLAG_OUTGOING;
+
+	if (d->off == d->len) {
+		change &= ~FLAG_OUTGOING;
+		d->off = d->len = 0;
+	}
+
+	if (d->len == sizeof(d->buf)) {
+		change &= ~FLAG_INCOMING;
+	}
+
+	if (d->flag & RDF_EOF) {
+		change &= ~FLAG_INCOMING;
+	}
+
+	if (d->flag & RDF_FIN) {
+		assert (change == 0);
+		return change;
+	}
+
+	if (change == 0) {
+		d->flag |= RDF_FIN;
+		soshutdown(f);
+	}
+
+	return change;
+}
+
+void do_data_transfer(void *upp, tx_task_stack_t *sta)
+{
+	int change;
+	int forward = 1, backward = 1;
+	pstcp_channel *up = (pstcp_channel *)upp;
+
+	up->reset_keepalive();
+	up->m_flags |= FLAG_TRANSFERED;
+
+	do {
+		if (forward) {
+			change  = fill_data(&up->s2r, &up->m_sockcbp);
+			change |= flush_data(&up->s2r, up->m_peer);
+			forward = (change == 1);
+		}
+
+		if (backward) {
+			change  = fill_data(&up->r2s, up->m_peer);
+			change |= flush_data(&up->r2s, &up->m_sockcbp);
+			backward = (change == 1);
+		}
+
+	} while (forward || backward);
+
+	if ((up->s2r.flag | up->r2s.flag) & RDF_BROKEN) {
+		tx_task_stack_raise(sta);
+		return;
+	}
+
+	if ((up->s2r.flag & RDF_FIN) && (up->r2s.flag & RDF_FIN)) {
+		tx_task_stack_pop0(sta);
+		tx_task_stack_active(sta);
+		return;
+	}
+
+	change = try_shutdown(&up->s2r, up->m_peer);
+	if (change & FLAG_OUTGOING)
+		sopoll(up->m_peer, SO_SEND, STACK2TASK(sta));
+
+	if (change & FLAG_INCOMING)
+		tx_aincb_active(&up->m_sockcbp, STACK2TASK(sta));
+
+	change = try_shutdown(&up->r2s, &up->m_sockcbp);
+	if (change & FLAG_OUTGOING)
+		sopoll(up->m_peer, SO_RECEIVE, STACK2TASK(sta));
+
+	if (change & FLAG_INCOMING)
+		tx_outcb_prepare(&up->m_sockcbp, STACK2TASK(sta), 0);
+
+	return;
+}
+
+int pstcp_channel::run(void)
+{
+	reset_keepalive();
+
+	if (FLAG_ZERO == FLAG_GET(m_flags, FLAG_CONNECTED| FLAG_ZERO| FLAG_BROKEN)) {
+		tx_task_stack_push(&m_tasklet, do_peer_connect, this);
+		tx_task_stack_active(&m_tasklet);
+		return 0;
+	}
+
+	if (FLAG_CONNECTED == FLAG_GET(m_flags, FLAG_TRANSFERED| FLAG_CONNECTED| FLAG_BROKEN)) {
+		tx_task_stack_push(&m_tasklet, do_data_transfer, this);
+		tx_task_stack_active(&m_tasklet);
+		return 0;
+	}
+
+	return 0;
 }
 
 void pstcp_channel::tc_idleclose(void *context)
@@ -655,7 +900,7 @@ void pstcp_channel::tc_idleclose(void *context)
 	return;
 }
 
-void pstcp_channel::tc_callback(void *context)
+void pstcp_channel::tc_callback(void *context, tx_task_stack_t *sta)
 {
 	pstcp_channel *chan;
 	chan = (pstcp_channel *)context;
@@ -678,7 +923,7 @@ void new_pstcp_channel(sockcb_t tp)
 		return;
 	}
 
-	pstcp_channel::tc_callback(chan);
+	pstcp_channel::tc_callback(chan, NULL);
 	return;
 }
 
