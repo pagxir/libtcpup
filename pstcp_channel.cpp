@@ -856,20 +856,21 @@ void do_data_transfer(void *upp, tx_task_stack_t *sta)
 		return;
 	}
 
-	change = try_shutdown(&up->s2r, up->m_peer);
-	if (change & FLAG_OUTGOING)
+	forward = try_shutdown(&up->s2r, up->m_peer);
+	if (forward & FLAG_OUTGOING)
 		sopoll(up->m_peer, SO_SEND, STACK2TASK(sta));
 
-	if (change & FLAG_INCOMING)
+	if (forward & FLAG_INCOMING)
 		tx_aincb_active(&up->m_sockcbp, STACK2TASK(sta));
 
-	change = try_shutdown(&up->r2s, &up->m_sockcbp);
-	if (change & FLAG_OUTGOING)
+	backward = try_shutdown(&up->r2s, &up->m_sockcbp);
+	if (backward & FLAG_OUTGOING)
 		sopoll(up->m_peer, SO_RECEIVE, STACK2TASK(sta));
 
-	if (change & FLAG_INCOMING)
+	if (backward & FLAG_INCOMING)
 		tx_outcb_prepare(&up->m_sockcbp, STACK2TASK(sta), 0);
 
+	assert (backward || forward);
 	return;
 }
 
@@ -880,13 +881,13 @@ int pstcp_channel::run(void)
 	if (FLAG_ZERO == FLAG_GET(m_flags, FLAG_CONNECTED| FLAG_ZERO| FLAG_BROKEN)) {
 		tx_task_stack_push(&m_tasklet, do_peer_connect, this);
 		tx_task_stack_active(&m_tasklet);
-		return 0;
+		return 1;
 	}
 
 	if (FLAG_CONNECTED == FLAG_GET(m_flags, FLAG_TRANSFERED| FLAG_CONNECTED| FLAG_BROKEN)) {
 		tx_task_stack_push(&m_tasklet, do_data_transfer, this);
 		tx_task_stack_active(&m_tasklet);
-		return 0;
+		return 1;
 	}
 
 	return 0;
