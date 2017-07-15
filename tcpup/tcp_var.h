@@ -235,8 +235,8 @@ struct tcpcb {
 		u_char relay_target[60];
 
 		u_char cc_mem[40];
-		struct tx_task_q r_event;
-		struct tx_task_q w_event;
+		struct tx_task_t *r_event;
+		struct tx_task_t *w_event;
 
 #define TCP_TIMER(x) struct tx_timer_t x; struct tx_task_t x##_t;
 		TCP_TIMER(t_timer_keep);

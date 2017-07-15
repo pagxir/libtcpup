@@ -75,8 +75,8 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 	tp->ts_offset = 0;
 	tp->ts_recent_age = 0;
 
-	tx_taskq_init(&tp->w_event);
-	tx_taskq_init(&tp->r_event);
+	tp->w_event = NULL;
+	tp->r_event = NULL;
 
 	tp->t_rttupdated = 0;
 	tp->t_keepidle  = 600 * hz;

@@ -23,7 +23,7 @@ int tcp_rexmit_min = TCPTV_MIN;
 
 void sorwakeup(struct tcpcb *tp)
 {
-   	tx_task_wakeup(&tp->r_event, "sor");
+   	tx_task_active(tp->r_event, "sor");
 	return;
 }
 
@@ -33,13 +33,13 @@ void sowwakeup(struct tcpcb *tp)
 		case TCPS_SYN_SENT:
 		case TCPS_SYN_RECEIVED:
 			if (rgn_len(tp->rgn_snd) < 1400) {
-				tx_task_wakeup(&tp->w_event, "sow");
+				tx_task_active(tp->w_event, "sow");
 			}
 			break;
 
 		default:
 			if (rgn_rest(tp->rgn_snd) * 4 >= rgn_size(tp->rgn_snd)) {
-				tx_task_wakeup(&tp->w_event, "sow");
+				tx_task_active(tp->w_event, "sow");
 			}
 			break;
 	}
@@ -216,8 +216,8 @@ void tcp_discardcb(struct tcpcb *tp)
 	sockcb_t so = tp->tp_socket;
 
  	TCP_TRACE_END(tp, "tcp_free %p %x\n", tp, tp->t_flags & SS_NOFDREF);
-	UTXPL_ASSERT(tx_taskq_empty(&tp->r_event));
-	UTXPL_ASSERT(tx_taskq_empty(&tp->w_event));
+	UTXPL_ASSERT(tp->r_event == NULL);
+	UTXPL_ASSERT(tp->w_event == NULL);
 	
 	tcp_cleantimers(tp);
 	rgn_destroy(tp->rgn_snd);
@@ -250,7 +250,7 @@ void soisdisconnecting(sockcb_t so)
 	sorwakeup(tp);
 
 	tp->rgn_snd->rb_flags |= SBS_CANTSENDMORE;
-	tx_task_wakeup(&tp->w_event, "sow");
+	tx_task_active(tp->w_event, "sow");
 	return;
 }
 
@@ -265,7 +265,7 @@ void soisdisconnected(sockcb_t so)
 	sorwakeup(tp);
 
 	tp->rgn_snd->rb_flags |= SBS_CANTSENDMORE;
-	tx_task_wakeup(&tp->w_event, "sow");
+	tx_task_active(tp->w_event, "sow");
 	return;
 }
 
@@ -472,14 +472,16 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 			}
 
 			TCP_TRACE_CHECK(tp, tp->t_state != TCPS_ESTABLISHED, "not TCPS_ESTABLISHED %d\n", tp->tp_socket->so_conv);
-		   	tx_task_record(&tp->r_event, task);
+			assert(task == tp->r_event || tp->r_event == NULL);
+		   	tp->r_event = task;
 			error = 1;
 			break;
 
 		case TCP_CONNECT:
 			if (tp->t_state == TCPS_SYN_SENT ||
 					tp->t_state == TCPS_SYN_RECEIVED) {
-				tx_task_record(&tp->w_event, task);
+				assert(task == tp->w_event || tp->w_event == NULL);
+				tp->w_event = task;
 				error = 0;
 				break;
 			} 
@@ -491,7 +493,8 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 		case TCP_WRITE:
 			limit = (tp->snd_max - tp->snd_una);
 		   	if (rgn_len(tp->rgn_snd) >= limit + 4096) {
-			   	tx_task_record(&tp->w_event, task);
+				assert(task == tp->w_event || tp->w_event == NULL);
+				tp->w_event = task;
 				error = 0;
 				break;
 		   	} 
@@ -499,7 +502,8 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 			if (rgn_len(tp->rgn_snd) > 0 &&
 					(tp->t_state == TCPS_SYN_SENT ||
 					 tp->t_state == TCPS_SYN_RECEIVED)) {
-				tx_task_record(&tp->w_event, task);
+				assert(task == tp->w_event || tp->w_event == NULL);
+				tp->w_event = task;
 				error = 0;
 				break;
 			} 
@@ -752,6 +756,8 @@ static int tcp_usr_close(sockcb_t so)
 		tp->rgn_snd = rgn_trim(tp->rgn_snd);
 	}
 
+	tp->w_event = NULL;
+	tp->r_event = NULL;
 	return 0;
 }
 

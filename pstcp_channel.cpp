@@ -72,11 +72,9 @@ class pstcp_channel {
 		int m_skip_count;
 		int use_socks_backend;
 
-	private:
-		int m_interactive;
-
 	public:
 		int m_flags;
+		int m_interactive;
 		struct relay_data r2s;
 		struct relay_data s2r;
 
@@ -591,9 +589,9 @@ static void bug_check(int cond)
 #define AFTYP_DOMAIN 3
 #define AFTYP_INET6  4
 
-static int peer_info_expend(const char *relay, size_t len, char *domain, size_t size, struct sockaddr_storage *ss)
+static int peer_info_expend(const char *relay, size_t len, char *domain, size_t size, struct sockaddr_storage *ss, int *isinteractive)
 {
-	int type;
+	int type, val_port;
 	const char *p = relay;
 	unsigned short val_short;
 	struct sockaddr_in *inp;
@@ -613,6 +611,21 @@ static int peer_info_expend(const char *relay, size_t len, char *domain, size_t 
 			inp->sin_family = AF_INET;
 			inp->sin_port   = val_short;
 			inp->sin_addr   = *(struct in_addr *)p;
+
+			val_port = htons(val_short);
+			if (inp->sin_addr.s_addr == htonl(0x0100007f)) {
+				inp->sin_addr.s_addr =
+					(val_port > 1024 && val_port < 65216)?
+					htonl(0x0100007f): htonl(INADDR_LOOPBACK);
+			} else switch (val_port) {
+				case 14000:
+				case 5228:
+					*isinteractive = 1;
+					break;
+
+				default:
+					break;
+			}
 			break;
 
 		case AFTYP_INET6:
@@ -652,7 +665,7 @@ static void do_peer_connect(void *upp, tx_task_stack_t *sta)
 	up->m_flags |= FLAG_CONNECTED;
 
 	relay[len] = 0;
-	type = peer_info_expend(relay, len, domain, sizeof(domain), &sa_store);
+	type = peer_info_expend(relay, len, domain, sizeof(domain), &sa_store, &up->m_interactive);
 	if (type == AFTYP_DOMAIN) {
 		tx_task_stack_raise(sta, "do_peer_connect");
 		return;
@@ -859,6 +872,9 @@ void do_data_transfer(void *upp, tx_task_stack_t *sta)
 	}
 
 	forward = try_shutdown(&up->s2r, up->m_peer);
+	if (tx_readable(&up->m_sockcbp)) forward &= ~FLAG_INCOMING;
+	if (sowritable(up->m_peer)) forward &= ~FLAG_OUTGOING;
+
 	if (forward & FLAG_OUTGOING)
 		sopoll(up->m_peer, SO_SEND, STACK2TASK(sta));
 
@@ -866,11 +882,14 @@ void do_data_transfer(void *upp, tx_task_stack_t *sta)
 		tx_aincb_active(&up->m_sockcbp, STACK2TASK(sta));
 
 	backward = try_shutdown(&up->r2s, &up->m_sockcbp);
+	if (soreadable(up->m_peer)) backward &= ~FLAG_INCOMING;
+	if (tx_writable(&up->m_sockcbp)) backward &= ~FLAG_OUTGOING;
+
 	if (backward & FLAG_OUTGOING)
-		sopoll(up->m_peer, SO_RECEIVE, STACK2TASK(sta));
+		tx_outcb_prepare(&up->m_sockcbp, STACK2TASK(sta), 0);
 
 	if (backward & FLAG_INCOMING)
-		tx_outcb_prepare(&up->m_sockcbp, STACK2TASK(sta), 0);
+		sopoll(up->m_peer, SO_RECEIVE, STACK2TASK(sta));
 
 	if ((up->s2r.flag & RDF_FIN) && (up->r2s.flag & RDF_FIN)) {
 		tx_task_stack_pop0(sta);
