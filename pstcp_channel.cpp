@@ -1,5 +1,7 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <assert.h>
+#include <unistd.h>
 
 #include <txall.h>
 #include <utx/utxpl.h>
@@ -10,7 +12,7 @@
 #include "pstcp_channel.h"
 
 #define STACK2TASK(s) (&(s)->tx_sched)
-#define LOG_VERBOSE(fmt, args...)
+#define LOG_VERBOSE(fmt, args...) fprintf(stderr, fmt, ##args)
 
 #define TF_RESOLVED   0x10
 #define TF_RESOLVING  0x20
@@ -869,6 +871,12 @@ void do_data_transfer(void *upp, tx_task_stack_t *sta)
 
 	if (backward & FLAG_INCOMING)
 		tx_outcb_prepare(&up->m_sockcbp, STACK2TASK(sta), 0);
+
+	if ((up->s2r.flag & RDF_FIN) && (up->r2s.flag & RDF_FIN)) {
+		tx_task_stack_pop0(sta);
+		tx_task_stack_active(sta);
+		return;
+	}
 
 	assert (backward || forward);
 	return;

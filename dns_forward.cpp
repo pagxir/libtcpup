@@ -333,14 +333,14 @@ static struct sockaddr *udp6_get_dest(struct udp_forward_context *ignore, struct
 	return (struct sockaddr *)&sin;
 }
 
-static void udp6_forward_init(struct udp_forward_context *ctx)
+static int udp6_forward_init(struct udp_forward_context *ctx)
 {
 	int err;
 	struct sockaddr_in6 sa = {0};
 	struct sockaddr * sap = (struct sockaddr *)&sa;
 
 	ctx->uf_handle = socket(AF_INET6, SOCK_DGRAM, 0);
-	assert(ctx->uf_handle != -1);
+	if (ctx->uf_handle != -1) return -1;
 
 	sa.sin6_family = AF_INET6;
 	err = bind(ctx->uf_handle, sap, sizeof(sa));
@@ -369,7 +369,7 @@ struct udp_forward_context * udp_forward_create(int conv, int type)
 			udp4_forward_init(ctx);
 			tx_task_init(&ctx->uf_ready, loop, on_udp_receive, (void *)ctx);
 		} else {
-			udp6_forward_init(ctx);
+			if (udp6_forward_init(ctx) != 0) { delete ctx; return NULL; }
 			tx_task_init(&ctx->uf_ready, loop, on_udp6_receive, (void *)ctx);
 		}
 
@@ -526,7 +526,8 @@ static void module_init(void)
 
 	char tmp[256] = "", *p;
 	char *nameserver = getenv("NAMESERVER");
-	_fwd_target.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	_fwd_target.sin_addr.s_addr = 0x08080808;
+
 	if (nameserver != NULL) {
 		strcpy(tmp, nameserver);
 		_force_override = 0;
