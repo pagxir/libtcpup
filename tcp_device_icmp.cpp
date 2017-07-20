@@ -137,7 +137,7 @@ sockcb_t socreate(so_conv_t conv)
 		this_device = new tcpup_device;
 		this_device->init(0);
 		this_device->_offset = offset;
-		tx_task_active(&this_device->_event);
+		tx_task_active(&this_device->_event, "d-r");
 
 		_paging_devices[offset] = this_device;
 	}
@@ -148,7 +148,7 @@ sockcb_t socreate(so_conv_t conv)
 
 static void dev_idle_callback(void *uup)
 {
-	tx_task_wakeup(&_dev_busy);
+	tx_task_wakeup(&_dev_busy, "idle");
 	TCP_DEBUG(0x1, "dev_idle_callback\n");
 
 	return ;
@@ -265,7 +265,7 @@ static void module_init(void)
 	tx_task_init(&_stop, loop, listen_statecb, (void *)0);
 	tx_task_init(&_start, loop, listen_statecb, (void *)1);
 
-	tx_task_active(&_start);
+	tx_task_active(&_start, "start");
 	// TODO: fixme how to do when stop loop
 	/* slotwait_atstop(&_stop); */
 }
@@ -283,7 +283,7 @@ static void listen_statecb(void *context)
 				this_device = new tcpup_device;
 				this_device->init(1);
 				this_device->_offset = offset;
-				tx_task_active(&this_device->_event);
+				tx_task_active(&this_device->_event, "listen");
 
 				_paging_devices[offset] = this_device;
 			}

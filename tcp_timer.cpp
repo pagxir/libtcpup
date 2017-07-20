@@ -373,7 +373,7 @@ static void inc_iss(void *up)
 
 static void flush_delack(void *up)
 {
-	tx_task_wakeup(&_delack_queue);
+	tx_task_wakeup(&_delack_queue, "flush_delay");
 	tx_timer_reset(&_delack_timer, 200);
 }
 

@@ -96,7 +96,7 @@ void soisconnected(sockcb_t so)
 	so->so_state |= SS_ISCONNECTED;
 
 	if ((so->so_state & SS_NOFDREF) && !(oldstat & SS_ISCONNECTED)) {
-		tx_task_wakeup(&_accept_evt_list);
+		tx_task_wakeup(&_accept_evt_list, "accept");
 	}
 
 	sndbuf = tp->rgn_snd;
@@ -191,7 +191,7 @@ int sopoll(sockcb_t so, SocketOps ops, tx_task_t *cb)
 			}
 
 			if ((sostat & SS_ISCONNECTED) && (sostat & SS_NOFDREF)) {
-				tx_task_active(cb);
+				tx_task_active(cb, "sopoll");
 				return 0;
 			}
 		}

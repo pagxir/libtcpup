@@ -177,7 +177,7 @@ static int hybla_cb_init(struct cc_var *ccv)
 
         if (ca == NULL)
                 return (UTXENOMEM);
-	memset(ca, 0, sizeof(*ca));
+		memset(ca, 0, sizeof(*ca));
         ccv->cc_data = ca;
 
         return (0);
@@ -187,6 +187,6 @@ static int hybla_mod_init(void)
 {
 
         // newreno_cc_algo.post_recovery;
-	hybla_cc_algo.after_idle = newreno_cc_algo.after_idle;
+		hybla_cc_algo.after_idle = newreno_cc_algo.after_idle;
         return (0);
 }

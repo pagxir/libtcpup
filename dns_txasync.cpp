@@ -176,7 +176,7 @@ static void dns_query_back(void *up)
 			TX_PRINT(TXL_DEBUG, "dns is back %d\n", count);
 			if (item != NULL &&
 					item->task != NULL) {
-				tx_task_active(item->task);
+				tx_task_active(item->task, "recv");
 				item->task = NULL;
 			}
 		}

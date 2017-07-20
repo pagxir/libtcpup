@@ -52,7 +52,7 @@ static void module_init(void)
 	assert(error == 0);
 
 	tx_listen_init(&_sockcbp, loop, _lenfile);
-	tx_task_active(&_runstart);
+	tx_task_active(&_runstart, "start");
 /*
 	slotwait_atstop(&_runstop);
 */

@@ -652,7 +652,7 @@ static void do_peer_connect(void *upp, tx_task_stack_t *sta)
 	relay[len] = 0;
 	type = peer_info_expend(relay, len, domain, sizeof(domain), &sa_store);
 	if (type == AFTYP_DOMAIN) {
-		tx_task_stack_raise(sta);
+		tx_task_stack_raise(sta, "do_peer_connect");
 		return;
 	}
 
@@ -664,7 +664,7 @@ static void do_peer_connect(void *upp, tx_task_stack_t *sta)
 
 	if (tx_writable(&up->m_sockcbp)) {
 		tx_task_stack_pop0(sta);
-		tx_task_stack_active(sta);
+		tx_task_stack_active(sta, "do_peer_connect");
 	}
 
 	return;
@@ -846,13 +846,13 @@ void do_data_transfer(void *upp, tx_task_stack_t *sta)
 	} while (forward || backward);
 
 	if ((up->s2r.flag | up->r2s.flag) & RDF_BROKEN) {
-		tx_task_stack_raise(sta);
+		tx_task_stack_raise(sta, "do_data_transfer");
 		return;
 	}
 
 	if ((up->s2r.flag & RDF_FIN) && (up->r2s.flag & RDF_FIN)) {
 		tx_task_stack_pop0(sta);
-		tx_task_stack_active(sta);
+		tx_task_stack_active(sta, "do_data_transfer");
 		return;
 	}
 
@@ -880,13 +880,13 @@ int pstcp_channel::run(void)
 
 	if (FLAG_ZERO == FLAG_GET(m_flags, FLAG_CONNECTED| FLAG_ZERO| FLAG_BROKEN)) {
 		tx_task_stack_push(&m_tasklet, do_peer_connect, this);
-		tx_task_stack_active(&m_tasklet);
+		tx_task_stack_active(&m_tasklet, "::run");
 		return 1;
 	}
 
 	if (FLAG_CONNECTED == FLAG_GET(m_flags, FLAG_TRANSFERED| FLAG_CONNECTED| FLAG_BROKEN)) {
 		tx_task_stack_push(&m_tasklet, do_data_transfer, this);
-		tx_task_stack_active(&m_tasklet);
+		tx_task_stack_active(&m_tasklet, "::run");
 		return 1;
 	}
 

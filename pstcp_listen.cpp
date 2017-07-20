@@ -29,7 +29,7 @@ static void module_init(void)
 	tx_task_init(&_runstart, loop, accept_statecb, (void *)1);
 	tx_task_init(&_syn_keeper, loop, reset_counter, &_reset_timer);
 
-	tx_task_active(&_runstart);
+	tx_task_active(&_runstart, "run-start");
 
 	tx_timer_ring *provider = tx_timer_ring_get(loop);
 	tx_timer_init(&_reset_timer, provider, &_syn_keeper);

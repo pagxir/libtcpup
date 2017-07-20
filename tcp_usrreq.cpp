@@ -23,7 +23,7 @@ int tcp_rexmit_min = TCPTV_MIN;
 
 void sorwakeup(struct tcpcb *tp)
 {
-   	tx_task_wakeup(&tp->r_event);
+   	tx_task_wakeup(&tp->r_event, "sor");
 	return;
 }
 
@@ -33,13 +33,13 @@ void sowwakeup(struct tcpcb *tp)
 		case TCPS_SYN_SENT:
 		case TCPS_SYN_RECEIVED:
 			if (rgn_len(tp->rgn_snd) < 1400) {
-				tx_task_wakeup(&tp->w_event);
+				tx_task_wakeup(&tp->w_event, "sow");
 			}
 			break;
 
 		default:
 			if (rgn_rest(tp->rgn_snd) * 4 >= rgn_size(tp->rgn_snd)) {
-				tx_task_wakeup(&tp->w_event);
+				tx_task_wakeup(&tp->w_event, "sow");
 			}
 			break;
 	}
@@ -250,7 +250,7 @@ void soisdisconnecting(sockcb_t so)
 	sorwakeup(tp);
 
 	tp->rgn_snd->rb_flags |= SBS_CANTSENDMORE;
-	tx_task_wakeup(&tp->w_event);
+	tx_task_wakeup(&tp->w_event, "sow");
 	return;
 }
 
@@ -265,7 +265,7 @@ void soisdisconnected(sockcb_t so)
 	sorwakeup(tp);
 
 	tp->rgn_snd->rb_flags |= SBS_CANTSENDMORE;
-	tx_task_wakeup(&tp->w_event);
+	tx_task_wakeup(&tp->w_event, "sow");
 	return;
 }
 
@@ -460,13 +460,13 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
    	switch (typ) {
 		case TCP_READ:
 			if (rgn_len(tp->rgn_rcv) > 0) {
-			   	tx_task_active(task);
+			   	tx_task_active(task, "sor");
 				error = 0;
 				break;
 		   	}
 
 			if (iscantrcvmore(tp->rgn_rcv)) {
-			   	tx_task_active(task);
+			   	tx_task_active(task, "sor");
 				error = 0;
 				break;
 			}
@@ -484,7 +484,7 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 				break;
 			} 
 
-			tx_task_active(task);
+			tx_task_active(task, "soc");
 			error = 1;
 			break;
 
@@ -504,7 +504,7 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 				break;
 			} 
 
-			tx_task_active(task);
+			tx_task_active(task, "sow");
 			error = 1;
 			break;
 
