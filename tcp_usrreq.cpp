@@ -17,6 +17,9 @@
 #include <tcpup/tcp_debug.h>
 
 #define LF_QUEUED 1
+#ifndef ECONNABORTED
+#define ECONNABORTED WSAECONNABORTED
+#endif
 
 extern int tcp_iss;
 int tcp_rexmit_min = TCPTV_MIN;
@@ -763,9 +766,17 @@ static int tcp_usr_close(sockcb_t so)
 
 
 struct so_usrreqs tcp_usrreqs = {
+#ifndef WIN32
 	.so_attach = tcp_usr_attach,
 	.so_detach = tcp_usr_detach,
 	.so_connect = tcp_usr_connect,
 	.so_accept = tcp_usr_accept,
 	.so_close = tcp_usr_close
+#else
+	tcp_usr_attach,
+	tcp_usr_detach,
+	tcp_usr_connect,
+	tcp_usr_accept,
+	tcp_usr_close
+#endif
 };

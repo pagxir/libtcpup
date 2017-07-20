@@ -893,7 +893,7 @@ void do_data_transfer(void *upp, tx_task_stack_t *sta)
 
 	if ((up->s2r.flag & RDF_FIN) && (up->r2s.flag & RDF_FIN)) {
 		tx_task_stack_pop0(sta);
-		tx_task_stack_active(sta);
+		tx_task_stack_active(sta, "do_data_transfer");
 		return;
 	}
 

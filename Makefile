@@ -6,6 +6,7 @@ CC := $(TARGET)-gcc
 LD := $(TARGET)-ld
 AR := $(TARGET)-ar
 CXX := $(TARGET)-g++
+RANLIB := $(TARGET)-ranlib
 endif
 
 LOCAL_TARGETS := txcat libtx.a
@@ -15,11 +16,6 @@ LOCAL_LDLIBS := -lstdc++
 
 ifeq ($(BUILD_TARGET), )
 BUILD_TARGET := $(shell uname)
-endif
-
-ifeq ($(BUILD_TARGET), mingw)
-LOCAL_LDFLAGS += -static
-LOCAL_LDLIBS += -lws2_32
 endif
 
 ifeq ($(BUILD_TARGET), Linux)

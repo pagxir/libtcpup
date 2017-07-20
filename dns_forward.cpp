@@ -12,8 +12,11 @@
 #include <utx/utxpl.h>
 #include <utx/socket.h>
 #include <utx/dns_fwd.h>
-
 #include <tcpup/tcp_debug.h>
+
+#ifdef WIN32
+#include <ws2ipdef.h>
+#endif
 
 struct dns_query_packet {
 	unsigned short q_ident;
