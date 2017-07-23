@@ -343,13 +343,14 @@ static int udp6_forward_init(struct udp_forward_context *ctx)
 	struct sockaddr * sap = (struct sockaddr *)&sa;
 
 	ctx->uf_handle = socket(AF_INET6, SOCK_DGRAM, 0);
-	if (ctx->uf_handle != -1) return -1;
+	if (ctx->uf_handle == -1) return -1;
 
 	sa.sin6_family = AF_INET6;
 	err = bind(ctx->uf_handle, sap, sizeof(sa));
 	assert(err == 0);
 
 	ctx->get_dest  = udp6_get_dest;
+	return 0;
 }
 
 struct udp_forward_context * udp_forward_create(int conv, int type)
