@@ -59,18 +59,13 @@ class tcp_channel {
 		int proto_flags;
 
 	private:
-		tx_task_t m_wwait;
-		tx_task_t m_rwait;
+		tx_task_t m_task;
+		sockcb_t  m_peer;
 		struct tx_aiocb  m_sockcbp;
 
 	private:
         struct relay_data c2r;
         struct relay_data r2c;
-
-	private:
-		tx_task_t r_evt_peer;
-		tx_task_t w_evt_peer;
-		sockcb_t  m_peer;
 };
 
 static u_short _forward_port = 0; // 1080
@@ -98,10 +93,7 @@ tcp_channel::tcp_channel(int file)
 
 	tx_loop_t *loop = tx_loop_default();
 	tx_aiocb_init(&m_sockcbp, loop, file);
-	tx_task_init(&m_wwait, loop, tc_callback, this);
-	tx_task_init(&m_rwait, loop, tc_callback, this);
-	tx_task_init(&r_evt_peer, loop, tc_callback, this);
-	tx_task_init(&w_evt_peer, loop, tc_callback, this);
+	tx_task_init(&m_task, loop, tc_callback, this);
 
 	if (_relay_server != INADDR_ANY) {
 		m_flags |= DIRECT_PROTO;
@@ -113,15 +105,11 @@ tcp_channel::tcp_channel(int file)
 
 tcp_channel::~tcp_channel()
 {
-	tx_task_drop(&m_rwait);
-	tx_task_drop(&m_wwait);
-	tx_task_drop(&r_evt_peer);
-	tx_task_drop(&w_evt_peer);
-
 	fprintf(stderr, "tcp_channel::~tcp_channel\n");
 	tx_aiocb_fini(&m_sockcbp);
 	closesocket(m_file);
 	soclose(m_peer);
+	tx_task_drop(&m_task);
 }
 
 static const int SUPPORTED_PROTO = UNKOWN_PROTO| SOCKV4_PROTO| SOCKV5_PROTO| DIRECT_PROTO ;
@@ -174,7 +162,7 @@ int tcp_channel::fill_connect_buffer(struct relay_data *p)
 
 
     if (!tx_readable(&m_sockcbp)) {
-        tx_aincb_active(&m_sockcbp, &m_rwait);
+        tx_aincb_active(&m_sockcbp, &m_task);
         return 0;
     }
 
@@ -207,7 +195,7 @@ int tcp_channel::fill_connect_buffer(struct relay_data *p)
     }
 
     if (!tx_readable(&m_sockcbp)) {
-        tx_aincb_active(&m_sockcbp, &m_rwait);
+        tx_aincb_active(&m_sockcbp, &m_task);
         return 0;
     }
 
@@ -320,7 +308,7 @@ more_to_come:
 		goto failure_closed;
 	}
 
-	tx_aincb_active(&m_sockcbp, &m_rwait);
+	tx_aincb_active(&m_sockcbp, &m_task);
 	return;
 
 failure_closed:
@@ -450,20 +438,20 @@ check_protocol:
     if (!buf_overflow(&m)) {
         fprintf(stderr, "socks5 no overflow\n");
         fprintf(stderr, "socks5 stream closed\n");
-	line = __LINE__;
-        goto failure_closed;
+		line = __LINE__;
+		goto failure_closed;
     } else if (up->c2r.len == sizeof(up->c2r.buf)) {
         fprintf(stderr, "socks5 buffer full\n");
         fprintf(stderr, "socks5 stream closed\n");
-	line = __LINE__;
-        goto failure_closed;
+		line = __LINE__;
+		goto failure_closed;
     } else if (up->c2r.flag & RDF_EOF) {
         fprintf(stderr, "socks5 stream closed\n");
-	line = __LINE__;
-        goto failure_closed;
+		line = __LINE__;
+		goto failure_closed;
     }
 
-    tx_aincb_active(&m_sockcbp, &m_rwait);
+    tx_aincb_active(&m_sockcbp, &m_task);
     return;
 
 failure_closed:
@@ -526,7 +514,7 @@ int tcp_channel::run(void)
 	   	error = soconnect(m_peer, (struct sockaddr *)&name, sizeof(name));
 		m_flags |= TF_CONNECT;
 		if (error == 1) {
-			sopoll(m_peer, SO_SEND, &w_evt_peer);
+			sopoll(m_peer, SO_SEND, &m_task);
 			m_flags |= TF_CONNECTING;
 			return 1;
 		}
@@ -625,24 +613,24 @@ int tcp_channel::run(void)
 	}
 
     if (c2r.off < c2r.len && !sowritable(m_peer)) {
-		sopoll(m_peer, SO_SEND, &w_evt_peer);
+		sopoll(m_peer, SO_SEND, &m_task);
 		error = 1;
 	}
 
 	if ((r2c.off < r2c.len || r2c.flag == RDF_EOF) && !tx_writable(&m_sockcbp)) {
-		tx_outcb_prepare(&m_sockcbp, &m_wwait, 0);
+		tx_outcb_prepare(&m_sockcbp, &m_task, 0);
 		error = 1;
 	}
 
     if ((c2r.flag == 0) && !tx_readable(&m_sockcbp) &&
             c2r.len < (int)sizeof(c2r.buf)) {
-        tx_aincb_active(&m_sockcbp, &m_rwait);
+        tx_aincb_active(&m_sockcbp, &m_task);
         error = 1;
     }
 
     if ((r2c.flag == 0) && !soreadable(m_peer) &&
             r2c.len < (int)sizeof(r2c.buf)) {
-        sopoll(m_peer, SO_RECEIVE, &r_evt_peer);
+        sopoll(m_peer, SO_RECEIVE, &m_task);
         error = 1;
     }
 
