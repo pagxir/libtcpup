@@ -7,7 +7,7 @@
 #include <tcpup/tcp_seq.h>
 #include <stdio.h>
 
-#define LIMIT_BANDWIDTH (768 * 1024)
+// #define LIMIT_BANDWIDTH (768 * 1024)
 
 void newreno_ack_received(struct cc_var *ccv, uint16_t type);
 void newreno_after_idle(struct cc_var *ccv);

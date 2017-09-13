@@ -680,6 +680,8 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 				tp->rcv_adv += min(tp->rcv_wnd,
 						TCP_MAXWIN << WINDOW_SCALE);
 				tp->snd_una++;          /* SYN is acked */
+				if (tp->snd_una == tp->snd_max)
+					tcp_timer_activate(tp, TT_REXMT, 0);
 
 				/*
 				 * If there's data, delay ACK; if there's also a FIN
@@ -1107,6 +1109,8 @@ close:
 			}
 			tp->snd_wl1 = th->th_seq - 1;
 			tp->snd_una++; /* Our SYN is Acked T/TCP not suppport yet. */
+			if (tp->snd_una == tp->snd_max)
+				tcp_timer_activate(tp, TT_REXMT, 0);
 			sowwakeup(tp);
 			/* FALLTHROUGH */
 			TCP_TRACE_START(tp, "TCPS_SYN_RECEIVED -> TCPS_ESTABLISHED\n");
@@ -1246,6 +1250,7 @@ close:
 					 */
 					tp->t_flags &= ~TF_NEEDSYN;
 					tp->snd_una++;
+					assert (tp->snd_una != tp->snd_max);
 					/* Do window scaling? */
 			}
 #endif

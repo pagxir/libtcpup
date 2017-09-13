@@ -80,7 +80,6 @@ cc_after_idle(struct tcpcb *tp)
         CC_ALGO(tp)->after_idle(tp->ccv);
 
     if ((tp->t_flags & TF_REC_ADDR) == 0) {
-
         tp->dst_addr.xdat ^= 0x5a5a;
     }
 }
@@ -377,6 +376,7 @@ dontupdate:
 	if (SEQ_GT(tp->snd_max, tp->snd_una) &&
 		!tcp_timer_active(tp, TT_REXMT) &&
 		!tcp_timer_active(tp, TT_PERSIST)) {
+		assert (tp->snd_max != tp->snd_una);
 		tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
 		goto just_return;
 	}
@@ -459,8 +459,8 @@ sendit:
 			TCPSTAT_INC(tcps_sndwinup);
 	}
 
-	if (flags & TH_FIN && tp->t_flags & TF_SENTFIN &&
-			tp->snd_nxt == tp->snd_max)
+	if ((flags & TH_FIN) && (tp->t_flags & TF_SENTFIN) &&
+			(tp->snd_nxt == tp->snd_max))
 		tp->snd_nxt--;
 
 	if (sack_rxmit == 0) {
@@ -493,6 +493,7 @@ sendit:
 		recwin = (long)(TCP_MAXWIN << WINDOW_SCALE);
 	th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
 
+
 	/* Run HHOOK_TCP_ESTABLISHED_OUT helper hooks. */
 	hhook_run_tcp_est_out(tp, th, &to, tilen, 0);
 
@@ -518,6 +519,8 @@ sendit:
 			tp->undo_rexmt_out++;
 		}
 	}
+
+
 
 	error = utxpl_output(tp->tp_socket->so_iface, iobuf, 3, &tp->dst_addr);
 
@@ -559,6 +562,7 @@ timer:
 				tp->t_rxtshift = 0;
 			}
 
+			assert (tp->snd_max != tp->snd_una);
 			tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
 		}
 	} else {
@@ -569,8 +573,10 @@ timer:
 			tp->t_flags |= TF_SENTFIN;
 			++xlen;
 		}
-		if (SEQ_GT(tp->snd_nxt + xlen, tp->snd_max))
+		if (SEQ_GT(tp->snd_nxt + xlen, tp->snd_max)) {
 			tp->snd_max = tp->snd_nxt + len;
+			assert (tp->snd_max != tp->snd_una);
+		}
 	}
 
    	if (error == -1) {
@@ -592,9 +598,11 @@ timer:
 		tp->t_flags = prev_t_flags;
 		tp->t_rtttime = prev_t_rtttime;
 
+		assert (tp->snd_max != tp->snd_una);
 		if (!tcp_timer_active(tp, TT_REXMT) &&
-				!tcp_timer_active(tp, TT_PERSIST))
+				!tcp_timer_active(tp, TT_PERSIST) && tilen) {
 			tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
+		}
 		tp->snd_cwnd = tp->t_maxseg;
 
 		/* tp->t_dupacks++; */

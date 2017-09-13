@@ -650,6 +650,14 @@ static int peer_info_expend(const char *relay, size_t len, char *domain, size_t 
 	return type;
 }
 
+static const char *P(struct in_addr *ip)
+{
+    static int _si = 0;
+    static char sbuf[4][16] = {};
+    char *_sbuf = sbuf[_si++ % 4];
+    return inet_ntop(AF_INET, ip, _sbuf, 16);
+}
+
 static void do_peer_connect(void *upp, tx_task_stack_t *sta)
 {
 	int len;
@@ -671,6 +679,8 @@ static void do_peer_connect(void *upp, tx_task_stack_t *sta)
 		return;
 	}
 
+	struct sockaddr_in *p = (struct sockaddr_in *)&sa_store;
+	LOG_DEBUG("connect to %s:%d/%p\n", P(&p->sin_addr), htons(p->sin_port), &up->m_sockcbp);
 	if (FLAG_ZERO == FLAG_GET(up->m_flags, FLAG_CONNECTING| FLAG_ZERO| FLAG_BROKEN)) {
 		tx_aiocb_connect(&up->m_sockcbp, (struct sockaddr *)&sa_store, sizeof(sa_store), STACK2TASK(sta));
 		up->m_flags |= FLAG_CONNECTING;
