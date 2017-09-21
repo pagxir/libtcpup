@@ -6,6 +6,7 @@
 #include <txall.h>
 #include <utx/utxpl.h>
 #include <utx/socket.h>
+#include <utx/router.h>
 
 #include "dns_txasync.h"
 #include "tcp_channel.h"
@@ -160,7 +161,7 @@ static void anybind(int fd, int family)
 
 	assert(m_file != -1);
 	tx_setblockopt(m_file, 0);
-	anybind(m_file, AF_INET);
+	// anybind(m_file, AF_INET);
 	tx_aiocb_init(&m_sockcbp, loop, m_file);
 	total_instance++;
 }
@@ -210,6 +211,7 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 	while (len > 4 && len < sizeof(relay)) {
 		int err = 0;
 		unsigned short p0;
+		const struct route_item *fib;
 		typ = *p++;
 		if (*p++ != 0) break;
 
@@ -224,9 +226,11 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 					dst4->sin_family = AF_INET;
 					dst4->sin_port   = p0;
 					memcpy(&dst4->sin_addr, p, 4);
-					if ((hport >= 65216 && hport <= 65279) &&
-							dst4->sin_addr.s_addr == htonl(0x0100007f))
+					fib = route_get(dst4->sin_addr);
+					if (fib != NULL && fib->nexthop == INADDR_LOOPBACK) {
 						dst4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+					}
+
 					if (hport == 14000) m_interactive = 1;
 					if (hport == 5228) m_interactive = 1;
 					return 0;
@@ -596,6 +600,7 @@ static int peer_info_expend(const char *relay, size_t len, char *domain, size_t 
 	unsigned short val_short;
 	struct sockaddr_in *inp;
 	struct sockaddr_in6 *in6p;
+	const struct route_item *fib;
 
 	type = *p++;
 	bug_check(*p++ == 0);
@@ -613,11 +618,13 @@ static int peer_info_expend(const char *relay, size_t len, char *domain, size_t 
 			inp->sin_addr   = *(struct in_addr *)p;
 
 			val_port = htons(val_short);
-			if (inp->sin_addr.s_addr == htonl(0x0100007f)) {
-				inp->sin_addr.s_addr =
-					(val_port > 1024 && val_port < 65216)?
-					htonl(0x0100007f): htonl(INADDR_LOOPBACK);
-			} else switch (val_port) {
+			fib = route_get(inp->sin_addr);
+			if (fib != NULL && fib->nexthop == INADDR_LOOPBACK) {
+				if (val_port < 1024 || val_port >= 65216)
+					inp->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+			}
+
+			switch (val_port) {
 				case 14000:
 				case 5228:
 					*isinteractive = 1;
@@ -655,7 +662,42 @@ static const char *P(struct in_addr *ip)
     static int _si = 0;
     static char sbuf[4][16] = {};
     char *_sbuf = sbuf[_si++ % 4];
+	snprintf(_sbuf, sizeof(sbuf[0]), "%s", inet_ntoa(*ip));
+	return _sbuf;
+#if 0
     return inet_ntop(AF_INET, ip, _sbuf, 16);
+#endif
+}
+
+static int bind_nexthop(int fd, struct sockaddr_storage *ss)
+{
+	struct sockaddr_in siaddr = {0};
+	struct sockaddr_in6 si6addr = {0};
+
+	const struct route_item *fib = NULL;
+	struct sockaddr_in *target = (struct sockaddr_in *)ss;
+	struct sockaddr_in6 *target6 = (struct sockaddr_in6 *)ss;
+
+	switch(ss->ss_family) {
+		case AF_INET:
+			siaddr.sin_family = AF_INET;
+			fib = route_get(target->sin_addr);
+			siaddr.sin_addr.s_addr = fib? htonl(fib->nexthop): INADDR_ANY;
+			LOG_DEBUG("connect to %s:%d via %s\n",
+					P(&target->sin_addr), htons(target->sin_port), P(&siaddr.sin_addr));
+			bind(fd, (struct sockaddr *)&siaddr, sizeof(siaddr));
+			break;
+
+		case AF_INET6:
+			si6addr.sin6_family = AF_INET6;
+			bind(fd, (struct sockaddr *)&si6addr, sizeof(si6addr));
+			break;
+
+		default:
+			break;
+	}
+
+	return 0;
 }
 
 static void do_peer_connect(void *upp, tx_task_stack_t *sta)
@@ -679,9 +721,8 @@ static void do_peer_connect(void *upp, tx_task_stack_t *sta)
 		return;
 	}
 
-	struct sockaddr_in *p = (struct sockaddr_in *)&sa_store;
-	LOG_DEBUG("connect to %s:%d/%p\n", P(&p->sin_addr), htons(p->sin_port), &up->m_sockcbp);
 	if (FLAG_ZERO == FLAG_GET(up->m_flags, FLAG_CONNECTING| FLAG_ZERO| FLAG_BROKEN)) {
+		bind_nexthop(up->m_sockcbp.tx_fd, &sa_store);
 		tx_aiocb_connect(&up->m_sockcbp, (struct sockaddr *)&sa_store, sizeof(sa_store), STACK2TASK(sta));
 		up->m_flags |= FLAG_CONNECTING;
 		return;

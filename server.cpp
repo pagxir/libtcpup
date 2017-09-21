@@ -14,6 +14,7 @@
 #include <utx/utxpl.h>
 #include <utx/dns_fwd.h>
 #include <utx/socket.h>
+#include <utx/router.h>
 
 #include <tcpup/tcp_device.h>
 
@@ -87,6 +88,9 @@ int main(int argc, char *argv[])
 		} else if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
 			get_target_address(&interface_address, argv[i + 1]);
 			i++;
+		} else if (strcmp(argv[i], "-R") == 0 && i + 1 < argc) {
+			route_cmd(argv[i + 1]);
+			i++;
 		} else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
 			get_target_address(&listen_address, argv[i + 1]);
 			i++;
@@ -94,6 +98,12 @@ int main(int argc, char *argv[])
 			get_target_address(&forward_address, argv[i]);
 			continue;
 		}
+	}
+
+	{
+	struct in_addr si;
+	si.s_addr = inet_addr("114.215.3.1");
+	printf("%p via x\n", route_get(si));
 	}
 
 	set_ping_reply(1);
