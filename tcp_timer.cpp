@@ -129,7 +129,7 @@ static void tcp_rexmt_timo(void *up)
 		return;
    	}
 
-	client_track_fetch(tp->tp_socket->so_conv, &tp->dst_addr, sizeof(tp->dst_addr), tp->t_rcvtime);
+	int stat = client_track_fetch(tp->tp_socket->so_conv, &tp->dst_addr, sizeof(tp->dst_addr), tp->t_rcvtime);
 	if (tp->t_rxtshift == 1) {
 	   	tp->snd_cwnd_prev = tp->snd_cwnd;
 	   	tp->snd_recover_prev = tp->snd_recover;

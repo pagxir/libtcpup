@@ -12,13 +12,11 @@
 #include "tcp_channel.h"
 #include "pstcp_channel.h"
 
+
 #define STACK2TASK(s) (&(s)->tx_sched)
-#define LOG_VERBOSE(fmt, args...) fprintf(stderr, fmt, ##args)
 
 #define TF_RESOLVED   0x10
 #define TF_RESOLVING  0x20
-
-#define LOG_DEBUG(format, args...) fprintf(stderr, format, ##args)
 
 #define TF_CONNECTED  0x40
 #define TF_CONNECTING 0x80
@@ -173,6 +171,26 @@ pstcp_channel::~pstcp_channel()
 		m_dns_handle = -1;
 	}
 
+#if 1
+    const char *info = "";
+    int port = 0;
+
+    int sfd = m_sockcbp.tx_fd;
+    if (sfd != -1) {
+        struct sockaddr_in inaddr;
+        socklen_t inlen = sizeof(inaddr);
+        if (0 == getpeername(sfd, (struct sockaddr*)&inaddr, &inlen)) {
+            if (inaddr.sin_family == AF_INET) {
+                info = inet_ntoa(inaddr.sin_addr);
+                port = htons(inaddr.sin_port);
+            }
+        }
+    }
+
+    LOG_DEBUG("link is close: %s:%d, %d", info, port, m_interactive);
+#endif
+	LOG_DEBUG("pstcp_channel::~pstcp_channel: %d\n", total_instance);
+
 	tx_aiocb_fini(&m_sockcbp);
 	soclose(m_peer);
 
@@ -181,7 +199,6 @@ pstcp_channel::~pstcp_channel()
 
 	tx_task_stack_drop(&m_tasklet);
 
-	LOG_DEBUG("pstcp_channel::~pstcp_channel: %d\n", total_instance);
 	closesocket(m_file);
 	total_instance--;
 }
@@ -975,6 +992,23 @@ void pstcp_channel::tc_idleclose(void *context)
 {
 	pstcp_channel *chan;
 	chan = (pstcp_channel *)context;
+	const char *info = "";
+	int port = 0;
+
+	int sfd = chan->m_sockcbp.tx_fd;
+	if (sfd != -1) {
+		struct sockaddr_in inaddr;
+		socklen_t inlen = sizeof(inaddr);
+		if (0 == getpeername(sfd, (struct sockaddr*)&inaddr, &inlen)) {
+			if (inaddr.sin_family == AF_INET) {
+				info = inet_ntoa(inaddr.sin_addr);
+				port = htons(inaddr.sin_port);
+			}
+		}
+	}
+
+	LOG_DEBUG("timeout close: %s:%d, %d", info, port, chan->m_interactive);
+
 	delete chan;
 	return;
 }

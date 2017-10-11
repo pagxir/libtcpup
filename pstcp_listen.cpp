@@ -47,7 +47,7 @@ static void module_clean(void)
 	tx_task_drop(&_runstart);
 	tx_task_drop(&_syn_keeper);
 
-	fprintf(stderr, "tcp_listen: exiting\n");
+	LOG_DEBUG("tcp_listen: exiting\n");
 }
 
 static void reset_counter(void *t)
@@ -64,13 +64,13 @@ static void accept_statecb(void *ignore)
 
 	state = (int)(long)ignore;
 	if (state == 0) {
-		fprintf(stderr, "listen_stop\n");
+		LOG_DEBUG("listen_stop\n");
 		tx_task_drop(&_event);
 		return;
 	}
 
 	if (state == 1) {
-		fprintf(stderr, "listen_start\n");
+		LOG_DEBUG("listen_start\n");
 		sopoll(NULL, SO_ACCEPT, &_event);
 	}
 }
@@ -83,7 +83,7 @@ static void accept_callback(void *context)
 
 	newtp = soaccept(NULL, (struct sockaddr *)&newaddr, &newlen);
 	if (newtp != NULL) {
-		fprintf(stderr, "new client: %s:%u\n",
+		LOG_DEBUG("new client: %s:%u\n",
 				inet_ntoa(newaddr.sin_addr), ntohs(newaddr.sin_port));
 		if (_syn_count++ < 2 * 640)
 			new_pstcp_channel(newtp);

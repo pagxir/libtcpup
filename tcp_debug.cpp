@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <time.h>
 #include <stdarg.h>
 
 #include <utx/utxpl.h>
@@ -64,3 +65,4 @@ void tcp_debug(const char *fmt, ...)
     va_end(ap);
     return;
 }
+

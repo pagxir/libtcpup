@@ -66,7 +66,7 @@ int client_track_update(uint32_t conv, const void *target, size_t len, uint32_t 
 
 	if (item == NULL) {
 		item = client_track_alloc(client, now);
-		fprintf(stderr, "client count: %d %x %x\n", _client_count, client, htonl(conv));
+		LOG_VERBOSE("client count: %d %x %x\n", _client_count, client, htonl(conv));
 		assert(item != NULL);
 	} else {
 		if (((int)(item->tsecr - now) >= 0) ||
@@ -86,13 +86,15 @@ int client_track_update(uint32_t conv, const void *target, size_t len, uint32_t 
 
 int client_track_fetch(uint32_t conv, void *target, size_t len, uint32_t live)
 {
+	int stat = 0;
 	uint16_t client = htonl(conv) & 0xffff;
 	client_track_t *item = lookup(client);
 
 	if (item != NULL && (int)(item->tsecr - live) > 0) {
 		assert(len == sizeof(item->peer));
+		stat = memcmp(&item->peer, target, sizeof(item->peer));
 		memcpy(&item->peer, target, sizeof(item->peer));
 	}
 
-	return 0;
+	return stat;
 }

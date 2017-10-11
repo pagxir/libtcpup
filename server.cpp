@@ -100,12 +100,6 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	{
-	struct in_addr si;
-	si.s_addr = inet_addr("114.215.3.1");
-	printf("%p via x\n", route_get(si));
-	}
-
 	set_ping_reply(1);
 	tcp_set_device_address(&interface_address);
 	pstcp_channel_forward(&forward_address);

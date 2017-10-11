@@ -154,7 +154,7 @@ static struct route_item *_route_get(in_addr_t prefix, in_addr_t _submask)
 
 const struct route_item *route_get(struct in_addr target)
 {
-#if 1
+#if 0
 	printf("\n-------------------------\n");
 	for (int i = 0; i < _route_size; i++) {
 		struct route_item *item = &_route_table[i];

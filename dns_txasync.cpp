@@ -95,7 +95,7 @@ int dns_query_open(const char *name, const char *service, struct addrinfo *info,
 	_dns_items[i] = item;
 	error = send(upp->default_handle, &b, 1, 0);
 	TX_PANIC(error == 1, "send dns query to thread failure");
-	TX_PRINT(TXL_DEBUG, "index: %d dns query\n", b);
+	LOG_DEBUG("index: %d dns query\n", b);
 	return i;
 }
 
@@ -139,7 +139,7 @@ static int do_dns_query(int index)
 		item->refcnt++;
 		EXIT_DNS_LOCK;
 		item->flags = getaddrinfo(item->name, item->serv, &item->info, &item->result);
-		TX_PRINT(TXL_DEBUG, "start query %s\n", item->name);
+		LOG_DEBUG("start query %s\n", item->name);
 		ENTER_DNS_LOCK;
 		if (--item->refcnt == 0) {
 			if (item->result) freeaddrinfo(item->result);
@@ -173,7 +173,7 @@ static void dns_query_back(void *up)
 			ind = (indexs[i] & 0xff);
 			item = _dns_items[ind];
 			
-			TX_PRINT(TXL_DEBUG, "dns is back %d\n", count);
+			LOG_DEBUG("dns is back %d\n", count);
 			if (item != NULL &&
 					item->task != NULL) {
 				tx_task_active(item->task, "recv");
@@ -196,12 +196,12 @@ static void *do_sync_dns_query(void *up)
 	for ( ; ; ) {
 		int count = recv(upp->thread_handle, indexs, sizeof(indexs), 0);
 		if (count == 0) {
-			TX_PRINT(TXL_DEBUG, "reach end of file %d\n", count);
+			LOG_DEBUG("reach end of file %d\n", count);
 			break;
 		}
 
 		if (count == -1 && errno != EINTR) {
-			TX_PRINT(TXL_DEBUG, "recv error = %d\n", errno);
+			LOG_DEBUG("recv error = %d\n", errno);
 			break;
 		}
 

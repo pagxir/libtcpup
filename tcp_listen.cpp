@@ -45,7 +45,7 @@ static void module_init(void)
 	setsockopt(_lenfile, SOL_SOCKET, SO_REUSEADDR, (const char *)&v, sizeof(v));
 
 	error = bind(_lenfile, (struct sockaddr *)&_lenaddr, sizeof(_lenaddr));
-	fprintf(stderr, "ipv4 address: %x %d\n", _lenaddr.sin_addr.s_addr, errno);
+	LOG_DEBUG("ipv4 address: %x %d\n", _lenaddr.sin_addr.s_addr, errno);
 	assert(error == 0);
 
 	error = listen(_lenfile, 5);
@@ -67,7 +67,7 @@ static void module_clean(void)
 	tx_task_drop(&_runstop);
 	tx_task_drop(&_runstart);
 
-	fprintf(stderr, "tcp_listen: exiting\n");
+	LOG_DEBUG("tcp_listen: exiting\n");
 }
 
 void listen_statecb(void *ignore)
@@ -76,13 +76,13 @@ void listen_statecb(void *ignore)
 
 	state = (int)(long)ignore;
 	if (state == 0) {
-		fprintf(stderr, "listen_stop\n");
+		LOG_DEBUG("listen_stop\n");
 		tx_task_drop(&_event);
 		return;
 	}
 
 	if (state == 1) {
-		fprintf(stderr, "listen_start\n");
+		LOG_DEBUG("listen_start\n");
 		tx_listen_active(&_sockcbp, &_event);
 	}
 }
@@ -97,7 +97,7 @@ void listen_callback(void *context)
 	tx_listen_active(&_sockcbp, &_event);
 
 	if (newfd != -1) {
-		fprintf(stderr, "new client: %s:%u\n",
+		LOG_DEBUG("new client: %s:%u\n",
 				inet_ntoa(newaddr.sin_addr), ntohs(newaddr.sin_port));
 		tx_setblockopt(newfd, 0);
 		new_tcp_channel(newfd);
