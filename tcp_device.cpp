@@ -217,7 +217,7 @@ void tcpup_device::init(int dobind)
 
 	alen = sizeof(saddr);
 	getsockname(_file, (struct sockaddr *)&saddr, &alen);
-	fprintf(stderr, "bind@address# %s:%u\n",
+	LOG_INFO("bind@address# %s:%u\n",
 			inet_ntoa(saddr.sin_addr), htons(saddr.sin_port));
 
 	_addr_in.sin_port = saddr.sin_port;
@@ -371,7 +371,7 @@ static void module_clean(void)
 
 void tcpup_device::fini()
 {
-	fprintf(stderr, "udp_listen: exiting\n");
+	LOG_INFO("udp_listen: exiting\n");
 	tx_task_drop(&_dev_idle);
 	tx_task_drop(&_event);
 	tx_aiocb_fini(&_sockcbp);
@@ -394,7 +394,7 @@ extern "C" void tcp_backwork(struct tcpip_info *info)
 
 void __utxpl_assert(const char *expr, const char *path, size_t line)
 {
-	fprintf(stderr, "ASSERT FAILURE: %s:%d %s\n", path, line, expr);
+	LOG_FATAL("ASSERT FAILURE: %s:%d %s\n", path, line, expr);
 	abort();
 	return;
 }
@@ -405,7 +405,7 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
     int error;
 
 	if (offset >= MAX_DEV_CNT || _paging_devices[offset] == NULL) {
-		fprintf(stderr, "offset: %d\n", offset);
+		LOG_INFO("offset: %d\n", offset);
 		if ((offset & 01) && offset < MAX_DEV_CNT && _paging_devices[offset - 1]) {
 			offset --;
 		} else {
