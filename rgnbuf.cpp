@@ -55,6 +55,10 @@ struct rgnbuf *rgn_trim(struct rgnbuf* old)
 	int cp, off, cplen;
 	int newsize = old->rb_len;
 
+	if (rgn_round(newsize) == old->rb_size) {
+		return old;
+	}
+
 	struct rgnbuf *newbuf = rgn_create(newsize);
 	if (newbuf == NULL) {
 		/* no memory to alloc, just keep the origin buf */

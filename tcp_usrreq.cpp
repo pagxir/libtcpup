@@ -429,8 +429,10 @@ int tcp_relayget(struct tcpcb *tp, void *buf, int len)
 	return -1;
 }
 
+void tcp_usrclosed(struct tcpcb *tp);
 int tcp_shutdown(struct tcpcb *tp)
 {
+#if 0
 	switch (tp->t_state) {
 		case TCPS_ESTABLISHED:
 			tp->t_state = TCPS_FIN_WAIT_1;
@@ -447,6 +449,16 @@ int tcp_shutdown(struct tcpcb *tp)
 		default:
 			tp->rgn_snd->rb_flags |= SBS_CANTSENDMORE;
 			break;
+	}
+#endif
+
+	tp->rgn_snd->rb_flags |= SBS_CANTSENDMORE;
+	tcp_usrclosed(tp);
+
+	if (tp->t_state != TCPS_CLOSED) {
+		(void)tcp_output(tp);
+		UTXPL_ASSERT(tp->rgn_snd);
+		tp->rgn_snd = rgn_trim(tp->rgn_snd);
 	}
 
 	return 0;

@@ -18,7 +18,8 @@
 
 struct tcpstat tcpstat;
 int tcp_backoff[TCP_MAXRXTSHIFT + 1] = {
-	1, 2, 4, 8, 16, 32, 64, 64, 64, 64, 64, 64, 64
+	// 1, 2, 4, 8, 16, 32, 64, 64, 64, 64, 64, 64, 64
+	1, 2, 4, 8, 16, 32, 64, 128, 256, 256, 256, 256, 256
 };
 
 void tcp_setpersist(struct tcpcb *tp)
@@ -481,6 +482,7 @@ sendit:
 	th->th_ack = htonl(tp->rcv_nxt);
 	th->th_flags = flags;
 	th->th_conv  = (tp->tp_socket->so_conv);
+	th->th_ckpass	= 0;
 	tilen   = (u_short)len;
 
 	if (recwin < (long) rgn_size(tp->rgn_rcv) / 4 &&

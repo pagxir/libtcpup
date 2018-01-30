@@ -1343,14 +1343,8 @@ process_ACK:
 
 				case TCPS_TIME_WAIT:
 					tcp_timer_activate(tp, TT_2MSL, 2 * TCPTV_MSL);
-					if (tp->rgn_rcv) {
-						rgn_destroy(tp->rgn_rcv);
-						tp->rgn_rcv = NULL;
-					}
-					if (tp->rgn_snd) {
-						rgn_destroy(tp->rgn_snd);
-						tp->rgn_snd = NULL;
-					}
+					tp->rgn_snd = rgn_trim(tp->rgn_snd);
+					tp->rgn_rcv = rgn_trim(tp->rgn_rcv);
 					goto dropafterack;
 					break;
 			}
