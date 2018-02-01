@@ -292,7 +292,6 @@ TAILQ_HEAD(sackhole_head, sackhole);
 #define TCP_ISSINCR		0x01000000
 #define TF_SOCKREF      TF_NOOPT
 #define TF_DEVBUSY      TF_SIGNATURE
-#define TF_PROTOREF     TF_LQ_OVERFLOW
 int tcp_attach(struct tcpcb *tp);
 
 #define IN_FASTRECOVERY(t_flags)        (t_flags & TF_FASTRECOVERY)

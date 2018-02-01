@@ -204,9 +204,9 @@ struct tcpcb *tcp_drop(struct tcpcb *tp, int why)
 		(void) tcp_output(tp);
 	}
 
-	if (tp->t_flags & TF_PROTOREF) {
-		tp->t_flags &= ~TF_PROTOREF;
+	if (tp->t_flags & TF_SOCKREF) {
 		so->so_state &= ~SS_PROTOREF;
+		tp->t_flags &= ~TF_SOCKREF;
 		sofree(so);
 		return (NULL);
 	}
@@ -610,22 +610,6 @@ void tcp_usrclosed(struct tcpcb *tp)
 		}
 	}
 }
-
-#if 0
-int tcp_soclose(struct tcpcb *tp)
-{
-	tcp_shutdown(tp);
-	soisdisconnected(tp);
-
-	if (tp->t_state != TCPS_CLOSED)
-		tp->t_flags |= TF_PROTOREF;
-
-	TCP_TRACE_AWAYS(tp, "tcp_soclose %p\n", tp);
-	tp->t_flags |= SS_NOFDREF;
-	sofree(tp->tp_socket);
-	return 0;
-}
-#endif
 
 int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_addr *from)
 {
