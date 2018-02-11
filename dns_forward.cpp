@@ -423,12 +423,13 @@ int filter_hook_dns_forward(int netif, void *buf, size_t len, const struct tcpup
 
 				err = sendto(c->uf_handle, (const char *)payload + doff,
 						payload_limit - payload - doff, 0, target, target_len);
-				assert (err > 0);
-				int timeout = 25;
-				if (get_port(target) != 53) timeout = 300;
-				tx_timer_reset(&c->uf_timer, timeout * 1000);
-				c->uf_rcvtime = tx_getticks();
-				c->uf_from = *from;
+				if (err > 0) {
+					int timeout = 25;
+					if (get_port(target) != 53) timeout = 300;
+					tx_timer_reset(&c->uf_timer, timeout * 1000);
+					c->uf_rcvtime = tx_getticks();
+					c->uf_from = *from;
+				}
 			}
 
 			return 1;
