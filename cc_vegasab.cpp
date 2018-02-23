@@ -265,7 +265,7 @@ vegas_cb_init(struct cc_var *ccv)
 {
         struct vegas *vegas_data;
 
-        vegas_data = (struct vegas *)malloc(sizeof(struct vegas));
+        vegas_data = (struct vegas *)calloc(1, sizeof(struct vegas));
 
         if (vegas_data == NULL)
                 return (UTXENOMEM);

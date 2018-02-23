@@ -162,8 +162,7 @@ int
 cubic_cb_init(struct cc_var *ccv)
 {
 	struct cubic *cubic_data;
-
-	cubic_data = (struct cubic *)calloc(sizeof(struct cubic), 1);
+	cubic_data = (struct cubic *)calloc(1, sizeof(struct cubic));
 
 	if (cubic_data == NULL)
 		return (UTXENOMEM);

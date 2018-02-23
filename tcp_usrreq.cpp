@@ -583,7 +583,6 @@ void tcp_usrclosed(struct tcpcb *tp)
 		case TCPS_SYN_SENT:
 		case TCPS_SYN_RECEIVED:
 			tp->t_flags |= TF_NEEDFIN;
-			tcp_state_change(tp, TCPS_FIN_WAIT_1);
 			break;
 
 		case TCPS_ESTABLISHED:

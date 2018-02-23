@@ -246,7 +246,7 @@ htcp_cb_init(struct cc_var *ccv)
 {
         struct htcp *htcp_data;
 
-        htcp_data = (struct htcp*)malloc(sizeof(struct htcp));//, M_HTCP, M_NOWAIT;
+        htcp_data = (struct htcp*)calloc(1, sizeof(struct htcp));//, M_HTCP, M_NOWAIT;
 
         if (htcp_data == NULL)
                 return (UTXENOMEM);
