@@ -160,6 +160,13 @@ struct udp_forward_context {
 	struct sockaddr *(*get_dest)(struct udp_forward_context *ctx, struct udpuphdr *hdr, socklen_t *len);
 };
 
+
+#define TAG_SRC_IPV4 0x14
+#define TAG_SRC_IPV6 0x16
+
+#define TAG_DST_IPV4 0x84
+#define TAG_DST_IPV6 0x86
+
 typedef LIST_HEAD(udp_forward_context_q, udp_forward_context) udp_forward_context_q;
 static udp_forward_context_q _forward_header;
 
@@ -208,7 +215,7 @@ static void on_udp6_receive(void *upp)
 			up->uh.u_doff = (sizeof(*up) >> 2);
 			up->uh.u_frag = 0;
 			up->uh.u_flag = 0;
-			up->uh.u_tag = 0x86;
+			up->uh.u_tag = TAG_SRC_IPV6;
 			up->uh.u_len = 20;
 			up->uh.u_port = saaddr.sin6_port;
 			memcpy(up->addr, &saaddr.sin6_addr, sizeof(up->addr));
@@ -263,7 +270,7 @@ static void on_udp_receive(void *upp)
 			up4->uh.u_doff = (sizeof(*up4) >> 2);
 			up4->uh.u_frag = 0;
 			up4->uh.u_flag = 0;
-			up4->uh.u_tag = 0x84;
+			up4->uh.u_tag = TAG_SRC_IPV4;
 			up4->uh.u_len = 0x8;
 			up4->uh.u_port = saaddr.sin_port;
 			up4->addr[0] = saaddr.sin_addr.s_addr;
@@ -369,12 +376,15 @@ struct udp_forward_context * udp_forward_create(int conv, int type)
 		ctx->uf_conv   = conv;
 		tx_loop_t *loop = tx_loop_default();
 
-		if (type == 0x84) {
+		if (type == TAG_DST_IPV4) {
 			udp4_forward_init(ctx);
 			tx_task_init(&ctx->uf_ready, loop, on_udp_receive, (void *)ctx);
-		} else {
+		} else if (type == TAG_DST_IPV6) {
 			if (udp6_forward_init(ctx) != 0) { delete ctx; return NULL; }
 			tx_task_init(&ctx->uf_ready, loop, on_udp6_receive, (void *)ctx);
+		} else {
+			LOG_WARNING("unsupport type: %x", type);
+			return NULL;
 		}
 
 #ifdef WIN32
@@ -446,7 +456,7 @@ int filter_hook_dns_forward(int netif, void *buf, size_t len, const struct tcpup
 			struct udpuphdr4 *udphdr4 = (struct udpuphdr4 *)udphdr;
 
 			memcpy(&target, &_fwd_target, sizeof(target));
-			if (udphdr->u_tag == 0x84 && !_force_override && udphdr4->addr[0] != 0x08080808) {
+			if (udphdr->u_tag == TAG_DST_IPV4 && !_force_override && udphdr4->addr[0] != 0x08080808) {
 				target.sin_family = AF_INET;
 				target.sin_port   = (udphdr->u_port);
 				target.sin_addr.s_addr   = (udphdr4->addr[0]);
@@ -458,7 +468,7 @@ int filter_hook_dns_forward(int netif, void *buf, size_t len, const struct tcpup
 				TCP_DEBUG(err <= 0, "sendto error %s\n", strerror(errno));
 			}
 
-			TCP_DEBUG(udphdr->u_tag != 0x84, "found dns packet forward request\n");
+			TCP_DEBUG(udphdr->u_tag != TAG_DST_IPV4, "found dns packet forward request\n");
 			return 1;
 		}
 	}
