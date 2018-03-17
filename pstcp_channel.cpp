@@ -58,7 +58,6 @@ class pstcp_channel {
 
 	public:
 		int run(void);
-		int run0(void);
 		int reset_keepalive();
 		static void tc_callback(void *context, tx_task_stack_t *sta);
 
@@ -203,6 +202,7 @@ pstcp_channel::~pstcp_channel()
 	total_instance--;
 }
 
+#if 0
 int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t tp, u_long defdest, u_short port, struct tx_task_t *task)
 {
 	int len, typ;
@@ -296,6 +296,7 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 	LOG_DEBUG("relay: len %d\n", len);
 	return 0;
 }
+#endif
 
 static int get_backend(const char *relay, size_t len)
 {
@@ -417,6 +418,7 @@ static int get_keepalive(int count)
 #define MAX(a, b) ((a) < (b)? (b): (a))
 #define MIN(a, b) ((a) < (b)? (a): (b))
 
+#if 0
 int pstcp_channel::run0(void)
 {
 	int len = 0;
@@ -559,6 +561,7 @@ int pstcp_channel::run0(void)
 
 	return error;
 }
+#endif
 
 int pstcp_channel::reset_keepalive()
 {
@@ -641,15 +644,8 @@ static int peer_info_expend(const char *relay, size_t len, char *domain, size_t 
 					inp->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 			}
 
-			switch (val_port) {
-				case 14000:
-				case 5228:
-					*isinteractive = 1;
-					break;
-
-				default:
-					break;
-			}
+			if (val_port == 5228) *isinteractive = 1;
+			if (val_port == 14000) *isinteractive = 1;
 			break;
 
 		case AFTYP_INET6:
@@ -659,6 +655,7 @@ static int peer_info_expend(const char *relay, size_t len, char *domain, size_t 
 			in6p->sin6_family = AF_INET6;
 			in6p->sin6_port   = val_short;
 			in6p->sin6_addr   = *(struct in6_addr *)p;
+			if (val_short == htons(5228)) *isinteractive = 1;
 			break;
 
 		case AFTYP_DOMAIN:

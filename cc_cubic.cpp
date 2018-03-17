@@ -163,7 +163,7 @@ cubic_cb_init(struct cc_var *ccv)
 {
 	struct cubic *cubic_data;
 
-	cubic_data = (struct cubic *)malloc(sizeof(struct cubic));
+	cubic_data = (struct cubic *)calloc(sizeof(struct cubic), 1);
 
 	if (cubic_data == NULL)
 		return (UTXENOMEM);
