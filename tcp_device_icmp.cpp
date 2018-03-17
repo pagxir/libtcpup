@@ -203,6 +203,14 @@ extern "C" void tcp_set_device_address(struct tcpip_info *info)
 	return;
 }
 
+static struct sockaddr_in _tcp_keep_addr = { 0 };
+extern "C" void tcp_set_keepalive_address(struct tcpip_info *info)
+{
+	_tcp_keep_addr.sin_family = AF_INET;
+	_tcp_keep_addr.sin_port   = (info->port);
+	_tcp_keep_addr.sin_addr.s_addr   = (info->address);
+}
+
 struct icmphdr icmp_hdr_fill[1] = {{0}};
 
 void tcpup_device::init(int dobind)

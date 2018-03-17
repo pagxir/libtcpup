@@ -45,6 +45,9 @@ struct tcpup_device {
 	struct tx_task_t _dev_idle;
 	struct sockaddr_in _addr_in;
 
+	struct tx_task_t _nat_hold;
+	struct tx_timer_t _nat_hold_timer;
+
 public:
 	int _file;
 	int _offset;
@@ -56,6 +59,7 @@ public:
 	void init(int dobind);
 	void fini();
 	void incoming();
+	void holdon();
 };
 
 int _tcp_out_fd = -1;
@@ -68,6 +72,7 @@ static struct tx_task_t _start;
 #define MAX_DEV_CNT 8
 static struct tcpup_device *_paging_devices[MAX_DEV_CNT] = {0};
 
+static void dev_nat_holdon(void *ctx);
 static void listen_statecb(void *context);
 static void listen_callback(void *context);
 
@@ -84,6 +89,7 @@ void set_ping_reply(int mode)
 sockcb_t socreate(so_conv_t conv)
 {
 	int offset = (rand() % MAX_DEV_CNT) & ~1;
+	if (getenv("RELAYSERVER") != NULL) offset = 0;
 	tcpup_device *this_device = _paging_devices[offset];
 
 	if (this_device != NULL && this_device->_dobind == 0) {
@@ -170,6 +176,14 @@ extern "C" void tcp_set_device_address(struct tcpip_info *info)
 	return;
 }
 
+static struct sockaddr_in _tcp_keep_addr = { 0 };
+extern "C" void tcp_set_keepalive_address(struct tcpip_info *info)
+{
+	_tcp_keep_addr.sin_family = AF_INET;
+	_tcp_keep_addr.sin_port   = (info->port);
+	_tcp_keep_addr.sin_addr.s_addr   = (info->address);
+}
+
 #define _DNS_CLIENT_
 #ifdef _DNS_CLIENT_
 
@@ -202,12 +216,16 @@ void tcpup_device::init(int dobind)
 	tx_task_init(&_event, loop, listen_callback, this);
 	tx_task_init(&_dev_idle, loop, dev_idle_callback, this);
 
+	tx_task_init(&_nat_hold, loop, dev_nat_holdon, this);
+	tx_timer_init(&_nat_hold_timer, loop, &_nat_hold);
+
 	_file = socket(AF_INET, SOCK_DGRAM, 0);
 	assert(_file != -1);
 
 	if (dobind) {
 		error = bind(_file, (struct sockaddr *)&_addr_in, sizeof(_addr_in));
 		assert(error == 0);
+		tx_timer_reset(&_nat_hold_timer, 25000);
 		_dobind = 1;
 	} else {
 		_addr_in.sin_port = 0;
@@ -372,10 +390,37 @@ static void module_clean(void)
 void tcpup_device::fini()
 {
 	LOG_INFO("udp_listen: exiting\n");
+	tx_timer_stop(&_nat_hold_timer);
+	tx_task_drop(&_nat_hold);
+
 	tx_task_drop(&_dev_idle);
 	tx_task_drop(&_event);
 	tx_aiocb_fini(&_sockcbp);
 	closesocket(_file);
+}
+
+void tcpup_device::holdon(void)
+{
+	struct sockaddr_in addr_in1;
+	addr_in1.sin_family = AF_INET;
+	addr_in1.sin_port   = _tcp_keep_addr.sin_port;
+	addr_in1.sin_addr.s_addr   = _tcp_keep_addr.sin_addr.s_addr;
+
+	if (addr_in1.sin_addr.s_addr) {
+		sendto(_file, "HELO", 4, 0,
+				(struct sockaddr *)&addr_in1, sizeof(addr_in1));
+		tx_timer_reset(&_nat_hold_timer, 25000);
+	}
+	return;
+}
+
+static void dev_nat_holdon(void *ctx)
+{
+	struct tcpup_device *up;
+
+	up = (struct tcpup_device *)ctx;
+	up->holdon();
+	return;
 }
 
 extern "C" void tcp_backwork(struct tcpip_info *info)

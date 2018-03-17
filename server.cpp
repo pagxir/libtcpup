@@ -51,6 +51,7 @@ int main(int argc, char *argv[])
 	struct tcpip_info outter_address = {0};
 	struct tcpip_info forward_address = {0};
 	struct tcpip_info interface_address = {0};
+	struct tcpip_info keepalive_address = {0};
 
 #ifdef _WIN32_
 	WSADATA data;
@@ -91,6 +92,9 @@ int main(int argc, char *argv[])
 		} else if (strcmp(argv[i], "-R") == 0 && i + 1 < argc) {
 			route_cmd(argv[i + 1]);
 			i++;
+		} else if (strcmp(argv[i], "-K") == 0 && i + 1 < argc) {
+			get_target_address(&keepalive_address, argv[i + 1]);
+			i++;
 		} else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
 			get_target_address(&listen_address, argv[i + 1]);
 			i++;
@@ -102,6 +106,7 @@ int main(int argc, char *argv[])
 
 	set_ping_reply(1);
 	tcp_set_device_address(&interface_address);
+	tcp_set_keepalive_address(&keepalive_address);
 	pstcp_channel_forward(&forward_address);
 
 	tcp_set_device_address(&listen_address);
