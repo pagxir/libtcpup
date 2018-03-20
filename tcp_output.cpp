@@ -652,7 +652,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 {
 	int error;
 	struct rgn_iovec iov0;
-	struct tcphdr tcpup_th0;
+	struct tcphdr tcpup_th0 = {};
 	struct tcphdr *th = &tcpup_th0;
 
 	th->th_magic = MAGIC_UDP_TCP;
@@ -673,6 +673,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 
 	// th->th_tsval = htonl(tcp_ts_getticks());
 
+	th->th_ckpass	= 0;
 	if (tp != NULL && tp->rgn_rcv) {
 		long recwin = rgn_rest(tp->rgn_rcv);
 		if (recwin > (long)(TCP_MAXWIN << WINDOW_SCALE))

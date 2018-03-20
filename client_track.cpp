@@ -68,11 +68,13 @@ int client_track_update(uint32_t conv, const void *target, size_t len, uint32_t 
 		item = client_track_alloc(client, now);
 		LOG_VERBOSE("client count: %d %x %x\n", _client_count, client, htonl(conv));
 		assert(item != NULL);
+#if 0
 	} else {
 		if (((int)(item->tsecr - now) >= 0) ||
 				(item->tsval + 1 > time(NULL))) {
 			return 0;
 		}
+#endif
 	}
 
 	item->owner = conv;
@@ -90,10 +92,13 @@ int client_track_fetch(uint32_t conv, void *target, size_t len, uint32_t live)
 	uint16_t client = htonl(conv) & 0xffff;
 	client_track_t *item = lookup(client);
 
+	LOG_INFO("client_track_fetch: %x %x %x\n", client, conv, live);
 	if (item != NULL && (int)(item->tsecr - live) > 0) {
 		assert(len == sizeof(item->peer));
 		stat = memcmp(&item->peer, target, sizeof(item->peer));
-		memcpy(&item->peer, target, sizeof(item->peer));
+		memcpy(target, &item->peer, sizeof(item->peer));
+		struct sockaddr_in *in = (struct sockaddr_in *)target;
+		LOG_INFO("client_track_fetch return: %x %x %d %s\n", item->owner, item->tsval, htons(in->sin_port), inet_ntoa(in->sin_addr));
 	}
 
 	return stat;
