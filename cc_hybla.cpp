@@ -119,7 +119,7 @@ static void hybla_ack_received(struct cc_var *ccv, uint16_t type)
 		ca->minrtt_us = CCV(ccv, t_srtt);
 	}
 
-	if (type != CC_ACK || !(ccv->flags & CCF_CWND_LIMITED)) {
+	if (!(ccv->flags & CCF_CWND_LIMITED)) {
 		return;
 	}
 
