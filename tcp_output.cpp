@@ -88,6 +88,7 @@ cc_after_idle(struct tcpcb *tp)
 int tcp_output(struct tcpcb *tp)
 {
 	int error;
+	int old = 0;
 	int tilen = 0;
 	int is_frag = 0;
 	int rcv_numsacks;
@@ -288,6 +289,18 @@ after_sack_rexmit:
 			flags &= ~TH_FIN;
 	}
 
+	old = rgn_size(tp->rgn_snd);
+	if (TCPS_HAVEESTABLISHED(tp->t_state) && 
+			tp->t_state < TCPS_FIN_WAIT_1 &&
+			(tp->snd_wnd / 4 * 5) >= rgn_size(tp->rgn_snd) &&
+			rgn_len(tp->rgn_snd) >= (rgn_size(tp->rgn_snd) / 8 * 7) &&
+			rgn_size(tp->rgn_snd) < tp->snd_max_space &&
+			sendwin >= (rgn_len(tp->rgn_snd) - (tp->snd_nxt - tp->snd_una))) {
+		TCP_DEBUG(1, "expand connection send space from %x@%d to %d -> %d\n", (tp->tp_socket->so_conv), tp->t_state, old, old << 1);
+		UTXPL_ASSERT(old > tp->t_maxseg);
+		tp->rgn_snd = rgn_resize(tp->rgn_snd, old << 1);
+	}
+
 	recwin = rgn_rest(tp->rgn_rcv);
 
 	if (len > tp->t_maxseg) {
@@ -349,15 +362,19 @@ after_sack_rexmit:
 		 * If the new window size ends up being the same as the old
 		 * size when it is scaled, then don't force a window update.
 		 */
-		if (oldwin == (adv + oldwin))
+		if (oldwin >> WINDOW_SCALE == (adv + oldwin) >> WINDOW_SCALE)
 			goto dontupdate;
 
-		if (adv >= (long) (2 * tp->t_maxseg))
+		if (adv >= (long) (2 * tp->t_maxseg) && adv >= (long)(rgn_size(tp->rgn_snd) / 4))
 			goto sendit;
 
 		if (2 * adv >= (long) rgn_size(tp->rgn_rcv))
 			goto sendit;
+
+		if (recwin <= (long)(rgn_size(tp->rgn_snd) / 8))
+			goto sendit;
 	}
+
 
 dontupdate:
 	/*
@@ -623,15 +640,6 @@ timer:
 	tp->last_ack_sent = tp->rcv_nxt;
 	tp->t_flags &= ~(TF_ACKNOW | TF_DELACK);
 	tcp_timer_activate(tp, TT_DELACK, 0);
-
-	int old = rgn_size(tp->rgn_snd);
-	if ((tp->t_flags & TF_MORETOCOME) &&
-			(old << 1) <= tp->snd_max_space &&
-			(u_int)(tp->snd_nxt - tp->snd_una) > old - (old >> 2) - tp->t_maxseg) {
-		UTXPL_ASSERT(old > tp->t_maxseg);
-		tp->rgn_snd = rgn_resize(tp->rgn_snd, old << 1);
-		TCP_TRACE_AWAYS(tp, "expand connection send space from %d to %d\n", old, old << 1);
-	}
 
 	if (sendalot)
 		goto again;

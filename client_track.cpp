@@ -97,7 +97,7 @@ int client_track_fetch(uint32_t conv, void *target, size_t len, uint32_t live)
 		assert(len == sizeof(item->peer));
 		stat = memcmp(&item->peer, target, sizeof(item->peer));
 		memcpy(target, &item->peer, sizeof(item->peer));
-		struct sockaddr_in *in = (struct sockaddr_in *)target;
+		struct sockaddr_in *in = (struct sockaddr_in *)item->peer.name;
 		LOG_INFO("client_track_fetch return: %x %x %d %s\n", item->owner, item->tsval, htons(in->sin_port), inet_ntoa(in->sin_addr));
 	}
 

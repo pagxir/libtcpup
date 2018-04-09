@@ -175,6 +175,7 @@ static void tcp_rexmt_timo(void *up)
 
 static void tcp_keep_timo(void *up)
 {
+	int stat = 0;
    	struct tcpcb *tp;
 
 	tp = (struct tcpcb *)up;
@@ -195,6 +196,8 @@ static void tcp_keep_timo(void *up)
 #endif
 		}
 
+		if (ticks - tp->t_rcvtime >= TP_KEEPIDLE(tp) + TP_KEEPINTVL(tp))
+			stat = client_track_fetch(tp->tp_socket->so_conv, &tp->dst_addr, sizeof(tp->dst_addr), tp->t_rcvtime);
 		tcp_respond(tp, NULL, tp->rcv_nxt, tp->snd_una - 1, 0);
 		tx_timer_reset(&tp->t_timer_keep, TP_KEEPINTVL(tp));
    	} else

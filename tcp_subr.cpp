@@ -62,7 +62,7 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 
 	TCP_DEBUG(1, "tp->t_maxseg = %u\n", tp->t_maxseg);
 	tp->snd_max_space = (2 * 1024 * 1024);
-	tp->rgn_snd = rgn_create(512 * 1024);
+	tp->rgn_snd = rgn_create(128 * 1024);
 	tp->rcv_max_space = (2 * 1024 * 1024);
 	tp->rgn_rcv = rgn_create(768 * 1024);
 	tp->snd_wnd = tp->t_maxseg;
@@ -79,8 +79,8 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 	tp->r_event = NULL;
 
 	tp->t_rttupdated = 0;
-	tp->t_keepidle  = 600 * hz;
-	tp->t_keepintvl = 6 * hz;
+	tp->t_keepidle  = 1200 * hz;
+	tp->t_keepintvl = 0;
 
 	tp->relay_len = 0;
 

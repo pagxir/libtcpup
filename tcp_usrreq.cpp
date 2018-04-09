@@ -35,13 +35,15 @@ void sowwakeup(struct tcpcb *tp)
 	switch (tp->t_state) {
 		case TCPS_SYN_SENT:
 		case TCPS_SYN_RECEIVED:
-			if (rgn_len(tp->rgn_snd) < 1400) {
+			if (rgn_len(tp->rgn_snd) < tp->t_maxseg) {
 				tx_task_active(tp->w_event, "sow");
 			}
 			break;
 
 		default:
 			if (rgn_rest(tp->rgn_snd) * 4 >= rgn_size(tp->rgn_snd)) {
+				tx_task_active(tp->w_event, "sow");
+			} else if (rgn_rest(tp->rgn_snd) >= 4096) {
 				tx_task_active(tp->w_event, "sow");
 			}
 			break;
@@ -506,13 +508,25 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 			break;
 
 		case TCP_WRITE:
-			limit = (tp->snd_max - tp->snd_una);
-		   	if (rgn_len(tp->rgn_snd) >= limit + 4096) {
+			if (rgn_rest(tp->rgn_snd) == 0 && rgn_len(tp->rgn_snd) > 0) {
 				assert(task == tp->w_event || tp->w_event == NULL);
+				tp->t_flags |= TF_MORETOCOME;
+				tp->w_event = task;
+				error = 0;
+				break;
+			}
+
+#if 1
+			limit = (tp->snd_max - tp->snd_una);
+			if (tp->snd_wnd < (rgn_len(tp->rgn_snd) - limit) &&
+					rgn_len(tp->rgn_snd) >= limit + 8192) {
+				assert(task == tp->w_event || tp->w_event == NULL);
+				tp->t_flags |= TF_MORETOCOME;
 				tp->w_event = task;
 				error = 0;
 				break;
 		   	} 
+#endif
 
 			if (rgn_len(tp->rgn_snd) > 0 &&
 					(tp->t_state == TCPS_SYN_SENT ||
