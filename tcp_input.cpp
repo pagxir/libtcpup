@@ -415,6 +415,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 
 	if (tp->t_state == TCPS_ESTABLISHED &&
 			th->th_seq == tp->rcv_nxt &&
+            ((tp->t_flags & (TF_NEEDSYN|TF_NEEDFIN)) == 0) &&
 			(thflags & (TH_SYN | TH_FIN | TH_RST | TH_ACK)) == TH_ACK &&
 			tp->snd_nxt == tp->snd_max &&
 			tiwin && tiwin == tp->snd_wnd &&
@@ -700,8 +701,6 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 				 */
 
 				tp->t_starttime = ticks;
-				tp->t_state = TCPS_ESTABLISHED;
-				TCP_TRACE_START(tp, "TCPS_SYN_SENT -> TCPS_ESTABLISHED\n");
 				if (to.to_tsecr != 0) {
 					u_int t = tcp_ts_getticks() - to.to_tsecr;
 					tcp_xmit_timer(tp, TCP_TS_TO_TICKS(t) + 1);
@@ -709,8 +708,20 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 						SEQ_GT(th->th_ack, tp->t_rtseq)) {
 					tcp_xmit_timer(tp, ticks - tp->t_rtttime);
 				}
-				cc_conn_init(tp);
-				tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));
+
+				if (tp->t_flags & TF_NEEDFIN) {
+					TCP_TRACE_START(tp, "TCPS_SYN_SENT -> TCPS_FIN_WAIT_1\n");
+					tcp_state_change(tp, TCPS_FIN_WAIT_1);
+					tp->t_flags &= ~TF_NEEDFIN;
+					thflags &= ~TH_SYN;
+				} else {
+					TCP_TRACE_START(tp, "TCPS_SYN_SENT -> TCPS_ESTABLISHED\n");
+					tcp_state_change(tp, TCPS_ESTABLISHED);
+
+					cc_conn_init(tp);
+					tcp_timer_activate(tp, TT_KEEP,
+							TP_KEEPIDLE(tp));
+				}
 
 				sowwakeup(tp);
 			} else {
@@ -1089,7 +1100,15 @@ close:
 			 *      SYN-RECEIVED* -> FIN-WAIT-1
 			 */
 			tp->t_starttime = ticks;
-			tp->t_state = TCPS_ESTABLISHED;
+			if (tp->t_flags & TF_NEEDFIN) {
+				tcp_state_change(tp, TCPS_FIN_WAIT_1);
+				tp->t_flags &= ~TF_NEEDFIN;
+			} else {
+				tcp_state_change(tp, TCPS_ESTABLISHED);
+				cc_conn_init(tp);
+				tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));
+			}
+
 			if (to.to_tsecr != 0) {
 				u_int t = tcp_ts_getticks() - to.to_tsecr;
 				tcp_xmit_timer(tp, TCP_TS_TO_TICKS(t) + 1);
@@ -1097,8 +1116,6 @@ close:
 					SEQ_GT(th->th_ack, tp->t_rtseq)) {
 				tcp_xmit_timer(tp, ticks - tp->t_rtttime);
 			}
-			cc_conn_init(tp);
-			tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));
 
 			/*
 			 * If segment contains data or ACK, will call tcp_reass()

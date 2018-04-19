@@ -199,6 +199,9 @@ again:
 	}
 
 after_sack_rexmit:
+	if (tp->t_flags & TF_NEEDFIN)
+		flags |= TH_FIN;
+
 	if (tp->t_flags & TF_FORCEDATA) {
 		if (sendwin == 0) {
 			if (off < rgn_len(tp->rgn_snd))
@@ -290,7 +293,8 @@ after_sack_rexmit:
 	}
 
 	old = rgn_size(tp->rgn_snd);
-	if (TCPS_HAVEESTABLISHED(tp->t_state) && 
+	if (!(tp->t_flags & TF_NEEDFIN)
+			&& TCPS_HAVEESTABLISHED(tp->t_state) && 
 			tp->t_state < TCPS_FIN_WAIT_1 &&
 			(tp->snd_wnd / 4 * 5) >= rgn_size(tp->rgn_snd) &&
 			rgn_len(tp->rgn_snd) >= (rgn_size(tp->rgn_snd) / 8 * 7) &&
@@ -299,6 +303,7 @@ after_sack_rexmit:
 		TCP_DEBUG(1, "expand connection send space from %x@%d to %d -> %d\n", (tp->tp_socket->so_conv), tp->t_state, old, old << 1);
 		UTXPL_ASSERT(old > tp->t_maxseg);
 		tp->rgn_snd = rgn_resize(tp->rgn_snd, old << 1);
+		sowwakeup(tp);
 	}
 
 	recwin = rgn_rest(tp->rgn_rcv);
