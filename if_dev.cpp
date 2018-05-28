@@ -29,10 +29,12 @@ int ticks = 0;
 extern struct module_stub  tcp_device_udp_mod;
 extern struct module_stub  tcp_device_icmp_mod;
 extern struct module_stub  tcp_device_icmp_user_mod;
+extern struct module_stub  tcp_device_stdio_mod;
 
 extern struct if_dev_cb _udp_if_dev_cb;
 extern struct if_dev_cb _icmp_if_dev_cb;
 extern struct if_dev_cb _icmp_user_if_dev_cb;
+extern struct if_dev_cb _stdio_if_dev_cb;
 
 static struct if_dev_cb * _if_dev_db = &_udp_if_dev_cb;
 static struct module_stub  * _tcp_device_mod = &tcp_device_udp_mod;
@@ -131,6 +133,13 @@ void set_link_protocol(const char *link)
 			|| strcmp(link, "ICMP-USER") == 0) {
 		_tcp_device_mod = &tcp_device_icmp_user_mod;
 		_if_dev_db = &_icmp_user_if_dev_cb;
+		return;
+	}
+
+	if (strcmp(link, "stdio") == 0
+			|| strcmp(link, "STDIO") == 0) {
+		_tcp_device_mod = &tcp_device_stdio_mod;
+		_if_dev_db = &_stdio_if_dev_cb;
 		return;
 	}
 }
