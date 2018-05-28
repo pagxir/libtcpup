@@ -27,6 +27,8 @@ struct module_stub *modules_list[] = {
 	&tcp_device_mod, &tcp_timer_mod, &tcp_listen_mod, NULL
 };
 
+void set_link_protocol(const char *link);
+
 int main(int argc, char *argv[])
 {
 	struct tcpip_info proxy_address = {0};
@@ -40,6 +42,37 @@ int main(int argc, char *argv[])
 #else
 	signal(SIGPIPE, SIG_IGN);
 #endif
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-h") == 0) {
+			fprintf(stderr, "%s [options] <PROXY-ADDRESS>!\n", argv[0]);
+			fprintf(stderr, "-h print this help!\n");
+#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
+			fprintf(stderr, "-o <OUTTER-ADDRESS> out going address, local address use for outgoing packet!\n");
+#endif
+			fprintf(stderr, "-i <INTERFACE-ADDRESS> interface address, local address use for outgoing/incoming packet!\n");
+			fprintf(stderr, "-l <LISTEN-ADDRESS> listening tcp address!\n");
+			fprintf(stderr, "-link lower link <UDP/ICMP/ICMP-USER>!\n");
+			fprintf(stderr, "-cc.algo <CC-ALGO> algo to control send/recv data!\n");
+			fprintf(stderr, "all ADDRESS should use this format <HOST:PORT> OR <PORT>\n");
+			fprintf(stderr, "\n");
+			return 0;
+		} else if (strcmp(argv[i], "-cc.algo") == 0 && i + 1 < argc) {
+			i++;
+		} else if (strcmp(argv[i], "-mtu") == 0 && i + 1 < argc) {
+			i++;
+		} else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+			i++;
+		} else if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
+			i++;
+		} else if (strcmp(argv[i], "-link") == 0 && i + 1 < argc) {
+			set_link_protocol(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
+			i++;
+		} else {
+			continue;
+		}
+	}
 
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0) {
@@ -51,6 +84,7 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "-i <INTERFACE-ADDRESS> interface address, local address use for outgoing/incoming packet!\n");
 			fprintf(stderr, "-l <LISTEN-ADDRESS> listening tcp address!\n");
 			fprintf(stderr, "-cc.algo <CC-ALGO> algo to control send/recv data!\n");
+			fprintf(stderr, "-link lower link <UDP/ICMP/ICMP-USER>!\n");
 			fprintf(stderr, "all ADDRESS should use this format <HOST:PORT> OR <PORT>\n");
 			fprintf(stderr, "\n");
 			return 0;
@@ -66,6 +100,8 @@ int main(int argc, char *argv[])
 			i++;
 		} else if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
 			get_target_address(&interface_address, argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "-link") == 0 && i + 1 < argc) {
 			i++;
 		} else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
 			get_target_address(&listen_address, argv[i + 1]);

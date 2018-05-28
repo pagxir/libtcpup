@@ -18,6 +18,9 @@
 #include <tcpup/tcp_debug.h>
 #include <tcpup/tcp_crypt.h>
 
+#define IF_DEV 1
+#include <tcpup/tcp_device.h>
+
 #include "tcp_channel.h"
 
 #define ICMP_NATYPE_CODE 0
@@ -41,24 +44,19 @@ struct icmphdr {
 };
 
 static FILTER_HOOK *_filter_hook;
-int set_filter_hook(FILTER_HOOK *hook)
+static int _set_filter_hook(FILTER_HOOK *hook)
 {
 	_filter_hook = hook;
 	return 0;
 }
 
-int get_device_mtu()
-{
-	int mtu = 1500;
-	char *mtup = getenv("MTU");
-	if (mtup != NULL) {
-		int tmp_mtu = atoi(mtup);
-		if (tmp_mtu > 512 && tmp_mtu < 1500) mtu = tmp_mtu;
-	}
-	return mtu - 20 - 16;
-}
+#ifdef _DNS_CLIENT_
+#define TCPUP_DEVICE_ICMP_CLASS tcpup_device_icmp_user
+#else
+#define TCPUP_DEVICE_ICMP_CLASS tcpup_device_icmp
+#endif
 
-struct tcpup_device {
+struct TCPUP_DEVICE_ICMP_CLASS {
 	struct tx_aiocb _sockcbp;
 
 	struct tx_task_t _event;
@@ -78,38 +76,38 @@ public:
 	void incoming();
 };
 
-int _tcp_out_fd = -1;
-int _tcp_dev_busy = 0;
-int _icmp_is_reply = 0;
+static int _tcp_out_fd = -1;
+static int _tcp_dev_busy = 0;
+static int _icmp_is_reply = 0;
 static tx_task_q _dev_busy;
 
 static struct tx_task_t _stop;
 static struct tx_task_t _start;
 
-static struct tcpup_device *_paging_devices[32] = {0};
+static struct TCPUP_DEVICE_ICMP_CLASS *_paging_devices[32] = {0};
 
 static void listen_statecb(void *context);
 static void listen_callback(void *context);
 
-int tcp_busying(void)
+static int _tcp_busying(void)
 {
 	return _tcp_dev_busy;
 }
 
-void set_ping_reply(int mode)
+static void _set_ping_reply(int mode)
 {
 	_icmp_is_reply = mode;
 	return;
 }
 
-sockcb_t socreate(so_conv_t conv)
+static sockcb_t _socreate(so_conv_t conv)
 {
 #ifndef _DNS_CLIENT_
 	int offset = 0;
 #else
 	int offset = (rand() % 0xF) << 1;
 #endif
-	tcpup_device *this_device = _paging_devices[offset];
+	TCPUP_DEVICE_ICMP_CLASS *this_device = _paging_devices[offset];
 
 #ifndef _DNS_CLIENT_
 	if (this_device != NULL && this_device->_dobind == 0) {
@@ -134,7 +132,7 @@ sockcb_t socreate(so_conv_t conv)
 	}
 
 	if (this_device == NULL) {
-		this_device = new tcpup_device;
+		this_device = new TCPUP_DEVICE_ICMP_CLASS;
 		this_device->init(0);
 		this_device->_offset = offset;
 		tx_task_active(&this_device->_event, "d-r");
@@ -154,7 +152,7 @@ static void dev_idle_callback(void *uup)
 	return ;
 }
 
-void tcp_devbusy(struct tcpcb *tp)
+static void _tcp_devbusy(struct tcpcb *tp)
 {
 #if 0
 	if ((tp->t_flags & TF_DEVBUSY) == 0) {
@@ -170,7 +168,7 @@ void tcp_devbusy(struct tcpcb *tp)
 }
 
 static struct sockaddr_in _tcp_out_addr = { 0 };
-extern "C" void tcp_set_outter_address(struct tcpip_info *info)
+static void _tcp_set_outter_address(struct tcpip_info *info)
 {
 	int error;
 	struct sockaddr *out_addr;
@@ -195,7 +193,7 @@ extern "C" void tcp_set_outter_address(struct tcpip_info *info)
 }
 
 static struct sockaddr_in _tcp_dev_addr = { 0 };
-extern "C" void tcp_set_device_address(struct tcpip_info *info)
+static void _tcp_set_device_address(struct tcpip_info *info)
 {
 	_tcp_dev_addr.sin_family = AF_INET;
 	_tcp_dev_addr.sin_port   = (info->port);
@@ -204,16 +202,16 @@ extern "C" void tcp_set_device_address(struct tcpip_info *info)
 }
 
 static struct sockaddr_in _tcp_keep_addr = { 0 };
-extern "C" void tcp_set_keepalive_address(struct tcpip_info *info)
+static void _tcp_set_keepalive_address(struct tcpip_info *info)
 {
 	_tcp_keep_addr.sin_family = AF_INET;
 	_tcp_keep_addr.sin_port   = (info->port);
 	_tcp_keep_addr.sin_addr.s_addr   = (info->address);
 }
 
-struct icmphdr icmp_hdr_fill[1] = {{0}};
+static struct icmphdr icmp_hdr_fill[1] = {{0}};
 
-void tcpup_device::init(int dobind)
+void TCPUP_DEVICE_ICMP_CLASS::init(int dobind)
 {
 	int error;
 	socklen_t alen;
@@ -282,13 +280,13 @@ static void listen_statecb(void *context)
 {
 	int state;
 	int offset = 0;
-	tcpup_device *this_device = _paging_devices[offset];
+	TCPUP_DEVICE_ICMP_CLASS *this_device = _paging_devices[offset];
 
 	state = (int)(long)context;
 	switch (state) {
 		case 1:
 			if (this_device == NULL) {
-				this_device = new tcpup_device;
+				this_device = new TCPUP_DEVICE_ICMP_CLASS;
 				this_device->init(1);
 				this_device->_offset = offset;
 				tx_task_active(&this_device->_event, "listen");
@@ -306,8 +304,6 @@ static void listen_statecb(void *context)
 
 	return;
 }
-
-int ticks = 0;
 
 #ifndef WIN32
 #define IOVEC struct iovec
@@ -331,9 +327,9 @@ static void icmp_update_checksum(unsigned char *st, LPIOVEC vecs, size_t count);
 
 static void listen_callback(void *context)
 {
-	struct tcpup_device *up;
+	struct TCPUP_DEVICE_ICMP_CLASS *up;
 
-	up = (struct tcpup_device *)context;
+	up = (struct TCPUP_DEVICE_ICMP_CLASS *)context;
 	up->incoming();
 	return;
 }
@@ -344,7 +340,7 @@ static void listen_callback(void *context)
 #define IPHDR_SKIP_LEN 0
 #endif
 
-void tcpup_device::incoming(void)
+void TCPUP_DEVICE_ICMP_CLASS::incoming(void)
 {
 	int len;
 	int pktcnt;
@@ -434,7 +430,7 @@ static void module_clean(void)
 	tx_task_drop(&_stop);
 }
 
-void tcpup_device::fini()
+void TCPUP_DEVICE_ICMP_CLASS::fini()
 {
 	fprintf(stderr, "udp_listen: exiting\n");
 	tx_task_drop(&_dev_idle);
@@ -443,7 +439,7 @@ void tcpup_device::fini()
 	closesocket(_file);
 }
 
-extern "C" void tcp_backwork(struct tcpip_info *info)
+static void _tcp_backwork(struct tcpip_info *info)
 {
 #if 0
 	struct sockaddr_in addr_in1;
@@ -454,13 +450,6 @@ extern "C" void tcp_backwork(struct tcpip_info *info)
 	sendto(_file, "HELO", 4, 0,
 			(struct sockaddr *)&addr_in1, sizeof(addr_in1));
 #endif
-	return;
-}
-
-void __utxpl_assert(const char *expr, const char *path, size_t line)
-{
-	fprintf(stderr, "ASSERT FAILURE: %s:%d %s\n", path, (int)line, expr);
-	abort();
 	return;
 }
 
@@ -501,7 +490,7 @@ static u_short get_addr_port(struct tcpup_addr const *name)
 	return saip->sin_port;
 }
 
-int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
+static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
 {
 	int fd;
 	int error;
@@ -618,16 +607,41 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	return error;
 }
 
-int utxpl_error()
-{
-#ifdef WIN32
-	return WSAGetLastError();
+#ifndef _DNS_CLIENT_
+struct module_stub  tcp_device_icmp_mod = {
 #else
-	return errno;
+struct module_stub  tcp_device_icmp_user_mod = {
 #endif
-}
-
-struct module_stub  tcp_device_mod = {
 	module_init, module_clean
 };
 
+#ifndef _DNS_CLIENT_
+struct if_dev_cb _icmp_if_dev_cb = {
+#else
+struct if_dev_cb _icmp_user_if_dev_cb = {
+#endif
+	head_size: 20 + 16,
+	output: _utxpl_output,
+	set_filter: _set_filter_hook,
+	socreate: _socreate,
+	dev_busy: _tcp_devbusy,
+	reply_mode: _set_ping_reply,
+	device_address: _tcp_set_device_address,
+	outter_address: _tcp_set_outter_address,
+	keepalive_address: _tcp_set_keepalive_address
+};
+
+#if 0
+{
+    int head_size;
+    int (* output)(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name);
+    int (* set_filter)(FILTER_HOOK *hook);
+    sockcb_t (* socreate)(so_conv_t conv);
+    void (* dev_busy)(struct tcpcb *tp);
+    void (* reply_mode)(int mode);
+    void (* device_address)(struct tcpip_info *info);
+    void (* outter_address)(struct tcpip_info *info);
+    void (* keepalive_address)(struct tcpip_info *info);
+};
+
+#endif

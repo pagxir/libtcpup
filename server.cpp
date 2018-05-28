@@ -34,6 +34,8 @@ struct module_stub *modules_list[] = {
    	&pstcp_listen_mod, &dns_async_mod, NULL
 };
 
+void set_link_protocol(const char *link);
+
 #ifdef _WINSRV_
 void _winsrv_stop()
 {
@@ -58,12 +60,46 @@ int main(int argc, char *argv[])
 	struct waitcb event;
 	WSAStartup(0x101, &data);
 #endif
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-h") == 0) {
+			fprintf(stderr, "%s [options] <FORWARD-ADDRESS>!\n", argv[0]);
+			fprintf(stderr, "-h print this help!\n");
+			fprintf(stderr, "-l <LISTEN-ADDRESS> listening tcp address!\n");
+			fprintf(stderr, "-link lower link <UDP/ICMP/ICMP-USER>!\n");
+			fprintf(stderr, "-i <INTERFACE-ADDRESS> interface to send/recv data!\n");
+#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
+			fprintf(stderr, "-o <OUTTER-ADDRESS> out going address, local address use for outgoing packet!\n");
+#endif
+			fprintf(stderr, "-cc.algo <CC-ALGO> algo to control send/recv data!\n");
+			fprintf(stderr, "all ADDRESS should use this format <HOST:PORT> OR <PORT>\n");
+			return 0;
+		} else if (strcmp(argv[i], "-cc.algo") == 0 && i + 1 < argc) {
+			i++;
+		} else if (strcmp(argv[i], "-d") == 0) {
+		} else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
+			i++;
+		} else if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
+			i++;
+		} else if (strcmp(argv[i], "-R") == 0 && i + 1 < argc) {
+			i++;
+		} else if (strcmp(argv[i], "-link") == 0 && i + 1 < argc) {
+			set_link_protocol(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "-K") == 0 && i + 1 < argc) {
+			i++;
+		} else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
+			i++;
+		} else {
+			continue;
+		}
+	}
 
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0) {
 			fprintf(stderr, "%s [options] <FORWARD-ADDRESS>!\n", argv[0]);
 			fprintf(stderr, "-h print this help!\n");
 			fprintf(stderr, "-l <LISTEN-ADDRESS> listening tcp address!\n");
+			fprintf(stderr, "-link lower link <UDP/ICMP/ICMP-USER>!\n");
 			fprintf(stderr, "-i <INTERFACE-ADDRESS> interface to send/recv data!\n");
 #ifdef _FEATRUE_INOUT_TWO_INTERFACE_
 			fprintf(stderr, "-o <OUTTER-ADDRESS> out going address, local address use for outgoing packet!\n");
@@ -94,6 +130,8 @@ int main(int argc, char *argv[])
 			i++;
 		} else if (strcmp(argv[i], "-K") == 0 && i + 1 < argc) {
 			get_target_address(&keepalive_address, argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "-link") == 0 && i + 1 < argc) {
 			i++;
 		} else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
 			get_target_address(&listen_address, argv[i + 1]);

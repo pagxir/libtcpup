@@ -18,24 +18,16 @@
 #include <tcpup/tcp_debug.h>
 #include <tcpup/tcp_crypt.h>
 
+#define IF_DEV 1
+#include <tcpup/tcp_device.h>
+
 #include "tcp_channel.h"
 
 static FILTER_HOOK *_filter_hook;
-int set_filter_hook(FILTER_HOOK *hook)
+static int _set_filter_hook(FILTER_HOOK *hook)
 {
 	_filter_hook = hook;
 	return 0;
-}
-
-int get_device_mtu()
-{
-	int mtu = 1500;
-	char *mtup = getenv("MTU");
-	if (mtup != NULL) {
-		int tmp_mtu = atoi(mtup);
-		if (tmp_mtu >= 512 && tmp_mtu < 1500) mtu = tmp_mtu;
-	}
-	return mtu - 20 - 8 - 22;
 }
 
 struct tcpup_device {
@@ -62,8 +54,8 @@ public:
 	void holdon();
 };
 
-int _tcp_out_fd = -1;
-int _tcp_dev_busy = 0;
+static int _tcp_out_fd = -1;
+static int _tcp_dev_busy = 0;
 static tx_task_q _dev_busy;
 
 static struct tx_task_t _stop;
@@ -76,17 +68,17 @@ static void dev_nat_holdon(void *ctx);
 static void listen_statecb(void *context);
 static void listen_callback(void *context);
 
-int tcp_busying(void)
+static int tcp_busying(void)
 {
 	return _tcp_dev_busy;
 }
 
-void set_ping_reply(int mode)
+static void _set_ping_reply(int mode)
 {
 	return;
 }
 
-sockcb_t socreate(so_conv_t conv)
+static sockcb_t _socreate(so_conv_t conv)
 {
 	int offset = (rand() % MAX_DEV_CNT) & ~1;
 	if (getenv("RELAYSERVER") != NULL) offset = 0;
@@ -132,7 +124,7 @@ static void dev_idle_callback(void *uup)
 	return ;
 }
 
-void tcp_devbusy(struct tcpcb *tp)
+static void _tcp_devbusy(struct tcpcb *tp)
 {
 #if 0
 	if ((tp->t_flags & TF_DEVBUSY) == 0) {
@@ -148,7 +140,7 @@ void tcp_devbusy(struct tcpcb *tp)
 }
 
 static struct sockaddr_in _tcp_out_addr = { 0 };
-extern "C" void tcp_set_outter_address(struct tcpip_info *info)
+static void _tcp_set_outter_address(struct tcpip_info *info)
 {
 	int error;
 	struct sockaddr *out_addr;
@@ -168,7 +160,7 @@ extern "C" void tcp_set_outter_address(struct tcpip_info *info)
 }
 
 static struct sockaddr_in _tcp_dev_addr = { 0 };
-extern "C" void tcp_set_device_address(struct tcpip_info *info)
+static void _tcp_set_device_address(struct tcpip_info *info)
 {
 	_tcp_dev_addr.sin_family = AF_INET;
 	_tcp_dev_addr.sin_port   = (info->port);
@@ -177,7 +169,7 @@ extern "C" void tcp_set_device_address(struct tcpip_info *info)
 }
 
 static struct sockaddr_in _tcp_keep_addr = { 0 };
-extern "C" void tcp_set_keepalive_address(struct tcpip_info *info)
+static void _tcp_set_keepalive_address(struct tcpip_info *info)
 {
 	_tcp_keep_addr.sin_family = AF_INET;
 	_tcp_keep_addr.sin_port   = (info->port);
@@ -295,8 +287,6 @@ static void listen_statecb(void *context)
 
 	return;
 }
-
-int ticks = 0;
 
 #define RCVPKT_MAXCNT 256
 #define RCVPKT_MAXSIZ 1500
@@ -437,14 +427,7 @@ extern "C" void tcp_backwork(struct tcpip_info *info)
 	return;
 }
 
-void __utxpl_assert(const char *expr, const char *path, size_t line)
-{
-	LOG_FATAL("ASSERT FAILURE: %s:%d %s\n", path, line, expr);
-	abort();
-	return;
-}
-
-int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
+static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
 {
 	int fd;
     int error;
@@ -545,16 +528,33 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 	return error;
 }
 
-int utxpl_error()
-{
-#ifdef WIN32
-	return WSAGetLastError();
-#else
-	return errno;
-#endif
-}
-
-struct module_stub  tcp_device_mod = {
+struct module_stub  tcp_device_udp_mod = {
 	module_init, module_clean
 };
 
+struct if_dev_cb _udp_if_dev_cb = {
+	head_size: 20 + 8 + 22,
+	output: _utxpl_output,
+	set_filter: _set_filter_hook,
+	socreate: _socreate,
+	dev_busy: _tcp_devbusy,
+	reply_mode: _set_ping_reply,
+	device_address: _tcp_set_device_address,
+	outter_address: _tcp_set_outter_address,
+	keepalive_address: _tcp_set_keepalive_address
+};
+
+#if 0
+{
+    int head_size;
+    int (* output)(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name);
+    int (* set_filter)(FILTER_HOOK *hook);
+    sockcb_t (* socreate)(so_conv_t conv);
+    void (* dev_busy)(struct tcpcb *tp);
+    void (* reply_mode)(int mode);
+    void (* device_address)(struct tcpip_info *info);
+    void (* outter_address)(struct tcpip_info *info);
+    void (* keepalive_address)(struct tcpip_info *info);
+};
+
+#endif
