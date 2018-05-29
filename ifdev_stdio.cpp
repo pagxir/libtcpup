@@ -31,9 +31,11 @@ static int _set_filter_hook(FILTER_HOOK *hook)
 }
 
 struct ifdev_stdio_device {
+	struct tx_aiocb _outcb;
 	struct tx_aiocb _sockcbp;
 
 	struct tx_task_t _event;
+	struct tx_task_t _wevent;
 	struct tx_task_t _dev_idle;
 	struct sockaddr_in _addr_in;
 
@@ -58,6 +60,7 @@ static struct tx_task_t _start;
 
 static void listen_statecb(void *context);
 static void listen_callback(void *context);
+static void output_callback(void *context);
 
 static int tcp_busying(void)
 {
@@ -98,11 +101,13 @@ void ifdev_stdio_device::init(int dobind)
 {
 	tx_loop_t *loop = tx_loop_default();
 	tx_task_init(&_event, loop, listen_callback, this);
+	tx_task_init(&_wevent, loop, output_callback, this);
 	tx_task_init(&_dev_idle, loop, dev_idle_callback, this);
 
 	_file = 0;
 	assert(_file != -1);
 
+	tx_aiocb_init(&_outcb, loop, 1);
 	tx_aiocb_init(&_sockcbp, loop, _file);
 }
 
@@ -192,6 +197,11 @@ void ifdev_stdio_device::incoming(void)
 		p = _rcvpkt_buf;
 		pktcnt = 0;
 
+		if (!file_can_read(0)) {
+			errno = EAGAIN;
+			tx_aincb_update(&_sockcbp, -1);
+		}
+
 		while (file_can_read(0)) {
 			if (_stdin_len == sizeof(_stdin_buf) || _stdin_off > sizeof(_stdin_buf) / 2) {
 				assert (_stdin_off > 0);
@@ -202,11 +212,12 @@ void ifdev_stdio_device::incoming(void)
 
 			int error = read(0, _stdin_buf + _stdin_len, sizeof(_stdin_buf) - _stdin_len);
 			if (error <= 0) {
+				tx_aincb_update(&_sockcbp, -1);
 				fprintf(stderr, "error: %d\n", error);
 				break;
 			}
 
-			int len = 0, esc = 0;
+			int len = 0, esc = 0, aborted = 0;
 			_stdin_len += error;
 			for (char *ptr = _stdin_buf + _stdin_off; ptr < _stdin_buf + _stdin_len; ptr++) {
 				if (esc == 1) {
@@ -214,21 +225,31 @@ void ifdev_stdio_device::incoming(void)
 						p[len++] = END;
 					} else if (*ptr  == ESC_ESC) {
 						p[len++] = ESC;
+					} else if ((*ptr & 0xe0) == 0x80) {
+						p[len++] = (*ptr & 0x7f);
 					} else {
-						abort();
+						fprintf(stderr, "failure decode: %x\n", *ptr);
+						aborted = 1;
 					}
 					esc = 0;
 				} else if (*ptr == END) {
 					_stdin_off = (ptr + 1 - _stdin_buf);
-					if (len > 0) {
+					if (len > 0 && aborted == 0) {
 						_rcvpkt_len[pktcnt++] = len;
+						if (*p == '!') exit(9);
 						p += len;
-						len = 0;
 					}
+					aborted = 0;
+					len = 0;
 				} else if (*ptr == ESC) {
 					esc = 1;
 				} else {
 					p[len++] = *ptr;
+				}
+
+				if (aborted || len > 1500) {
+					aborted = 1;
+					len = 0;
 				}
 			}
 		}
@@ -258,8 +279,10 @@ void ifdev_stdio_device::fini()
 	LOG_INFO("stdio_listen: exiting\n");
 
 	tx_task_drop(&_dev_idle);
+	tx_task_drop(&_wevent);
 	tx_task_drop(&_event);
 	tx_aiocb_fini(&_sockcbp);
+	tx_aiocb_fini(&_outcb);
 }
 
 static int _stdout_off = 0;
@@ -278,6 +301,28 @@ static int file_can_write(int fd)
 	return  n > 0 && FD_ISSET(fd, &fds);
 }
 
+static void output_callback(void *context)
+{
+	int error;
+
+	if (_stdout_len > 0 && file_can_write(1)) {
+		error = write(1, _stdout_buf + _stdout_off, _stdout_len);
+		if (error > 0) {
+			assert (error <= _stdout_len);
+			_stdout_off += error;
+			_stdout_len -= error;
+			assert(_stdout_len >= 0);
+		}
+	}
+
+	if (_stdout_len > 0) {
+        tx_outcb_prepare(&_dummy._outcb, &_dummy._wevent, 0);
+	}
+
+	return ;
+}
+
+
 static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
 {
     int error = -1;
@@ -295,7 +340,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 
 		if (_stdout_len == 0) {
 			int n = 0;
-			// _stdout_buf[n++] = END;
+			_stdout_buf[n++] = END;
 
 			for (int i = 0; i < count; i++) {
 				char *ptr = (char *)iov[i].iov_base;
@@ -306,6 +351,10 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 					} else if (*ptr == ESC) {
 						_stdout_buf[n++] = ESC;
 						_stdout_buf[n++] = ESC_ESC;
+					} else if ((*ptr & 0xe0) == 0x0
+						&& *ptr != '\r' && *ptr != '\n' && *ptr != '\t') {
+						_stdout_buf[n++] = ESC;
+						_stdout_buf[n++] = (*ptr)|0x80;
 					} else {
 						_stdout_buf[n++] = *ptr;
 					}
@@ -319,6 +368,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 			assert ( n > 0);
 		} else {
 			fprintf(stderr, "write failure: %d %d\n", _stdout_off, _stdout_len);
+			tx_outcb_prepare(&_dummy._outcb, &_dummy._wevent, 0);
 			assert(_stdout_len >= 0);
 			error = -1;
 			return error;

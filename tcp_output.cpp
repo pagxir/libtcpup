@@ -40,6 +40,90 @@ void tcp_setpersist(struct tcpcb *tp)
 	return;
 }
 
+u_short update_checksum(const void *buf, size_t count)
+{
+	int cksum = 0;
+
+	union {
+		char buf[2];
+		u_short val;
+	} ckstat;
+
+	int nbytes = 0, total = 0;
+	const char *ptr = (const char *)buf;
+
+	cksum = htons(6 + count);
+	for (total = 0; total < count; total++) {
+		ckstat.buf[nbytes++] = *ptr++;
+		if (nbytes == 2) {
+			cksum += ckstat.val;
+			nbytes = 0;
+		}
+	}
+
+	if (nbytes) {
+		ckstat.buf[1] = 0;
+		cksum += ckstat.val;
+		nbytes = 0;
+	}
+
+	while (cksum >> 16) {
+		int cksum1 = (cksum & 0xffff) + (cksum >> 16);
+		cksum = cksum1;
+	}
+
+	return ~cksum;
+}
+
+tcp_seq update_ckpass(const rgn_iovec iov[], size_t count)
+{
+	int i, j;
+	int cksum = 0;
+
+	union {
+		char buf[2];
+		u_short val;
+	} ckstat;
+	int nbytes = 0, total = 0;
+
+	for (i = 0; i < count; i++) {
+		const char *ptr = (const char *)iov[i].iov_base;
+		for (j = 0; j < iov[i].iov_len; j++) {
+			ckstat.buf[nbytes++] = *ptr++;
+			if (nbytes == 2) {
+				cksum += ckstat.val;
+				nbytes = 0;
+			}
+			total ++;
+		}
+	}
+
+	if (nbytes) {
+		ckstat.buf[1] = 0;
+		cksum += ckstat.val;
+		nbytes = 0;
+	}
+
+	cksum += htons(total);
+	cksum += htons(6 + total);
+	while (cksum >> 16) {
+		int cksum1 = (cksum & 0xffff) + (cksum >> 16);
+		cksum = cksum1;
+	}
+
+	union {
+		struct {
+			u_short len;
+			u_short sum;
+		} ck;
+		tcp_seq val;
+	} ckpass;
+
+	ckpass.ck.len = htons(total);
+	ckpass.ck.sum = ~cksum;
+	return ckpass.val;
+}
+
 int ertt_add_tx_segment_info_hook(int hhook_type, int hhook_id,
 		void *udata, void *ctx_data, void *hdata, struct osd *hosd);
 
@@ -544,8 +628,7 @@ sendit:
 		}
 	}
 
-
-
+	th->th_ckpass = update_ckpass(iobuf, 3);
 	error = utxpl_output(tp->tp_socket->so_iface, iobuf, 3, &tp->dst_addr);
 
 	if (is_frag) {
@@ -622,7 +705,7 @@ timer:
 		tp->t_flags = prev_t_flags;
 		tp->t_rtttime = prev_t_rtttime;
 
-		assert (tp->snd_max != tp->snd_una);
+		// assert (tp->snd_max != tp->snd_una);
 		if (!tcp_timer_active(tp, TT_REXMT) &&
 				!tcp_timer_active(tp, TT_PERSIST) && tilen) {
 			tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
@@ -631,7 +714,7 @@ timer:
 
 		/* tp->t_dupacks++; */
 		TCP_TRACE_AWAYS(tp, "utxpl_output %d\n", utxpl_error());
-		UTXPL_ASSERT(tp->snd_nxt >= tp->snd_una);
+		// UTXPL_ASSERT(tp->snd_nxt >= tp->snd_una);
 
 		tcp_devbusy(tp);
 	   	return -1;
@@ -700,6 +783,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 	TCP_TRACE_AWAYS(tp, "tcp_respond: %x flags %x seq %x  ack %x ts %x %x\n",
 			th->th_conv, flags, seq, ack, 0, 0);
 
+	th->th_ckpass = update_ckpass(&iov0, 1);
 	error = utxpl_output(tp->tp_socket->so_iface, &iov0, 1, &tp->dst_addr);
 	VAR_UNUSED(error);
 	return;

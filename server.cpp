@@ -18,6 +18,13 @@
 
 #include <tcpup/tcp_device.h>
 
+#include <ctype.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <termios.h>
+#include <unistd.h>
+
 #include "tcp_channel.h"
 #include "pstcp_channel.h"
 
@@ -35,6 +42,27 @@ struct module_stub *modules_list[] = {
 };
 
 void set_link_protocol(const char *link);
+
+struct termios orig_termios;
+
+void disable_raw_mode() {
+	tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+	exit(-1);
+}
+
+static void enable_raw_mode()
+{
+	if (tcgetattr(STDIN_FILENO, &orig_termios) == -1) abort();
+	atexit(disable_raw_mode);
+
+	struct termios raw = orig_termios;
+    cfmakeraw(&raw);
+    raw.c_cflag |= (CLOCAL | CREAD | CSTOPB);
+    tcflush(STDIN_FILENO, TCIOFLUSH);
+
+	if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == -1) abort();
+}
+
 
 #ifdef _WINSRV_
 void _winsrv_stop()
@@ -83,6 +111,7 @@ int main(int argc, char *argv[])
 		} else if (strcmp(argv[i], "-R") == 0 && i + 1 < argc) {
 			i++;
 		} else if (strcmp(argv[i], "-link") == 0 && i + 1 < argc) {
+			if (strcmp(argv[i + 1], "STDIO") == 0) enable_raw_mode();
 			set_link_protocol(argv[i + 1]);
 			i++;
 		} else if (strcmp(argv[i], "-K") == 0 && i + 1 < argc) {

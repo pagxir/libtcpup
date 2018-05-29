@@ -624,6 +624,8 @@ void tcp_usrclosed(struct tcpcb *tp)
 	}
 }
 
+u_short update_checksum(const void *buf, size_t count);
+
 int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_addr *from)
 {
 	int handled = 0;
@@ -635,6 +637,12 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 			(th->th_magic != MAGIC_UDP_TCP)) {
 		TCP_DEBUG(len >= sizeof(*th), "BAD TCPUP MAGIC: %x\n", th->th_magic);
 		TCP_DEBUG(1, "BAD TCPUP MAGIC: %x\n", th->th_magic);
+		return -1;
+	}
+
+	u_short cksum = update_checksum(buf, len);
+	if (cksum != 0) {
+		TCP_DEBUG(1, "BAD TCPUP CHECKSUM: %x\n", cksum);
 		return -1;
 	}
 

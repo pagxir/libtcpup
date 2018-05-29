@@ -22,12 +22,12 @@ ifeq ($(BUILD_TARGET), Linux)
 LOCAL_LDLIBS += -lrt
 endif
 
-LOCAL_CFLAGS += -g -Wall -Wno-sign-compare -I.
-LOCAL_CXXFLAGS += -g -Wall -Wno-sign-compare -I.
+LOCAL_CFLAGS += -g -Wall -Wno-sign-compare -I. -fno-rtti -fno-exceptions
+LOCAL_CXXFLAGS += -g -Wall -Wno-sign-compare -I. -fno-rtti -fno-exceptions
 
 VPATH := $(THIS_PATH)/libtx:$(THIS_PATH)
 
-TARGETS = server.udp server.icm client.udp client.raw 
+TARGETS = server.udp client.udp
 
 ifeq ($(BUILD_TARGET), mingw)
 LOCAL_LDFLAGS += -static
@@ -36,7 +36,8 @@ TARGETS += server.srv
 endif
 
 ifeq ($(BUILD_TARGET), Linux)
-LDLIBS += -lrt -lpthread
+LOCAL_LDFLAGS += 
+LDLIBS += -lrt -lpthread -lc
 endif
 
 all: $(TARGETS)
@@ -64,9 +65,6 @@ LDFLAGS  := $(LOCAL_LDFLAGS) $(LDFLAGS)
 server.udp: $(SRV_OBJ) $(LOCAL_OBJECTS) if_dev.o
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-server.icm: $(SRV_OBJ) $(LOCAL_OBJECTS) if_dev.o
-	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
-
 server.http: $(USRV_OBJ) $(LOCAL_OBJECTS) if_dev.o
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
@@ -75,12 +73,6 @@ server.srv: $(WINSRVOBJ) $(LOCAL_OBJECTS)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 client.udp: $(CLT_OBJ) $(LOCAL_OBJECTS) if_dev.o
-	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
-
-client.icm: $(CLT_OBJ) $(LOCAL_OBJECTS) if_dev.o
-	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
-
-client.raw: $(CLT_OBJ) $(LOCAL_OBJECTS) if_dev.o
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 server_srv.o: server.cpp
