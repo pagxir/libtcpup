@@ -70,7 +70,7 @@ LIST_HEAD(sockcb_q, sockcb);
 void sofree(sockcb_t so);
 
 #ifdef TCPUP_LAYER
-void tcp_devbusy(struct tcpcb *tp);
+void tcp_devbusy(struct tcpcb *tp, tx_task_t *task);
 
 void sorwakeup(struct tcpcb *socb);
 void sowwakeup(struct tcpcb *socb);

@@ -716,7 +716,7 @@ timer:
 		TCP_TRACE_AWAYS(tp, "utxpl_output %d\n", utxpl_error());
 		// UTXPL_ASSERT(tp->snd_nxt >= tp->snd_una);
 
-		tcp_devbusy(tp);
+		tcp_devbusy(tp, &tp->t_event_devbusy);
 	   	return -1;
    	}
 

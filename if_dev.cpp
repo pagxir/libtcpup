@@ -68,9 +68,9 @@ int set_filter_hook(FILTER_HOOK *hook)
 	return 0;
 }
 
-void tcp_devbusy(struct tcpcb *tp)
+void tcp_devbusy(struct tcpcb *tp, tx_task_t *task)
 {
-	(*_if_dev_db->dev_busy)(tp);
+	(*_if_dev_db->dev_busy)(tp, task);
 	return;
 }
 

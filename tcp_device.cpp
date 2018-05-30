@@ -124,7 +124,7 @@ static void dev_idle_callback(void *uup)
 	return ;
 }
 
-static void _tcp_devbusy(struct tcpcb *tp)
+static void _tcp_devbusy(struct tcpcb *tp, tx_task_t *task)
 {
 #if 0
 	if ((tp->t_flags & TF_DEVBUSY) == 0) {

@@ -88,8 +88,10 @@ static void dev_idle_callback(void *uup)
 	return ;
 }
 
-static void _tcp_devbusy(struct tcpcb *tp)
+static void _tcp_devbusy(struct tcpcb *tp, tx_task_t *task)
 {
+	tx_task_record(&_dev_busy, task);
+	return ;
 }
 
 static void _tcp_set_dummy(struct tcpip_info *info)
@@ -160,22 +162,12 @@ static void listen_callback(void *context)
 	return;
 }
 
-static int file_can_read(int fd)
-{
-	int n;
-	fd_set fds;
-	struct timeval timo = {0};
-
-	FD_ZERO(&fds);
-	FD_SET(fd, &fds);
-	n = select(fd + 1, &fds, 0, 0, &timo);
-	return  n > 0 && FD_ISSET(fd, &fds);
-}
-
 #define END (char)0xC0
 #define ESC (char)0xDB
+#define KEY_IAC (char)0xFF
 #define ESC_END (char)0xDC
 #define ESC_ESC (char)0xDD
+#define ESC_IAC (char)0xDE
 
 static int _stdin_off = 0;
 static int _stdin_len = 0;
@@ -197,12 +189,9 @@ void ifdev_stdio_device::incoming(void)
 		p = _rcvpkt_buf;
 		pktcnt = 0;
 
-		if (!file_can_read(0)) {
-			errno = EAGAIN;
-			tx_aincb_update(&_sockcbp, -1);
-		}
+		tx_setblockopt(0, 0);
 
-		while (file_can_read(0)) {
+		while (pktcnt < RCVPKT_MAXCNT) {
 			if (_stdin_len == sizeof(_stdin_buf) || _stdin_off > sizeof(_stdin_buf) / 2) {
 				assert (_stdin_off > 0);
 				memmove(_stdin_buf, _stdin_buf + _stdin_off, _stdin_len - _stdin_off);
@@ -214,6 +203,7 @@ void ifdev_stdio_device::incoming(void)
 			if (error <= 0) {
 				tx_aincb_update(&_sockcbp, -1);
 				fprintf(stderr, "error: %d\n", error);
+				tx_setblockopt(0, 1);
 				break;
 			}
 
@@ -227,6 +217,8 @@ void ifdev_stdio_device::incoming(void)
 						p[len++] = ESC;
 					} else if ((*ptr & 0xe0) == 0x80) {
 						p[len++] = (*ptr & 0x7f);
+					} else if (*ptr == ESC_IAC) {
+						p[len++] = KEY_IAC;
 					} else {
 						fprintf(stderr, "failure decode: %x\n", *ptr);
 						aborted = 1;
@@ -256,6 +248,7 @@ void ifdev_stdio_device::incoming(void)
 
 		int handled;
 		p = _rcvpkt_buf;
+		tx_setblockopt(0, 1);
 		for (int i = 0; i < pktcnt; i++) {
 			handled = tcpup_do_packet(_offset, p, _rcvpkt_len[i], &_rcvpkt_addr[i]);
 			TCP_DEBUG(handled == 0, "error packet drop: %s\n",
@@ -306,7 +299,9 @@ static void output_callback(void *context)
 	int error;
 
 	if (_stdout_len > 0 && file_can_write(1)) {
-		error = write(1, _stdout_buf + _stdout_off, _stdout_len);
+		tx_setblockopt(1, 0);
+		error = tx_outcb_write(&_dummy._outcb, _stdout_buf + _stdout_off, _stdout_len);
+		tx_setblockopt(1, 1);
 		if (error > 0) {
 			assert (error <= _stdout_len);
 			_stdout_off += error;
@@ -317,6 +312,8 @@ static void output_callback(void *context)
 
 	if (_stdout_len > 0) {
         tx_outcb_prepare(&_dummy._outcb, &_dummy._wevent, 0);
+	} else {
+		tx_task_wakeup(&_dev_busy, "stdout");
 	}
 
 	return ;
@@ -329,12 +326,16 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 
 	if (file_can_write(1)) {
 		if (_stdout_len > 0) {
-			error = write(1, _stdout_buf + _stdout_off, _stdout_len);
+			tx_setblockopt(1, 0);
+			error = tx_outcb_write(&_dummy._outcb, _stdout_buf + _stdout_off, _stdout_len);
+			tx_setblockopt(1, 1);
 			if (error > 0) {
 				assert (error <= _stdout_len);
 				_stdout_off += error;
 				_stdout_len -= error;
 				assert(_stdout_len >= 0);
+			} else {
+				fprintf(stderr, "output error: %d\n", error);
 			}
 		}
 
@@ -351,8 +352,11 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 					} else if (*ptr == ESC) {
 						_stdout_buf[n++] = ESC;
 						_stdout_buf[n++] = ESC_ESC;
+					} else if (*ptr == (char)KEY_IAC) {
+						_stdout_buf[n++] = ESC;
+						_stdout_buf[n++] = ESC_IAC;
 					} else if ((*ptr & 0xe0) == 0x0
-						&& *ptr != '\r' && *ptr != '\n' && *ptr != '\t') {
+						&& *ptr != (char)'\r' && *ptr != (char)'\n' && *ptr != (char)'\t') {
 						_stdout_buf[n++] = ESC;
 						_stdout_buf[n++] = (*ptr)|0x80;
 					} else {
@@ -375,12 +379,16 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 		}
 
 		if (_stdout_len > 0 && file_can_write(1)) {
-			error = write(1, _stdout_buf + _stdout_off, _stdout_len);
+			tx_setblockopt(1, 0);
+			error = tx_outcb_write(&_dummy._outcb, _stdout_buf + _stdout_off, _stdout_len);
+			tx_setblockopt(1, 1);
 			if (error > 0) {
 				assert (error <= _stdout_len);
 				_stdout_off += error;
 				_stdout_len -= error;
 				assert(_stdout_len >= 0);
+			} else {
+				fprintf(stderr, "output error: %d\n", error);
 			}
 		}
 	}

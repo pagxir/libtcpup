@@ -45,7 +45,8 @@ void set_link_protocol(const char *link);
 
 struct termios orig_termios;
 
-void disable_raw_mode() {
+void disable_raw_mode()
+{
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
 	exit(-1);
 }
@@ -58,6 +59,10 @@ static void enable_raw_mode()
 	struct termios raw = orig_termios;
     cfmakeraw(&raw);
     raw.c_cflag |= (CLOCAL | CREAD | CSTOPB);
+    raw.c_iflag &= ~(IXON);
+	raw.c_cc[VTIME] = 0;
+	raw.c_cc[VMIN] = 1;
+	
     tcflush(STDIN_FILENO, TCIOFLUSH);
 
 	if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == -1) abort();
@@ -77,6 +82,7 @@ int _winsrv(int argc, char *argv[])
 int main(int argc, char *argv[])
 #endif
 {
+	int istty = 0;
 	struct tcpip_info listen_address = {0};
 	struct tcpip_info outter_address = {0};
 	struct tcpip_info forward_address = {0};
@@ -111,7 +117,7 @@ int main(int argc, char *argv[])
 		} else if (strcmp(argv[i], "-R") == 0 && i + 1 < argc) {
 			i++;
 		} else if (strcmp(argv[i], "-link") == 0 && i + 1 < argc) {
-			if (strcmp(argv[i + 1], "STDIO") == 0) enable_raw_mode();
+			istty = !strcmp(argv[i + 1], "STDIO");
 			set_link_protocol(argv[i + 1]);
 			i++;
 		} else if (strcmp(argv[i], "-K") == 0 && i + 1 < argc) {
@@ -183,6 +189,15 @@ int main(int argc, char *argv[])
 	tx_kqueue_init(loop);
 	tx_completion_port_init(loop);
 	tx_timer_ring_get(loop);
+
+	if (istty) {
+		enable_raw_mode();
+		static tx_timer_t timeout;
+		static tx_task_t idle_exit;
+		tx_task_init(&idle_exit, loop, (void (*)(void *))exit, NULL);
+		tx_timer_init(&timeout, loop, &idle_exit);
+		tx_timer_reset(&timeout, 3000 * 1000);
+	}
 
 	initialize_modules(modules_list);
 #ifndef WIN32
