@@ -22,8 +22,10 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <termios.h>
 #include <unistd.h>
+#ifndef WIN32
+#include <termios.h>
+#endif
 
 #include "tcp_channel.h"
 #include "pstcp_channel.h"
@@ -43,6 +45,7 @@ struct module_stub *modules_list[] = {
 
 void set_link_protocol(const char *link);
 
+#ifndef WIN32
 struct termios orig_termios;
 
 void disable_raw_mode()
@@ -67,6 +70,7 @@ static void enable_raw_mode()
 
 	if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == -1) abort();
 }
+#endif
 
 
 #ifdef _WINSRV_
@@ -89,9 +93,8 @@ int main(int argc, char *argv[])
 	struct tcpip_info interface_address = {0};
 	struct tcpip_info keepalive_address = {0};
 
-#ifdef _WIN32_
+#ifdef WIN32
 	WSADATA data;
-	struct waitcb event;
 	WSAStartup(0x101, &data);
 #endif
 	for (int i = 1; i < argc; i++) {
@@ -190,6 +193,7 @@ int main(int argc, char *argv[])
 	tx_completion_port_init(loop);
 	tx_timer_ring_get(loop);
 
+#ifndef WIN32
 	if (istty) {
 		enable_raw_mode();
 		static tx_timer_t timeout;
@@ -198,6 +202,7 @@ int main(int argc, char *argv[])
 		tx_timer_init(&timeout, loop, &idle_exit);
 		tx_timer_reset(&timeout, 3000 * 1000);
 	}
+#endif
 
 	initialize_modules(modules_list);
 #ifndef WIN32
@@ -208,7 +213,7 @@ int main(int argc, char *argv[])
 	tx_loop_main(loop);
 
 	cleanup_modules(modules_list);
-#ifdef _WIN32_
+#ifdef WIN32
 	WSACleanup();
 #endif
 	return 0;

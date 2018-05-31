@@ -52,7 +52,7 @@ CC_OBJS +=  cc_vegasab.o
 LOCAL_OBJECTS := libtx.a socket.o rgnbuf.o tcp_debug.o \
 		  tcp_input.o tcp_output.o tcp_timer.o tcp_subr.o \
 		  tcp_usrreq.o tcp_sack.o $(CC_OBJS) tcp_crypt.o client_track.o router.o tcp_device.o \
-		  tcp_device_icmp.o tcp_device_icmp_user.o ifdev_stdio.o
+		  tcp_device_icmp.o tcp_device_icmp_user.o ifdev_stdio.o if_dev.o
 
 $(TARGETS): OBJECTS:=$(LOCAL_OBJECTS)
 
@@ -62,17 +62,17 @@ CXXFLAGS := $(LOCAL_CXXFLAGS) $(CXXFLAGS)
 LDLIBS   := $(LOCAL_LDLIBS) $(LDLIBS)
 LDFLAGS  := $(LOCAL_LDFLAGS) $(LDFLAGS)
 
-server.udp: $(SRV_OBJ) $(LOCAL_OBJECTS) if_dev.o
+server.udp: $(SRV_OBJ) $(LOCAL_OBJECTS) 
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-server.http: $(USRV_OBJ) $(LOCAL_OBJECTS) if_dev.o
+server.http: $(USRV_OBJ) $(LOCAL_OBJECTS)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 WINSRVOBJ = tcp_device.o server_srv.o pstcp_channel.o pstcp_listen.o dns_txasync.o winsrv.o dns_forward.o
 server.srv: $(WINSRVOBJ) $(LOCAL_OBJECTS) 
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-client.udp: $(CLT_OBJ) $(LOCAL_OBJECTS) if_dev.o
+client.udp: $(CLT_OBJ) $(LOCAL_OBJECTS)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 server_srv.o: server.cpp
