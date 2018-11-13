@@ -151,7 +151,10 @@ int main(int argc, char *argv[])
 #ifndef WIN32
 		} else if (strcmp(argv[i], "-d") == 0) {
 			close(1); close(2);
-			dup(open("server-stdout.txt", O_WRONLY|O_CREAT));
+			const char * logger = "/dev/null";
+			if (getenv("LOGGER") != NULL)
+				logger = getenv("LOGGER");
+			dup(open(logger, O_WRONLY|O_CREAT));
 			if (fork()) exit(0);
 			setsid();
 			if (fork()) exit(0);

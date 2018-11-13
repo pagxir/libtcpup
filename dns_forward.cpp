@@ -324,7 +324,14 @@ static void udp4_forward_init(struct udp_forward_context *ctx)
 	assert(ctx->uf_handle != -1);
 
 	sa.sin_family = AF_INET;
+	sa.sin_port   = htons(htonl(ctx->uf_conv) >> 16);
 	err = bind(ctx->uf_handle, sap, sizeof(sa));
+
+	LOG_WARNING("udp4_forward_init: %x %x\n", ctx->uf_conv, sa.sin_port);
+	if (err == -1 && sa.sin_port != 0) {
+		sa.sin_port   = 0;
+		err = bind(ctx->uf_handle, sap, sizeof(sa));
+	}
 	assert(err == 0);
 
 	ctx->get_dest  = udp4_get_dest;

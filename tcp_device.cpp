@@ -23,6 +23,13 @@
 
 #include "tcp_channel.h"
 
+extern "C" void tcp_channel_forward(struct tcpip_info *info) __attribute__ ((weak));
+
+void tcp_channel_forward(struct tcpip_info *info)
+{
+	printf ("emptycall\n");
+}
+
 static FILTER_HOOK *_filter_hook;
 static int _set_filter_hook(FILTER_HOOK *hook)
 {
@@ -52,6 +59,7 @@ public:
 	void fini();
 	void incoming();
 	void holdon();
+	void reset_nat();
 };
 
 static int _tcp_out_fd = -1;
@@ -217,7 +225,7 @@ void tcpup_device::init(int dobind)
 	if (dobind) {
 		error = bind(_file, (struct sockaddr *)&_addr_in, sizeof(_addr_in));
 		assert(error == 0);
-		tx_timer_reset(&_nat_hold_timer, 25000);
+		tx_timer_reset(&_nat_hold_timer, 15000);
 		_dobind = 1;
 	} else {
 		_addr_in.sin_port = 0;
@@ -310,7 +318,13 @@ void tcpup_device::incoming(void)
 	int pktcnt;
 	socklen_t salen;
 	struct sockaddr saaddr;
-	char packet[RCVPKT_MAXSIZ];
+	char packet[RCVPKT_MAXSIZ + 1];
+
+	union {
+		uint8_t arr[4];
+		in_addr_t addr;
+	} na;
+	int a, b, c, d, prefix;
 
 	if (tx_readable(&_sockcbp)) {
 		char *p;
@@ -319,11 +333,29 @@ void tcpup_device::incoming(void)
 
 		p = _rcvpkt_buf;
 		pktcnt = 0;
+		packet[RCVPKT_MAXSIZ] = 0;
 		for (int i = 0; i < RCVPKT_MAXCNT; i++) {
 			salen = sizeof(saaddr);
 			len = recvfrom(_file, packet, RCVPKT_MAXSIZ, MSG_DONTWAIT, &saaddr, &salen);
 			tx_aincb_update(&_sockcbp, len);
 			if (len == -1) break;
+
+			/* HELO 192.168.1.0/24 is here */
+			if (memcmp(packet, "HELO", 4) == 0 &&
+					sscanf(packet, "HELO %d.%d.%d.%d/%d is here", &a, &b, &c, &d, &prefix) == 5) {
+				struct tcpip_info info;
+				struct sockaddr_in *inp = (struct sockaddr_in *)&saaddr;
+				info.port = inp->sin_port;
+				info.address = inp->sin_addr.s_addr;
+
+				char _nb[128];
+				na.arr[0] = a; na.arr[1] = b; na.arr[2] = c; na.arr[3] = d;
+
+				fprintf(stderr, "register_network: %s/%d via %s:%d\n",
+						inet_ntop(AF_INET, &na, _nb, sizeof(_nb)), prefix, inet_ntoa(inp->sin_addr), htons(info.port));
+				tcp_channel_forward(&info);
+				continue;
+			}
 
 			int offset = sizeof(dns_filling_byte);
 			if (len >= offset + TCPUP_HDRLEN) {
@@ -389,6 +421,8 @@ void tcpup_device::fini()
 	closesocket(_file);
 }
 
+static const char *_reg_net = "HELO 172.0.0.0/16 is here";
+
 void tcpup_device::holdon(void)
 {
 	struct sockaddr_in addr_in1;
@@ -397,10 +431,11 @@ void tcpup_device::holdon(void)
 	addr_in1.sin_addr.s_addr   = _tcp_keep_addr.sin_addr.s_addr;
 
 	if (addr_in1.sin_addr.s_addr) {
-		sendto(_file, "HELO", 4, 0,
+		sendto(_file, _reg_net, strlen(_reg_net), 0,
 				(struct sockaddr *)&addr_in1, sizeof(addr_in1));
-		tx_timer_reset(&_nat_hold_timer, 25000);
+		tx_timer_reset(&_nat_hold_timer, 15000);
 	}
+
 	return;
 }
 
@@ -410,6 +445,20 @@ static void dev_nat_holdon(void *ctx)
 
 	up = (struct tcpup_device *)ctx;
 	up->holdon();
+	return;
+}
+
+void tcpup_device::reset_nat(void)
+{
+	struct sockaddr_in addr_in1;
+	addr_in1.sin_family = AF_INET;
+	addr_in1.sin_port   = _tcp_keep_addr.sin_port;
+	addr_in1.sin_addr.s_addr   = _tcp_keep_addr.sin_addr.s_addr;
+
+	if (_dobind == 1 && addr_in1.sin_addr.s_addr) {
+		tx_timer_reset(&_nat_hold_timer, 15000);
+	}
+
 	return;
 }
 
@@ -443,6 +492,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	
 	fd = _paging_devices[offset]->_file;
 	_paging_devices[offset]->_t_sndtime = time(NULL);
+	_paging_devices[offset]->reset_nat();
 
 #ifdef _FEATRUE_INOUT_TWO_INTERFACE_
 	if (_tcp_out_fd >= 0) {

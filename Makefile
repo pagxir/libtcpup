@@ -10,9 +10,9 @@ RANLIB := $(TARGET)-ranlib
 endif
 
 LOCAL_TARGETS := txcat libtx.a
-LOCAL_CXXFLAGS := -I$(THIS_PATH)/libtx/include -I$(THIS_PATH)
+LOCAL_CXXFLAGS := -I$(THIS_PATH)/libtx/include -I$(THIS_PATH) 
 LOCAL_CFLAGS := $(LOCAL_CXXFLAGS)
-LOCAL_LDLIBS := -lstdc++
+LOCAL_LDLIBS := -lstdc++ 
 
 ifeq ($(BUILD_TARGET), )
 BUILD_TARGET := $(shell uname)
