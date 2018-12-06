@@ -102,6 +102,10 @@ static void anybind(int fd, int family)
 	switch(family) {
 		case AF_INET:
 			siaddr.sin_family = AF_INET;
+			if (getenv("BIND_ADDR") != NULL) {
+				in_addr_t local = inet_addr(getenv("BIND_ADDR"));
+				if (local != INADDR_NONE) siaddr.sin_addr.s_addr = local;
+			}
 			bind(fd, (struct sockaddr *)&siaddr, sizeof(siaddr));
 			break;
 
@@ -158,7 +162,7 @@ static void anybind(int fd, int family)
 
 	assert(m_file != -1);
 	tx_setblockopt(m_file, 0);
-	// anybind(m_file, AF_INET);
+	anybind(m_file, is_v4only? AF_INET: AF_INET6);
 	tx_aiocb_init(&m_sockcbp, loop, m_file);
 	total_instance++;
 }

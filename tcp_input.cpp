@@ -584,7 +584,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 			tp->t_flags |= TF_ACKNOW;
 			tp->t_state = TCPS_SYN_RECEIVED;
 			TCP_TRACE_START(tp, "TCPS_LISTEN -> TCPS_SYN_RECEIVED\n");
-			soisconnected(so);
+			soisconnected(so); // tcp fast open feature
 
 			if ((to.to_flags & TOF_MSS) &&
 					to.to_mss >= 512 && to.to_mss < tp->t_maxseg) {
@@ -626,7 +626,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 				TCP_TRACE_AWAYS(tp, "send reset on syn receive\n");
 				goto dropwithreset;
 			}
-			soisconnected(so);
+			soisconnected(so); // tcp fast open feature
 			break;
 
         /*
@@ -1351,7 +1351,6 @@ process_ACK:
 					if (ourfinisacked) {
 						TCP_TRACE_AWAYS(tp, "TCPS_LAST_ACK -> TCPS_CLOSED\n");
 						tp->t_state = TCPS_CLOSED;
-						soisdisconnected(so);
 						tcp_close(tp);
 						tp = NULL;
 						goto drop;

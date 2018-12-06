@@ -56,8 +56,7 @@ static void tcp_2msl_timo(void *up)
 		   	(int)ticks - (int)tp->t_rcvtime <= (int)tcp_maxidle) {
 		tx_timer_reset(&tp->t_timer_2msl, tcp_keepintvl);
    	} else {
-	   	tp->t_state = TCPS_CLOSED;
-	   	soisdisconnected(tp->tp_socket);
+	   	// tp->t_state = TCPS_CLOSED;
 		tcp_close(tp);
    	}
 
@@ -120,11 +119,10 @@ static void tcp_rexmt_timo(void *up)
 	TCP_TRACE_AWAYS(tp, "tcp rexmt time out %x\n", tp->tp_socket->so_conv);
    	if (++tp->t_rxtshift > TCP_MAXRXTSHIFT) {
 	   	tp->t_rxtshift = TCP_MAXRXTSHIFT;
-	   	tp->t_state = TCPS_CLOSED;
+	   	// tp->t_state = TCPS_CLOSED;
 	   	TCPSTAT_INC(tcps_timeoutdrop);
 	   	sorwakeup(tp);
 	   	sowwakeup(tp);
-	   	soisdisconnected(tp->tp_socket);
 		tcp_close(tp);
 		return;
    	}

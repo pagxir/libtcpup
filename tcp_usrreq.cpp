@@ -196,24 +196,14 @@ static int tcp_usr_detach(sockcb_t so)
 
 struct tcpcb *tcp_drop(struct tcpcb *tp, int why)
 {
-	sockcb_t so;
-
-	so = tp->tp_socket;
-	soisdisconnected(so);
+	sockcb_t so = tp->tp_socket;
 
 	if (TCPS_HAVERCVDSYN(tp->t_state)) {
 		tcp_state_change(tp, TCPS_CLOSED);
 		(void) tcp_output(tp);
 	}
 
-	if (tp->t_flags & TF_SOCKREF) {
-		so->so_state &= ~SS_PROTOREF;
-		tp->t_flags &= ~TF_SOCKREF;
-		sofree(so);
-		return (NULL);
-	}
-
-	return (tp);
+	return (tcp_close(tp));
 }
 
 void tcp_discardcb(struct tcpcb *tp)
@@ -586,7 +576,6 @@ void tcp_usrclosed(struct tcpcb *tp)
 		case TCPS_LISTEN:
 			/* FALLTHROUGH */
 		case TCPS_CLOSED:
-			tcp_state_change(tp, TCPS_CLOSED);
 			tp = tcp_close(tp);
 			/*
 			 * tcp_close() should never return NULL here as the socket is
@@ -738,12 +727,12 @@ out:
  */
 static void tcp_disconnect(struct tcpcb *tp)
 {
-        sockcb_t so = tp->tp_socket;
+	sockcb_t so = tp->tp_socket;
 
-        /*
-         * Neither tcp_close() nor tcp_drop() should return NULL, as the
-         * socket is still open.
-         */
+	/*
+	 * Neither tcp_close() nor tcp_drop() should return NULL, as the
+	 * socket is still open.
+	 */
 	if (tp->t_state < TCPS_ESTABLISHED) {
 		tp = tcp_close(tp);
 	} else {

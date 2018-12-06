@@ -421,23 +421,7 @@ void tcpup_device::fini()
 	closesocket(_file);
 }
 
-static const char *_reg_net = "HELO 172.0.0.0/16 is here";
-
-void tcpup_device::holdon(void)
-{
-	struct sockaddr_in addr_in1;
-	addr_in1.sin_family = AF_INET;
-	addr_in1.sin_port   = _tcp_keep_addr.sin_port;
-	addr_in1.sin_addr.s_addr   = _tcp_keep_addr.sin_addr.s_addr;
-
-	if (addr_in1.sin_addr.s_addr) {
-		sendto(_file, _reg_net, strlen(_reg_net), 0,
-				(struct sockaddr *)&addr_in1, sizeof(addr_in1));
-		tx_timer_reset(&_nat_hold_timer, 15000);
-	}
-
-	return;
-}
+static char _reg_net[] = "HELO 172.0.0.0/16 via feedf00d";
 
 static void dev_nat_holdon(void *ctx)
 {
@@ -576,6 +560,30 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 
 	TCP_DEBUG(error == -1, "utxpl_output send failure\n");
 	return error;
+}
+
+void tcpup_device::holdon(void)
+{
+	struct sockaddr_in addr_in1;
+	addr_in1.sin_family = AF_INET;
+	addr_in1.sin_port   = _tcp_keep_addr.sin_port;
+	addr_in1.sin_addr.s_addr   = _tcp_keep_addr.sin_addr.s_addr;
+
+	if (addr_in1.sin_addr.s_addr) {
+		tx_timer_reset(&_nat_hold_timer, 15000);
+
+		rgn_iovec iov;
+		struct tcpup_addr name;
+
+		memcpy(name.name, &_tcp_keep_addr, sizeof(_tcp_keep_addr));
+		name.namlen = sizeof(_tcp_keep_addr);
+
+		iov.iov_len = sizeof(_reg_net);
+		iov.iov_base = _reg_net;
+		_utxpl_output(0, &iov, 1, &name);
+	}
+
+	return;
 }
 
 struct module_stub  tcp_device_udp_mod = {
