@@ -106,7 +106,6 @@ int record_dns_packet(void *packet, size_t length, int netif, const tcpup_addr *
 }
 
 #define DNS_MAGIC_LEN 8
-static int _fwd_handle = 0;
 static int _force_override = 0;
 static struct sockaddr_in _fwd_target = {0};
 
@@ -148,6 +147,7 @@ struct udp_forward_context {
 	int uf_conv;
 	int uf_handle;
 	long uf_rcvtime;
+	long origin;
 
 	tx_task_t uf_ready;
 	tx_aiocb  uf_aiocb;
@@ -259,8 +259,8 @@ static void on_udp_receive(void *upp)
 			if (ctx->do_nat && 
 					saaddr.sin_port == _fwd_target.sin_port &&
 					saaddr.sin_addr.s_addr == _fwd_target.sin_addr.s_addr) {
+				saaddr.sin_addr.s_addr = ctx->origin;
 				saaddr.sin_port = htons(53);
-				saaddr.sin_addr.s_addr = 0x08080808;
 			}
 
 			struct udpuphdr4 *up4 = (struct udpuphdr4 *)udp_packet;
@@ -301,9 +301,10 @@ static struct sockaddr *udp4_get_dest(struct udp_forward_context *ctx, struct ud
 
 	sin.sin_family = AF_INET;
 	sin.sin_port   = (up->u_port);
-	if ((uphdr4->addr[0] == 0x08080808) && (up->u_port == htons(53))) {
+	if (((uphdr4->addr[0] == 0x08080808) || _force_override) && (up->u_port == htons(53))) {
 		sin.sin_addr = _fwd_target.sin_addr;
 		sin.sin_port = _fwd_target.sin_port;
+		ctx->origin = uphdr4->addr[0];
 		ctx->do_nat = 1;
 	} else {
 		sin.sin_addr.s_addr   = (uphdr4->addr[0]);
@@ -453,95 +454,12 @@ int filter_hook_dns_forward(int netif, void *buf, size_t len, const struct tcpup
 		}
 	}
 
-	if (magic == htonl(0xfe800000)) {
-
-		udphdr = (struct udpuphdr *)payload;
-		if (payload_limit - payload >= sizeof(*udphdr) && 
-				udphdr->u_flag == 0 && udphdr->u_magic == 0xcc) {
-			int doff = (udphdr->u_doff << 2);
-			struct sockaddr_in target = {0};
-			struct udpuphdr4 *udphdr4 = (struct udpuphdr4 *)udphdr;
-
-			memcpy(&target, &_fwd_target, sizeof(target));
-			if (udphdr->u_tag == TAG_DST_IPV4 && !_force_override && udphdr4->addr[0] != 0x08080808) {
-				target.sin_family = AF_INET;
-				target.sin_port   = (udphdr->u_port);
-				target.sin_addr.s_addr   = (udphdr4->addr[0]);
-			}
-
-			if (record_dns_packet(payload + doff, payload_limit - payload - doff, netif, from, payload, doff)) {
-				err = sendto(_fwd_handle, (const char *)payload + doff,
-						payload_limit - payload - doff, 0, (struct sockaddr *)&target, sizeof(target));
-				TCP_DEBUG(err <= 0, "sendto error %s\n", strerror(errno));
-			}
-
-			TCP_DEBUG(udphdr->u_tag != TAG_DST_IPV4, "found dns packet forward request\n");
-			return 1;
-		}
-	}
-
 	return 0;
-}
-
-static tx_task_t _dns_ready = {0};
-static tx_aiocb  _dns_aiocb = {0};
-static void on_dns_receive(void *upp)
-{
-	int len;
-	socklen_t salen;
-	struct sockaddr saaddr;
-	char packet[RCVPKT_MAXSIZ];
-
-	int netif;
-	int length;
-	char dns_packet[RCVPKT_MAXSIZ];
-	struct tcpup_addr from = {0};
-
-	while (tx_readable(&_dns_aiocb)) {
-		salen = sizeof(saaddr);
-		len = recvfrom(_fwd_handle, packet, RCVPKT_MAXSIZ, MSG_DONTWAIT, &saaddr, &salen);
-		tx_aincb_update(&_dns_aiocb, len);
-
-		if (len > 12) {
-			rgn_iovec dns_pkt[3];
-			length = resolved_dns_packet(dns_packet, packet, len, &netif, &from, &dns_pkt[1]);
-			if (length > 12) {
-				dns_pkt[0].iov_base = magic;
-				dns_pkt[0].iov_len  = DNS_MAGIC_LEN;
-
-				dns_pkt[2].iov_base = dns_packet;
-				dns_pkt[2].iov_len  = length;
-				utxpl_output(netif, dns_pkt, 3, &from);
-			}
-		}
-	}
-
-	tx_aincb_active(&_dns_aiocb, &_dns_ready);
-	return;
 }
 
 static void module_init(void)
 {
-	int err;
-	struct sockaddr sa = {0};
-
-	_fwd_handle = socket(AF_INET, SOCK_DGRAM, 0);
-
-	sa.sa_family = AF_INET;
-	err = bind(_fwd_handle, &sa, sizeof(sa));
-	assert(err == 0);
-
-#ifdef WIN32
-	int bufsize = 1024 * 1024;
-	setsockopt(_fwd_handle, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
-	tx_setblockopt(_fwd_handle, 0);
-#endif
-
 	tx_loop_t *loop = tx_loop_default();
-	tx_aiocb_init(&_dns_aiocb, loop, _fwd_handle);
-
-	tx_task_init(&_dns_ready, loop, on_dns_receive, (void *)(long)_fwd_handle);
-	tx_aincb_active(&_dns_aiocb, &_dns_ready);
 
 	_fwd_target.sin_family = AF_INET;
 	_fwd_target.sin_port   = htons(53);
@@ -571,9 +489,7 @@ static void module_init(void)
 
 static void module_clean(void)
 {
-	tx_aiocb_fini(&_dns_aiocb);
-	tx_task_drop(&_dns_ready);
-	closesocket(_fwd_handle);
+
 }
 
 struct module_stub  dns_forward_mod = {
