@@ -320,12 +320,6 @@ void tcpup_device::incoming(void)
 	struct sockaddr saaddr;
 	char packet[RCVPKT_MAXSIZ + 1];
 
-	union {
-		uint8_t arr[4];
-		in_addr_t addr;
-	} na;
-	int a, b, c, d, prefix;
-
 	if (tx_readable(&_sockcbp)) {
 		char *p;
 		unsigned short key;
@@ -339,23 +333,6 @@ void tcpup_device::incoming(void)
 			len = recvfrom(_file, packet, RCVPKT_MAXSIZ, MSG_DONTWAIT, &saaddr, &salen);
 			tx_aincb_update(&_sockcbp, len);
 			if (len == -1) break;
-
-			/* HELO 192.168.1.0/24 is here */
-			if (memcmp(packet, "HELO", 4) == 0 &&
-					sscanf(packet, "HELO %d.%d.%d.%d/%d is here", &a, &b, &c, &d, &prefix) == 5) {
-				struct tcpip_info info;
-				struct sockaddr_in *inp = (struct sockaddr_in *)&saaddr;
-				info.port = inp->sin_port;
-				info.address = inp->sin_addr.s_addr;
-
-				char _nb[128];
-				na.arr[0] = a; na.arr[1] = b; na.arr[2] = c; na.arr[3] = d;
-
-				fprintf(stderr, "register_network: %s/%d via %s:%d\n",
-						inet_ntop(AF_INET, &na, _nb, sizeof(_nb)), prefix, inet_ntoa(inp->sin_addr), htons(info.port));
-				tcp_channel_forward(&info);
-				continue;
-			}
 
 			int offset = sizeof(dns_filling_byte);
 			if (len >= offset + TCPUP_HDRLEN) {

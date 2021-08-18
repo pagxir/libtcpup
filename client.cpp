@@ -29,6 +29,41 @@ struct module_stub *modules_list[] = {
 
 void set_link_protocol(const char *link);
 
+int filter_hook_keepalive_receive(int netif, void *buf, size_t len, const struct tcpup_addr *from)
+{
+	int err = -1;
+	int magic = -1;
+	union {
+		uint8_t arr[4];
+		in_addr_t addr;
+	} na;
+	int a, b, c, d, prefix;
+
+	struct udpuphdr *udphdr = NULL;
+
+	char *payload = (char *)buf;
+	char *payload_limit = (payload + len);
+
+	/* HELO 192.168.1.0/24 is here */
+	if (memcmp(buf, "HELO", 4) == 0 &&
+			sscanf(payload, "HELO %d.%d.%d.%d/%d is here", &a, &b, &c, &d, &prefix) == 5) {
+		struct tcpip_info info;
+		struct sockaddr_in *inp = (struct sockaddr_in *)&from->name;
+		info.port = inp->sin_port;
+		info.address = inp->sin_addr.s_addr;
+
+		char _nb[128];
+		na.arr[0] = a; na.arr[1] = b; na.arr[2] = c; na.arr[3] = d;
+
+		fprintf(stderr, "register_network: %s/%d via %s:%d\n",
+				inet_ntop(AF_INET, &na, _nb, sizeof(_nb)), prefix, inet_ntoa(inp->sin_addr), htons(info.port));
+		tcp_channel_forward(&info);
+		return 1;
+	}
+
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	struct tcpip_info proxy_address = {0};
@@ -129,6 +164,7 @@ int main(int argc, char *argv[])
 
 	tcp_channel_forward(&proxy_address);
 
+	set_filter_hook(filter_hook_keepalive_receive);
 	tx_loop_main(loop);
 
 	cleanup_modules(modules_list);
