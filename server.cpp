@@ -154,7 +154,7 @@ int main(int argc, char *argv[])
 			const char * logger = "/dev/null";
 			if (getenv("LOGGER") != NULL)
 				logger = getenv("LOGGER");
-			dup(open(logger, O_WRONLY|O_CREAT));
+			dup(open(logger, O_WRONLY|O_CREAT, 0666));
 			if (fork()) exit(0);
 			setsid();
 			if (fork()) exit(0);
