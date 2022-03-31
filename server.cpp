@@ -102,6 +102,7 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "-h print this help!\n");
 			fprintf(stderr, "-l <LISTEN-ADDRESS> listening tcp address!\n");
 			fprintf(stderr, "-link lower link <UDP/ICMP/ICMP-USER>!\n");
+			fprintf(stderr, "-pacing rate!\n");
 			fprintf(stderr, "-i <INTERFACE-ADDRESS> interface to send/recv data!\n");
 #ifdef _FEATRUE_INOUT_TWO_INTERFACE_
 			fprintf(stderr, "-o <OUTTER-ADDRESS> out going address, local address use for outgoing packet!\n");
@@ -117,6 +118,8 @@ int main(int argc, char *argv[])
 		} else if (strcmp(argv[i], "-i") == 0 && i + 1 < argc) {
 			i++;
 		} else if (strcmp(argv[i], "-R") == 0 && i + 1 < argc) {
+			i++;
+		} else if (strcmp(argv[i], "-pacing") == 0 && i + 1 < argc) {
 			i++;
 		} else if (strcmp(argv[i], "-link") == 0 && i + 1 < argc) {
 			istty = !strcmp(argv[i + 1], "STDIO");

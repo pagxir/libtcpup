@@ -62,6 +62,7 @@ struct sackhole {
         tcp_seq start;          /* start seq no. of hole */
         tcp_seq end;            /* end seq no. */
         tcp_seq rxmit;          /* next seq. no in hole to be retransmitted */
+        tcp_seq rxmit_ts;       /* last retransmitted ts */
         TAILQ_ENTRY(sackhole) scblink;  /* scoreboard linkage */
 };
 
@@ -95,12 +96,43 @@ do {                                                            \
 
 typedef struct sockcb *sockcb_t;
 
+struct txseginfo {
+        /* Segment length. */
+        long            len;
+        /* Segment sequence number. */
+        tcp_seq         seq;
+        /* Time stamp indicating when the packet was sent. */
+        uint32_t        tx_ts;
+        /* Last received receiver ts (if the TCP option is used). */
+        uint32_t        rx_ts;
+        uint32_t        flags;
+        TAILQ_ENTRY (txseginfo) txsegi_lnk;
+
+	int tsloss;
+	
+	int sacked;
+#define TCPCB_SACKED_ACKED      0x01    /* SKB ACK'd by a SACK block    */
+#define TCPCB_SACKED_RETRANS    0x02    /* SKB retransmitted            */
+#define TCPCB_LOST              0x04    /* SKB is lost                  */
+#define TCPCB_TAGBITS           0x07    /* All tag bits                 */
+#define TCPCB_REPAIRED          0x10    /* SKB repaired (no skb_mstamp_ns)      */
+#define TCPCB_EVER_RETRANS      0x80    /* Ever retransmitted frame     */
+#define TCPCB_RETRANS           (TCPCB_SACKED_RETRANS|TCPCB_EVER_RETRANS| \
+		TCPCB_REPAIRED)
+
+	struct {
+		tcp_seq delivered;
+		uint64_t delivered_mstamp;
+		uint64_t first_tx_mstamp;
+	} tx;
+};
+
 /*
  * Tcp control block, one per tcp; fields:
  * Organized for 16 byte cacheline efficiency.
  */
 struct tcpcb {
-		int tp_tag;
+	int tp_tag;
         sockcb_t tp_socket;
         struct  tsegqe_head t_segq;     /* segment reassembly queue */
         void    *t_pspare[2];           /* new reassembly queue */
@@ -125,7 +157,7 @@ struct tcpcb {
                                          */
         tcp_seq snd_nxt;                /* send next */
         tcp_seq snd_up;                 /* send urgent pointer */
-        tcp_seq snd_frag;                 /* send urgent pointer */
+        tcp_seq snd_rto;                 /* send urgent pointer */
 
         tcp_seq snd_wl1;                /* window update seg seq number */
         tcp_seq snd_wl2;                /* window update seg ack number */
@@ -191,8 +223,12 @@ struct tcpcb {
         u_char  snd_limited;            /* segments limited transmitted */
 /* SACK related state */
         int     snd_numholes;           /* number of holes seen by sender */
-		TAILQ_HEAD(sackhole_head, sackhole) snd_holes;
+	TAILQ_HEAD(sackhole_head, sackhole) snd_holes;
                                         /* SACK scoreboard (sorted) */
+
+	TAILQ_HEAD(txseginfo_head, txseginfo) txsegi_xmt_q;
+	struct txseginfo_head txsegi_rexmt_q;
+
         tcp_seq snd_fack;               /* last seq number(+1) sack'd by rcv'r*/
         int     rcv_numsacks;           /* # distinct sack blks present */
         struct sackblk sackblks[MAX_SACK_BLKS]; /* seq nos. of sack blocks */
@@ -221,10 +257,18 @@ struct tcpcb {
         uint32_t t_ispare[8];           /* 5 UTO, 3 TBD */
         void    *t_pspare2[4];          /* 1 TCP_SIGNATURE, 3 TBD */
         uint64_t _pad[6];               /* 6 TBD (1-2 CC/RTT?) */
+	uint64_t t_pacing;
+
+	uint32_t pacing_rate;
 
 	uint32_t lost;
 	uint32_t delivered;
 	uint64_t delivered_mstamp;
+
+	u_int last_sacked;
+	u_int filter_nboard;
+	struct sackblk filter_board[1280];
+
 
 		int t_error;
 		uint32_t rcv_max_space;

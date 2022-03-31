@@ -20,6 +20,9 @@ void set_cc_algo(const char *name)
 	} else if (strcmp(name, "htcp") == 0) {
 		TCP_DEBUG(1, "use htcp cc algo\n");
 		default_cc_ptr = &htcp_cc_algo;
+	} else if (strcmp(name, "rateq") == 0) {
+		TCP_DEBUG(1, "use rateq cc algo\n");
+		default_cc_ptr = &rateq_cc_algo;
 	} else if (strcmp(name, "cubic") == 0) {
 		TCP_DEBUG(1, "use cubic cc algo\n");
 		default_cc_ptr = &cubic_cc_algo;

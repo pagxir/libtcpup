@@ -63,7 +63,7 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 	tp->snd_max_space = (8 * 1024 * 1024);
 	tp->rgn_snd = rgn_create(128 * 1024);
 	tp->rcv_max_space = (2 * 1024 * 1024);
-	tp->rgn_rcv = rgn_create(256 * 1024);
+	tp->rgn_rcv = rgn_create(512 * 1024);
 	tp->snd_wnd = tp->t_maxseg;
 
 	tp->snd_cwnd = rgn_size(tp->rgn_snd);
@@ -73,6 +73,7 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 	tp->lost = 0;
 	tp->delivered = 0;
 	tp->delivered_mstamp = ticks;
+	tp->pacing_rate = 0; // (1 << 20) * 3;
 
 	tp->t_rttmin  = tcp_rexmit_min;
 	tp->ts_recent = 0;
@@ -95,6 +96,8 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 	memset(tp->ccv, 0, sizeof(struct cc_var));
 	tp->ccv->tcp = tp;
 	TAILQ_INIT(&tp->snd_holes);
+	TAILQ_INIT(&tp->txsegi_xmt_q);
+	TAILQ_INIT(&tp->txsegi_rexmt_q);
 	if (CC_ALGO(tp)->cb_init != NULL)
 		CC_ALGO(tp)->cb_init(tp->ccv);
 

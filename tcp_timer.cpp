@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <time.h>
 #include <assert.h>
 
 #include <txall.h>
@@ -16,6 +17,7 @@
 #include <tcpup/tcp_timer.h>
 #include <tcpup/tcp_debug.h>
 
+#include "tcp_filter.h"
 #include "client_track.h"
 
 extern int tcp_iss;
@@ -107,16 +109,23 @@ out:
 	return;
 }
 
+int tcp_filter_lost(struct tcpcb *tp, int *retp);
+
 static void tcp_rexmt_timo(void *up)
 {
+	int trans, lost;
 	u_long rexmt;
    	struct tcpcb *tp;
 
 	tp = (struct tcpcb *)up;
 	ticks = tcp_ts_getticks();
 	tcp_free_sackholes(tp);
+	tcp_filter_free(tp);
 
-	TCP_TRACE_AWAYS(tp, "tcp rexmt time out %x\n", tp->tp_socket->so_conv);
+	lost = tcp_filter_lost(tp, &trans);
+	TCP_TRACE_AWAYS(tp, "tcp rexmt time out %x una %x rec %x rec %x dup %d %d tx %d/%d\n",
+		tp->tp_socket->so_conv, tp->snd_una, tp->snd_recover, IN_FASTRECOVERY(tp->t_flags), tp->t_dupacks, tp->t_rxtcur, lost, trans);
+
    	if (++tp->t_rxtshift > TCP_MAXRXTSHIFT) {
 	   	tp->t_rxtshift = TCP_MAXRXTSHIFT;
 	   	// tp->t_state = TCPS_CLOSED;
@@ -158,13 +167,24 @@ static void tcp_rexmt_timo(void *up)
 	   	tp->t_srtt = 0;
    	}
 
+   	tcp_seq snd_nxt = tp->snd_nxt;
+   	tcp_seq snd_cwnd = tp->snd_cwnd;
+
    	tp->snd_nxt = tp->snd_una;
    	tp->snd_recover = tp->snd_max;
    	tp->t_flags |= TF_ACKNOW;
    	tp->t_rtttime = 0;
 
 	cc_cong_signal(tp, NULL, CC_RTO);
+	tp->snd_cwnd = tp->t_maxseg;
    	(void)tcp_output(tp);
+
+#if 0
+	ENTER_FASTRECOVERY(tp->t_flags);
+	tp->snd_fack = tp->snd_una;
+	tp->snd_cwnd = snd_cwnd;
+	tp->snd_nxt = snd_nxt;
+#endif
 
 	return;
 }
@@ -222,11 +242,18 @@ static void tcp_do_delack(void *uup)
 	return;
 }
 
+int tcp_filter_xmit(struct tcpcb *);
+
 static void tcp_output_wrap(void *uup)
 {
 	struct tcpcb *tp;
 	tp = (struct tcpcb *)uup;
-	(void)tcp_output(tp);
+
+	tp->t_flags &= ~TF_DEVBUSY;
+	// tcp_cancel_devbusy(tp);
+
+	ticks = tcp_ts_getticks();
+	(void)tcp_filter_xmit(tp);
 	return;
 }
 
@@ -329,6 +356,8 @@ void tcp_setuptimers(struct tcpcb *tp)
 	TCP_TIMER_INIT(tp, t_timer_persist, tcp_persist_timo);
 #undef TCP_TIMER_INIT
 
+	tp->t_pacing = tx_getticks();
+        tp->t_pacing <<= PACING_SHIFT;
 	tx_task_init(&tp->t_event_devbusy, loop, tcp_output_wrap, tp);
 }
 
@@ -346,6 +375,8 @@ void tcp_cleantimers(struct tcpcb *tp)
 	TCP_TIMER_CLEAN(tp, t_timer_delack);
 	TCP_TIMER_CLEAN(tp, t_timer_persist);
 #undef TCP_TIMER_CLEAN
+
+	tcp_cancel_devbusy(tp);
 
 }
 

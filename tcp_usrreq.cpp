@@ -16,6 +16,8 @@
 #include <tcpup/tcp_timer.h>
 #include <tcpup/tcp_debug.h>
 
+#include "tcp_filter.h"
+
 #define LF_QUEUED 1
 #ifndef ECONNABORTED
 #define ECONNABORTED WSAECONNABORTED
@@ -221,6 +223,7 @@ void tcp_discardcb(struct tcpcb *tp)
 	if (CC_ALGO(tp)->cb_destroy != NULL)
 		CC_ALGO(tp)->cb_destroy(tp->ccv);
 	// ertt_uma_dtor(tp->osd, 0, 0);
+	tcp_filter_free(tp);
 	free(tp->osd);
 
 	// CC_ALGO(tp) = NULL;

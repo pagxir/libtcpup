@@ -8,13 +8,13 @@
 
 #include <tcpup/cc.h>
 #include <tcpup/tcp.h>
-#include <tcpup/h_ertt.h>
 #include <tcpup/tcp_seq.h>
 #include <tcpup/tcp_var.h>
 #include <tcpup/tcp_fsm.h>
 #include <tcpup/tcp_timer.h>
 #include <tcpup/tcp_debug.h>
 
+#include "tcp_filter.h"
 #include "client_track.h"
 
 #define DELAY_ACK(tp) (!tcp_timer_active(tp, TT_DELACK))
@@ -28,10 +28,6 @@ VNET_DEFINE(int, tcp_do_rfc3390) = 1;
 const int tcprexmtthresh = 3;
 
 static void tcp_xmit_timer(struct tcpcb *tp, int rtt);
-static void inline      hhook_run_tcp_est_in(struct tcpcb *tp,
-		struct tcphdr *th, struct tcpopt *to);
-int ertt_packet_measurement_hook(int hhook_type, int hhook_id,
-		void *udata, void *ctx_data, void *hdata, struct osd *hosd);
 
 #if 0
 static void tcp_newreno_partial_ack(struct tcpcb *tp, struct tcphdr *th);
@@ -42,23 +38,14 @@ static void tcp_newreno_partial_ack(struct tcpcb *tp, struct tcphdr *th);
 static void inline
 hhook_run_tcp_est_in(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 {
-	struct tcp_hhook_data hhook_data;
+    struct tcp_hhook_data hhook_data;
 
-#if 0
-	if (V_tcp_hhh[HHOOK_TCP_EST_IN]->hhh_nhooks > 0) {
-#endif
-		hhook_data.tp = tp;
-		hhook_data.th = th;
-		hhook_data.to = to;
-		// ertt_packet_measurement_hook(0, 0, NULL, &hhook_data, &tp->osd->ertt, tp->osd);
+    hhook_data.tp = tp;
+    hhook_data.th = th;
+    hhook_data.to = to;
 
-#if 0
-		hhook_run_hooks(V_tcp_hhh[HHOOK_TCP_EST_IN], &hhook_data,
-				tp->osd);
-	}
-#endif
+    tcp_filter_in(&hhook_data);
 }
-
 
 static void inline
 cc_ack_received(struct tcpcb *tp, struct tcphdr *th, uint16_t type)
@@ -263,13 +250,11 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 						(char *)&to->to_tsecr, sizeof(to->to_tsecr));
 				to->to_tsecr = ntohl(to->to_tsecr);
 				break;
-#if 0
+#if 1
 			case TCPOPT_SACK_PERMITTED:
 				if (optlen != TCPOLEN_SACK_PERMITTED)
 					continue;
 				if (!(flags & TO_SYN))
-					continue;
-				if (!V_tcp_do_sack)
 					continue;
 				to->to_flags |= TOF_SACKPERM;
 				break;
@@ -530,7 +515,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 
 			int old = rgn_size(tp->rgn_rcv);
 			if (old < (tp->rcv_max_space >> 1) &&
-					rgn_len(tp->rgn_rcv) + tp->t_maxseg > (old - (old >> 2))) {
+					rgn_len(tp->rgn_rcv) + tp->t_maxseg * 4  > (old - (old >> 2))) {
 				tp->rgn_rcv = rgn_resize(tp->rgn_rcv, (old << 1));
 				TCP_TRACE_AWAYS(tp, "expand connection receive space from %d to %d\n", old, old << 1);
 			}
@@ -902,7 +887,7 @@ close:
 			TCPSTAT_INC(tcps_rcvduppack);
 			TCPSTAT_ADD(tcps_rcvdupbyte, tlen);
 			TCPSTAT_INC(tcps_pawsdrop);
-			TCP_TRACE_AWAYS(tp, "drop for time stamp, seq %x %x %x\n", th->th_seq, th->th_ack, tp->rcv_nxt, tp->snd_una);
+			// TCP_TRACE_AWAYS(tp, "drop for time stamp, seq %x %x %x\n", th->th_seq, th->th_ack, tp->rcv_nxt, tp->snd_una);
 			if (tlen > 0)
 				goto dropafterack;
 
@@ -910,9 +895,9 @@ close:
 				th->th_seq == tp->rcv_nxt &&
 				th->th_ack == tp->snd_una &&
 				TSTMP_LT(tp->ts_recent, to.to_tsval + tp->t_rttmin)) {
-				TCP_TRACE_AWAYS(tp, "handle reorder %x\n", so->so_conv);
+				// TCP_TRACE_AWAYS(tp, "handle reorder %x\n", so->so_conv);
 			} else {
-				TCP_TRACE_AWAYS(tp, "drop %x\n", so->so_conv);
+				// TCP_TRACE_AWAYS(tp, "drop %x\n", so->so_conv);
 				goto drop;
 			}
 		}
@@ -1235,7 +1220,7 @@ close:
 
 			if (IN_FASTRECOVERY(tp->t_flags)) {
 				if (SEQ_LT(th->th_ack, tp->snd_recover)) {
-					TCP_TRACE_AWAYS(tp, "slow recovery %x \n", so->so_conv);
+					// TCP_TRACE_AWAYS(tp, "slow recovery %x \n", so->so_conv);
 					tcp_sack_partialack(tp, th);
 				} else {
 					cc_post_recovery(tp, th);
@@ -1286,8 +1271,10 @@ process_ACK:
 			if (th->th_ack == tp->snd_max) {
 				tcp_timer_activate(tp, TT_REXMT, 0);
 				needoutput = 1;
-			} else if (!tcp_timer_active(tp, TT_PERSIST))
+			} else if (!tcp_timer_active(tp, TT_PERSIST)) {
 				tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
+				tp->snd_rto = tp->snd_una;
+			}
 
 			if (acked == 0)
 				goto step6;
@@ -1312,8 +1299,10 @@ process_ACK:
 				tp->snd_recover = th->th_ack - 1;
 
 			if (IN_RECOVERY(tp->t_flags) &&
-					SEQ_GEQ(th->th_ack, tp->snd_recover))
-				EXIT_RECOVERY(tp->t_flags);
+				SEQ_GEQ(th->th_ack, tp->snd_recover)) {
+			    TCP_DEBUG(1, "leaving recovery %d \n", TAILQ_EMPTY(&tp->snd_holes));
+			    EXIT_RECOVERY(tp->t_flags);
+			}
 
 			tp->snd_una = th->th_ack;
 			if (SEQ_GT(tp->snd_una, tp->snd_recover))

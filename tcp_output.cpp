@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <time.h>
 
 #define TCPUP_LAYER 1
 #include <utx/utxpl.h>
@@ -9,17 +10,17 @@
 #define TCPOUTFLAGS
 #include <tcpup/cc.h>
 #include <tcpup/tcp.h>
-#include <tcpup/h_ertt.h>
 #include <tcpup/tcp_seq.h>
 #include <tcpup/tcp_var.h>
 #include <tcpup/tcp_fsm.h>
 #include <tcpup/tcp_timer.h>
 #include <tcpup/tcp_debug.h>
 
+#include "tcp_filter.h"
+
 struct tcpstat tcpstat;
 int tcp_backoff[TCP_MAXRXTSHIFT + 1] = {
-	// 1, 2, 4, 8, 16, 32, 64, 64, 64, 64, 64, 64, 64
-	1, 2, 4, 8, 16, 32, 64, 128, 256, 256, 256, 256, 256
+	1, 2, 4, 8, 16, 32, 64, 64, 64, 64, 64, 64, 64
 };
 
 void tcp_setpersist(struct tcpcb *tp)
@@ -124,10 +125,7 @@ tcp_seq update_ckpass(const rgn_iovec iov[], size_t count)
 	return ckpass.val;
 }
 
-int ertt_add_tx_segment_info_hook(int hhook_type, int hhook_id,
-		void *udata, void *ctx_data, void *hdata, struct osd *hosd);
-
-static void inline      hhook_run_tcp_est_out(struct tcpcb *tp,
+static int inline      hhook_run_tcp_est_out(struct tcpcb *tp,
                             struct tcphdr *th, struct tcpopt *to,
                             long len, int tso);
 static void inline      cc_after_idle(struct tcpcb *tp);
@@ -135,27 +133,19 @@ static void inline      cc_after_idle(struct tcpcb *tp);
 /*
  * Wrapper for the TCP established output helper hook.
  */
-static void inline
+static int inline
 hhook_run_tcp_est_out(struct tcpcb *tp, struct tcphdr *th,
 		struct tcpopt *to, long len, int tso)
 {
-	struct tcp_hhook_data hhook_data;
+    struct tcp_hhook_data hhook_data;
 
-#if 0
-	if (V_tcp_hhh[HHOOK_TCP_EST_OUT]->hhh_nhooks > 0) {
-#endif
-		hhook_data.tp = tp;
-		hhook_data.th = th;
-		hhook_data.to = to;
-		hhook_data.len = len;
-		hhook_data.tso = tso;
-		// ertt_add_tx_segment_info_hook(0, 0, 0, &hhook_data, &tp->osd->ertt, tp->osd);
+    hhook_data.tp = tp;
+    hhook_data.th = th;
+    hhook_data.to = to;
+    hhook_data.len = len;
+    hhook_data.tso = tso;
 
-#if 0
-		hhook_run_hooks(V_tcp_hhh[HHOOK_TCP_EST_OUT], &hhook_data,
-				tp->osd);
-	}
-#endif
+    return tcp_filter_out(&hhook_data);
 }
 
 static void inline
@@ -163,6 +153,8 @@ cc_after_idle(struct tcpcb *tp)
 {
     if (CC_ALGO(tp)->after_idle != NULL)
         CC_ALGO(tp)->after_idle(tp->ccv);
+
+    TCP_DEBUG(1, "cc_after_idle\n");
 
     if ((tp->t_flags & TF_REC_ADDR) == 0) {
         tp->dst_addr.xdat ^= 0x5a5a;
@@ -172,38 +164,26 @@ cc_after_idle(struct tcpcb *tp)
 int tcp_output(struct tcpcb *tp)
 {
 	int error;
-	int old = 0;
-	int tilen = 0;
-	int is_frag = 0;
-	int rcv_numsacks;
-	long len, sendwin, recwin;
+	long len, recwin, sendwin;
 	int off, flags;
+	struct tcphdr *th;
+	unsigned optlen;
+
 	int idle, sendalot;
-	int optlen = 0;
-	int this_sent = 0;
 	int sack_rxmit, sack_bytes_rxmt;
 	struct sackhole *p;
-	/* tcp_seq this_snd_nxt = 0; */
+	struct tcpopt to = {0};
+
 	rgn_iovec iobuf[4] = {{0, 0}};
 	char th0_buf[sizeof(tcphdr) + 80];
-	struct tcpopt to = {0};
-	struct tcphdr *th = (struct tcphdr *)th0_buf;
 
 	iobuf[0].iov_base = th0_buf;
 	iobuf[0].iov_len  = sizeof(*th);
-
-#if 0
-	if ( tcp_busying() ) {
-		tcp_devbusy(tp);
-		return -1;
-	}
-#endif
-	if (tp->snd_frag && SEQ_LT(tp->snd_frag, tp->snd_una)) {
-		tp->snd_frag = 0;
-	}
+	th = (struct tcphdr *)th0_buf;
+	ticks = tx_getticks();
 
 	idle = (tp->t_flags & TF_LASTIDLE) || (tp->snd_max == tp->snd_una);
-	if (idle && TSTMP_GEQ(ticks, tp->t_rcvtime + tp->t_rxtcur))
+	if (idle && ticks - tp->t_rcvtime >= tp->t_rxtcur)
 		cc_after_idle(tp);
 
 	tp->t_flags &= ~TF_LASTIDLE;
@@ -215,27 +195,16 @@ int tcp_output(struct tcpcb *tp)
 	}
 
 again:
+
 	if (SEQ_LT(tp->snd_nxt, tp->snd_max))
 		tcp_sack_adjust(tp);
 
-	optlen = 0;
 	sendalot = 0;
 	/* this_snd_nxt = tp->snd_nxt; */
 	off = tp->snd_nxt - tp->snd_una;
-	if (tp->t_maxseg > tp->snd_cwnd) {
-		sendwin = min(tp->snd_wnd, 3 * tp->t_maxseg);
-	} else {
-		sendwin = min(tp->snd_wnd, (tp->snd_cwnd / tp->t_maxseg) * tp->t_maxseg);
-	}
+	sendwin = min(tp->snd_wnd, tp->snd_cwnd);
 
-	TCP_TRACE_CHECK(tp, sendwin < tp->t_maxseg, "snd_wnd %d, snd_cwnd %d\n", tp->snd_wnd, tp-> snd_cwnd) ;
 	flags = tcp_outflags[tp->t_state];
-
-	if (0 == rgn_len(tp->rgn_snd) &&
-			tp->t_state == TCPS_ESTABLISHED &&
-			!(tp->t_flags & TF_MORETOCOME)) {
-		flags |= TH_PUSH;
-	}
 
 	sack_rxmit = 0;
 	sack_bytes_rxmt = 0;
@@ -273,7 +242,6 @@ again:
 			len = ((long)ulmin(cwin, p->end - p->rxmit));
 		}
 		off = p->rxmit - tp->snd_una;
-		KASSERT(off >= 0, ("%s: sack block to the left of una : %d", __func__, off));
 		if (len > 0) {
 			sack_rxmit = 1;
 			sendalot = 1;
@@ -285,6 +253,8 @@ again:
 after_sack_rexmit:
 	if (tp->t_flags & TF_NEEDFIN)
 		flags |= TH_FIN;
+	if (tp->t_flags & TF_NEEDSYN)
+		flags |= TH_SYN;
 
 	if (tp->t_flags & TF_FORCEDATA) {
 		if (sendwin == 0) {
@@ -349,24 +319,28 @@ after_sack_rexmit:
 	 * know that foreign host supports TAO, suppress sending segment.
 	 */
 	if ((flags & TH_SYN) && SEQ_GT(tp->snd_nxt, tp->snd_una)) {
-		// if (tp->t_state != TCPS_SYN_RECEIVED || off > 1)
-		if (off > 1) { flags &= ~TH_SYN; goto just_return; }
+		if (tp->t_state != TCPS_SYN_RECEIVED)
+			flags &= ~TH_SYN;
 		off--, len++;
+	}
+
+	if ((flags & TH_SYN) && (tp->t_flags & TF_NOOPT)) {
+		len = 0;
+		flags &= ~TH_FIN;
 	}
 
 	if (len < 0) {
 		len = 0;
 		if (sendwin == 0) {
 			tcp_timer_activate(tp, TT_REXMT, 0);
-			tp->snd_nxt = tp->snd_una;
 			tp->t_rxtshift = 0;
-			if ( !tcp_timer_active(tp, TT_PERSIST) )
+			tp->snd_nxt = tp->snd_una;
+			if (!tcp_timer_active(tp, TT_PERSIST))
 				tcp_setpersist(tp);
 		}
 	}
 
 	/* len will be >= 0 after this point. */
-	KASSERT(len >= 0, ("[%s:%d]: len < 0", __func__, __LINE__));
 
 	if (sack_rxmit) {
 		if (SEQ_LT(p->rxmit + len, tp->snd_una + rgn_len(tp->rgn_snd)))
@@ -376,7 +350,7 @@ after_sack_rexmit:
 			flags &= ~TH_FIN;
 	}
 
-	old = rgn_size(tp->rgn_snd);
+	size_t old = rgn_size(tp->rgn_snd);
 	if (!(tp->t_flags & TF_NEEDFIN)
 			&& TCPS_HAVEESTABLISHED(tp->t_state) && 
 			tp->t_state < TCPS_FIN_WAIT_1 &&
@@ -392,37 +366,29 @@ after_sack_rexmit:
 
 	recwin = rgn_rest(tp->rgn_rcv);
 
-	if (len > tp->t_maxseg) {
-		len = tp->t_maxseg;
-		flags &= ~TH_FIN;
-		sendalot = 1;
-	}
-
-
 	if (len) {
 		if (len >= tp->t_maxseg)
-			goto sendit;
+			goto send_label;
 
-		if ((idle || tp->snd_frag == 0)
-				&& !(tp->t_flags & TF_MORETOCOME)
-				&& len + off >= rgn_len(tp->rgn_snd)) {
-			is_frag = 1;
-			goto sendit;
+		if (!(tp->t_flags & TF_MORETOCOME) &&
+				(idle || (tp->t_flags & TF_NODELAY)) &&
+				len + off >= rgn_len(tp->rgn_snd)) {
+			goto send_label;
 		}
 
 		if (tp->t_flags & TF_FORCEDATA)
-			goto sendit;
+			goto send_label;
 
 		if ((u_long)len >= tp->max_sndwnd / 2 &&
 				tp->max_sndwnd > 0)
-			goto sendit;
+			goto send_label;
 
 		if (SEQ_LT(tp->snd_nxt, tp->snd_max))
-			goto sendit;
+			goto send_label;
 
 		if (sack_rxmit)
-			goto sendit;
-	} 
+			goto send_label;
+	}
 	
 	/*
 	 * Compare available window to amount of window
@@ -434,8 +400,9 @@ after_sack_rexmit:
 	 * Don't send pure window updates when the peer has closed
 	 * the connection and won't ever send more data.
 	 */
-	if (recwin > 0 && !(tp->t_flags & TF_DELACK) 
-		&& !TCPS_HAVERCVDFIN(tp->t_state)) {
+	if (recwin > 0 && !(tp->t_flags & TF_NEEDSYN) &&
+			!(tp->t_flags & TF_DELACK) &&
+			!TCPS_HAVERCVDFIN(tp->t_state)) {
 		long adv;
 		int oldwin;
 
@@ -454,14 +421,12 @@ after_sack_rexmit:
 		if (oldwin >> WINDOW_SCALE == (adv + oldwin) >> WINDOW_SCALE)
 			goto dontupdate;
 
-		if (adv >= (long) (2 * tp->t_maxseg) && adv >= (long)(rgn_size(tp->rgn_snd) / 4))
-			goto sendit;
 
-		if (2 * adv >= (long) rgn_size(tp->rgn_rcv))
-			goto sendit;
-
-		if (recwin <= (long)(rgn_size(tp->rgn_snd) / 8))
-			goto sendit;
+		if (adv >= (long) (2 * tp->t_maxseg) &&
+			(adv >= (long)(rgn_size(tp->rgn_rcv) / 4) ||
+			 recwin <= (long)(rgn_size(tp->rgn_rcv) / 8) ||
+			 rgn_size(tp->rgn_rcv) <= 8 * tp->t_maxseg))
+		    goto send_label;
 	}
 
 
@@ -471,14 +436,15 @@ dontupdate:
 	 * is also a catch-all for the retransmit timer timeout case.
 	 */
 	if (tp->t_flags & TF_ACKNOW)
-		goto sendit;
+		goto send_label;
 
-	if (flags & (TH_SYN | TH_RST))
-		goto sendit;
+	if ((flags & TH_RST) || 
+			((flags & TH_SYN) && (tp->t_flags & TF_NEEDSYN) == 0))
+		goto send_label;
 
 	if (flags & TH_FIN &&
 			((tp->t_flags & TF_SENTFIN) == 0 || tp->snd_nxt == tp->snd_una))
-		goto sendit;
+		goto send_label;
 
 	if (SEQ_GT(tp->snd_max, tp->snd_una) &&
 		!tcp_timer_active(tp, TT_REXMT) &&
@@ -496,11 +462,9 @@ dontupdate:
 	}
 
 just_return:
-	tcp_cancel_devbusy(tp);
-	tp->t_flags &= ~TF_DEVBUSY;
 	return 0;
 
-sendit:
+send_label:
 	to.to_flags = 0;
 	/* Maximum segment size. */
 	if (flags & TH_SYN) {
@@ -526,10 +490,6 @@ sendit:
 	to.to_tsecr = (tp->ts_recent);
 
 	optlen = tcp_addoptions(&to, (u_char *)(th + 1));
-	rcv_numsacks = (optlen >> 2);
-#if 0
-	optlen = TCPOLEN_SACK * rcv_numsacks;
-#endif
 
 	iobuf[0].iov_base = (char *)th;
 	iobuf[0].iov_len  = sizeof(*th) + optlen;
@@ -551,7 +511,7 @@ sendit:
 			TCPSTAT_INC(tcps_sndpack);
 			TCPSTAT_ADD(tcps_sndbyte, len);
 		}
-		TCP_TRACE_CHECK(tp, off && p, "%x len %d, off %d, optlen %d, %x\n", tp->tp_socket->so_conv, len, off, optlen, to.to_flags);
+		// TCP_TRACE_CHECK(tp, off && p, "%x len %d, off %d, optlen %d, %x\n", tp->tp_socket->so_conv, len, off, optlen, to.to_flags);
 		rgn_peek(tp->rgn_snd, iobuf + 1, len, off);
 #if 0
 		if (off + len == rgn_len(tp->rgn_snd))
@@ -584,12 +544,11 @@ sendit:
 	}
 
 	th->th_magic = MAGIC_UDP_TCP;
-	th->th_opten = rcv_numsacks;
+	th->th_opten = (optlen >> 2);
 	th->th_ack = htonl(tp->rcv_nxt);
 	th->th_flags = flags;
 	th->th_conv  = (tp->tp_socket->so_conv);
 	th->th_ckpass	= 0;
-	tilen   = (u_short)len;
 
 	if (recwin < (long) rgn_size(tp->rgn_rcv) / 4 &&
 		recwin < (long) tp->t_maxseg)
@@ -602,29 +561,13 @@ sendit:
 	th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
 
 
-	/* Run HHOOK_TCP_ESTABLISHED_OUT helper hooks. */
-	hhook_run_tcp_est_out(tp, th, &to, tilen, 0);
-
-
-	int prev_snd_nxt = tp->snd_nxt;
-	int prev_snd_max = tp->snd_max;
-	int prev_t_flags = tp->t_flags;
-	int prev_t_rtseq = tp->t_rtseq;
-	int prev_t_rtttime = tp->t_rtttime;
-
-	if (th->th_flags & TH_FIN) {
-		TCP_TRACE_CHECK(tp, th->th_flags & TH_FIN, "%x FIN sent\n", tp->tp_socket->so_conv);
-		TCP_TRACE_CHECK(tp, tilen == 0 && tp->t_state > TCPS_ESTABLISHED,
-				"%x finish ack state %d, rcv_nxt %x, %x, %x\n", tp->tp_socket->so_conv, tp->t_state, tp->rcv_nxt, htonl(th->th_seq), htonl(th->th_ack));
-	}
-
 	th->th_ckpass = update_ckpass(iobuf, 3);
-	error = utxpl_output(tp->tp_socket->so_iface, iobuf, 3, &tp->dst_addr);
+	/* Run HHOOK_TCP_ESTABLISHED_OUT helper hooks. */
 
-	if (is_frag) {
-		tp->snd_frag = tp->snd_nxt;
-		is_frag = 0;
-	}
+	if (len == 0)
+	    error = utxpl_output(tp->tp_socket->so_iface, iobuf, 3, &tp->dst_addr);
+	else
+	    error = hhook_run_tcp_est_out(tp, th, &to, len, sack_rxmit);
 
 	if ((tp->t_flags & TF_FORCEDATA) == 0 || !tcp_timer_active(tp, TT_PERSIST)) {
 		tcp_seq startseq = tp->snd_nxt;
@@ -644,14 +587,15 @@ sendit:
 		if (SEQ_GT(tp->snd_nxt, tp->snd_max)) {
 			tp->snd_max = tp->snd_nxt;
 			if (tp->t_rtttime == 0) {
-				tp->t_rtttime = ticks;
+				assert(error > 0);
+				tp->t_rtttime = ticks; // NEED TO FIXME
 				tp->t_rtseq = startseq;
 				TCPSTAT_INC(tcps_segstimed);
 			}
 		}
 
 timer:
-		if (!tcp_timer_active(tp, TT_REXMT) &&
+		if (!tcp_timer_active(tp, TT_REXMT) && error == 1 &&
 			((sack_rxmit && tp->snd_nxt != tp->snd_max) ||
 				(tp->snd_nxt != tp->snd_una))) {
 			if ( tcp_timer_active(tp, TT_PERSIST) ) {
@@ -660,6 +604,8 @@ timer:
 			}
 
 			assert (tp->snd_max != tp->snd_una);
+			assert(error > 0);
+			tp->snd_rto = htonl(th->th_seq);
 			tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
 		}
 	} else {
@@ -676,41 +622,6 @@ timer:
 		}
 	}
 
-   	if (error == -1) {
-
-		if ((!(tp->t_flags & TF_FORCEDATA) ||
-					!tcp_timer_active(tp, TT_PERSIST)) &&
-				((flags & TH_SYN) == 0)) {
-			if (sack_rxmit) {
-				p->rxmit -= len;
-				tp->sackhint.sack_bytes_rexmit -= len;
-			} else
-				tp->snd_nxt -= len;
-
-		}
-
-		tp->snd_nxt = prev_snd_nxt;
-		tp->snd_max = prev_snd_max;
-		tp->t_rtseq = prev_t_rtseq;
-		tp->t_flags = prev_t_flags;
-		tp->t_rtttime = prev_t_rtttime;
-
-		// assert (tp->snd_max != tp->snd_una);
-		if (!tcp_timer_active(tp, TT_REXMT) &&
-				!tcp_timer_active(tp, TT_PERSIST) && tilen) {
-			tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
-		}
-		tp->snd_cwnd = tp->t_maxseg;
-
-		/* tp->t_dupacks++; */
-		TCP_TRACE_AWAYS(tp, "utxpl_output %d\n", utxpl_error());
-		// UTXPL_ASSERT(tp->snd_nxt >= tp->snd_una);
-
-		tcp_devbusy(tp, &tp->t_event_devbusy);
-	   	return -1;
-   	}
-
-	this_sent += tilen;
 	TCPSTAT_INC(tcps_sndtotal);
 	if (recwin > 0 && SEQ_GT(tp->rcv_nxt + recwin, tp->rcv_adv))
 		tp->rcv_adv = tp->rcv_nxt + recwin;
@@ -718,18 +629,17 @@ timer:
 	tp->t_flags &= ~(TF_ACKNOW | TF_DELACK);
 	tcp_timer_activate(tp, TT_DELACK, 0);
 
+	if (error == 0 && len > 0) {
+	    // TCP_DEBUG(1, "filter");
+	    if (sack_rxmit)
+		tp->sackhint.sack_bytes_rexmit -= len;
+	    sendalot = 1;
+	}
+
+retry:
 	if (sendalot)
 		goto again;
 
-#if 0
-	if (sendalot) {
-		tcp_devbusy(tp);
-		return -1;
-	}
-#endif
-
-	tcp_cancel_devbusy(tp);
-	tp->t_flags &= ~TF_DEVBUSY;
 	return 0;
 }
 
@@ -798,6 +708,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 int tcp_addoptions(struct tcpopt *to, u_char *optp)
 {
 	u_int mask, optlen = 0;
+	u_int tsval, tsecr;
 
 	for (mask = 1; mask < TOF_MAXOPT; mask <<= 1) {
 		if ((to->to_flags & mask) != mask)
@@ -884,12 +795,12 @@ int tcp_addoptions(struct tcpopt *to, u_char *optp)
 				optlen += TCPOLEN_TIMESTAMP;
 				*optp++ = TCPOPT_TIMESTAMP;
 				*optp++ = TCPOLEN_TIMESTAMP;
-				to->to_tsval = htonl(to->to_tsval);
-				to->to_tsecr = htonl(to->to_tsecr);
-				bcopy((u_char *)&to->to_tsval, optp, sizeof(to->to_tsval));
-				optp += sizeof(to->to_tsval);
-				bcopy((u_char *)&to->to_tsecr, optp, sizeof(to->to_tsecr));
-				optp += sizeof(to->to_tsecr);
+				tsval = htonl(to->to_tsval);
+				tsecr = htonl(to->to_tsecr);
+				bcopy((u_char *)&tsval, optp, sizeof(tsval));
+				optp += sizeof(tsval);
+				bcopy((u_char *)&tsecr, optp, sizeof(tsecr));
+				optp += sizeof(tsecr);
 				break;
 
 			case TOF_SACKPERM:

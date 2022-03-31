@@ -9,6 +9,7 @@
 #include <tcpup/tcp_seq.h>
 #include <tcpup/tcp_var.h>
 #include <tcpup/tcp_timer.h>
+#include <tcpup/tcp_debug.h>
 
 int tcp_sack_maxholes = 128;
 int tcp_sack_globalholes = 0;
@@ -259,6 +260,8 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 			}
 		}
 	}
+
+
 	if (TAILQ_EMPTY(&tp->snd_holes))
 		/*
 		 * Empty scoreboard. Need to initialize snd_fack (it may be
@@ -437,7 +440,7 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 	    (tp->snd_nxt - tp->sack_newdata) + num_segs * tp->t_maxseg);
 	if (tp->snd_cwnd > tp->snd_ssthresh)
 		tp->snd_cwnd = tp->snd_ssthresh;
-	// tp->t_flags |= TF_ACKNOW;
+	tp->t_flags |= TF_ACKNOW;
 	(void) tcp_output(tp);
 }
 
@@ -493,11 +496,12 @@ tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt)
 	if (hole == NULL || SEQ_LT(hole->rxmit, hole->end))
 		goto out;
 	while ((hole = TAILQ_NEXT(hole, scblink)) != NULL) {
-		if (SEQ_LT(hole->rxmit, hole->end)) {
-			tp->sackhint.nexthole = hole;
-			break;
-		}
+	    if (SEQ_LT(hole->rxmit, hole->end)) {
+		tp->sackhint.nexthole = hole;
+		break;
+	    }
 	}
+
 out:
 	return (hole);
 }
