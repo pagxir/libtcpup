@@ -30,11 +30,13 @@ extern struct module_stub  tcp_device_udp_mod;
 extern struct module_stub  tcp_device_icmp_mod;
 extern struct module_stub  tcp_device_icmp_user_mod;
 extern struct module_stub  tcp_device_stdio_mod;
+extern struct module_stub  tcp_device_ipv6_mod;
 
 extern struct if_dev_cb _udp_if_dev_cb;
 extern struct if_dev_cb _icmp_if_dev_cb;
 extern struct if_dev_cb _icmp_user_if_dev_cb;
 extern struct if_dev_cb _stdio_if_dev_cb;
+extern struct if_dev_cb _ipv6_if_dev_cb;
 
 static struct if_dev_cb * _if_dev_db = &_udp_if_dev_cb;
 static struct module_stub  * _tcp_device_mod = &tcp_device_udp_mod;
@@ -53,7 +55,7 @@ int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr con
 
 int get_device_mtu()
 {
-	int mtu = 1500;
+	int mtu = 1500 - 8;
 	char *mtup = getenv("MTU");
 	if (mtup != NULL) {
 		int tmp_mtu = atoi(mtup);
@@ -122,6 +124,13 @@ void set_link_protocol(const char *link)
 		return;
 	}
 
+	if (strcmp(link, "udp6") == 0
+			|| strcmp(link, "UDP6") == 0) {
+		_tcp_device_mod = &tcp_device_ipv6_mod;
+		_if_dev_db = &_ipv6_if_dev_cb;
+		return;
+	}
+
 	if (strcmp(link, "icmp") == 0
 			|| strcmp(link, "ICMP") == 0) {
 		_tcp_device_mod = &tcp_device_icmp_mod;
@@ -142,6 +151,96 @@ void set_link_protocol(const char *link)
 		_if_dev_db = &_stdio_if_dev_cb;
 		return;
 	}
+}
+
+socklen_t get_link_target(struct sockaddr *dest, socklen_t *destlen, const char *target)
+{
+    int nmatch, rc = 0;
+    char domain[128], portstr[64] = "0";
+    struct sockaddr_in *inp = (struct sockaddr_in *)dest;
+    struct sockaddr_in6 *in6p = (struct sockaddr_in6 *)dest;
+
+    nmatch = sscanf(target, "[%[0-9:.a-fA-F]]:%s", domain, portstr);
+    if ((nmatch == 1 || nmatch == 2) && *destlen >= sizeof(*in6p)) {
+	in6p->sin6_family = AF_INET6;
+	in6p->sin6_port   = htons(atoi(portstr));
+	rc = inet_pton(AF_INET6, domain, &in6p->sin6_addr);
+	fprintf(stderr, "ipv6: %s, port: %s\n", domain, portstr);
+	*destlen = sizeof(*in6p);
+	goto check_acceptable;
+    }
+
+    if (*target == ':' || !strchr(target, '.')) {
+	const char *strp = *target == ':'? target +1: target;
+	if (_tcp_device_mod == &tcp_device_ipv6_mod && *destlen >= sizeof(*in6p)) {
+	    in6p->sin6_family = AF_INET6;
+	    in6p->sin6_port   = htons(atoi(strp));
+	    in6p->sin6_addr   = in6addr_any;
+	} else {
+	    inp->sin_family = AF_INET;
+	    inp->sin_port   = htons(atoi(strp));
+	    inp->sin_addr.s_addr   = INADDR_ANY;
+	}
+    }
+
+    nmatch = sscanf(target, "%[0-9.]:%s", domain, portstr);
+    if ((nmatch == 1 || nmatch == 2) && *destlen >= sizeof(*inp)) {
+	inp->sin_family = AF_INET;
+	inp->sin_port   = htons(atoi(portstr));
+	rc = inet_pton(AF_INET, domain, &inp->sin_addr);
+	fprintf(stderr, "ipv4: %s, port: %s\n", domain, portstr);
+	*destlen = sizeof(*inp);
+	goto check_acceptable;
+    }
+
+    nmatch = sscanf(target, "%[^:]:%s", domain, portstr);
+    if (nmatch < 1) {
+	fprintf(stderr, "invalid format %s\n", target);
+	return -1;
+    }
+
+    struct addrinfo hints;
+    struct addrinfo *result, *rp;
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_flags = AI_PASSIVE;
+    hints.ai_protocol = 0;
+    hints.ai_canonname = NULL;
+    hints.ai_addr = NULL;
+    hints.ai_next = NULL;
+
+    if (_tcp_device_mod == &tcp_device_ipv6_mod) {
+	hints.ai_family = AF_INET6;
+    }
+
+    rc = getaddrinfo(NULL, domain, &hints, &result);
+    if (rc != 0) {
+	fprintf(stderr, "domain: %s, port: %s\n", domain, portstr);
+	return rc;
+    }
+
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+	if (*destlen >= rp->ai_addrlen) {
+	    memcpy(dest, rp->ai_addr, rp->ai_addrlen);
+	    *destlen = rp->ai_addrlen;
+	    break;
+	}
+    }
+
+    freeaddrinfo(result);
+
+check_acceptable:
+    if (_tcp_device_mod == &tcp_device_ipv6_mod && in6p->sin6_family != AF_INET6) {
+	fprintf(stderr, "address unacceptable v6: %s\n", target);
+	return -1;
+    } else if (_tcp_device_mod != &tcp_device_ipv6_mod && inp->sin_family != AF_INET) {
+	fprintf(stderr, "address unacceptable v4: %s\n", target);
+	return -1;
+    }
+
+    return rc;
 }
 
 static void module_init(void)

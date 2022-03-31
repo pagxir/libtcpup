@@ -6,6 +6,8 @@
 #include <string.h>
 #include <sys/types.h>
 
+#define PACING_SHIFT 16
+
 #if defined(WIN32) && !defined(SOCK_STREAM)
 typedef unsigned short u_short;
 typedef unsigned long  u_long;
@@ -20,8 +22,11 @@ typedef unsigned long long u_int64_t;
 
 #ifdef WIN32
 #include <winsock2.h>
+#include <ws2ipdef.h>
+#include <ws2tcpip.h>
 #define MSG_DONTWAIT 0
 #else
+#include <netdb.h>
 #include <unistd.h>
 #define closesocket(s) close(s)
 #endif
@@ -107,7 +112,7 @@ enum {
 struct tcpup_addr {
     size_t namlen;
     u_long xdat;
-    char name[16];
+    char name[28];
 };
 
 #if defined(WIN32)

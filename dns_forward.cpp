@@ -39,7 +39,7 @@ static struct cached_client {
 	char header[64];
 } __cached_client[512];
 
-#define RCVPKT_MAXSIZ 1500
+#define RCVPKT_MAXSIZ 1492
 static int __last_index = 0;
 
 int resolved_dns_packet(void *buf, const void *packet, size_t length, int *pnetif, struct tcpup_addr *from, rgn_iovec *vec)

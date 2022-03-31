@@ -402,7 +402,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 	if ((tp->t_flags & TF_REC_ADDR) &&
 			(!(to.to_flags & TOF_TS) || TSTMP_GEQ(to.to_tsval, tp->ts_recent))
 			&& memcmp(&tp->dst_addr, from, sizeof(*from))) {
-		/* TCP_TRACE_AWAYS(tp, "update dst_addr\n"); */
+		TCP_TRACE_AWAYS(tp, "update dst_addr\n");
 		if (memcmp(&tp->sav_addr, from, sizeof(*from))) {
 			client_track_update(th->th_conv, from, sizeof(*from), ticks);
 			needoutput = 1;
@@ -1267,6 +1267,9 @@ process_ACK:
 			acked = BYTES_THIS_ACK(tp, th);
 			TCPSTAT_INC(tcps_rcvackpack);
 			TCPSTAT_ADD(tcps_rcvackbyte, acked);
+
+			if (TSTMP_GT(to.to_tsecr, tp->delivered_mstamp))
+				tp->delivered_mstamp = to.to_tsecr;
 
 			if (tp->t_rxtshift == 1 && tp->t_flags & TF_PREVVALID &&
 					(int)(ticks - tp->t_badrxtwin) < 0)

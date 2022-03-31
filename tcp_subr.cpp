@@ -67,8 +67,13 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 	tp->snd_wnd = tp->t_maxseg;
 
 	tp->snd_cwnd = rgn_size(tp->rgn_snd);
-	tp->snd_ssthresh = rgn_size(tp->rgn_snd);
+	tp->snd_ssthresh = tp->snd_max_space;
 	tp->t_rcvtime = ticks;
+
+	tp->lost = 0;
+	tp->delivered = 0;
+	tp->delivered_mstamp = ticks;
+
 	tp->t_rttmin  = tcp_rexmit_min;
 	tp->ts_recent = 0;
 	tp->ts_offset = 0;

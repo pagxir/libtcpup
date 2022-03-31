@@ -222,6 +222,10 @@ struct tcpcb {
         void    *t_pspare2[4];          /* 1 TCP_SIGNATURE, 3 TBD */
         uint64_t _pad[6];               /* 6 TBD (1-2 CC/RTT?) */
 
+	uint32_t lost;
+	uint32_t delivered;
+	uint64_t delivered_mstamp;
+
 		int t_error;
 		uint32_t rcv_max_space;
 		struct rgnbuf *rgn_rcv;

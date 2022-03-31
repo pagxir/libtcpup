@@ -14,6 +14,7 @@
 #include <utx/socket.h>
 
 #include <tcpup/tcp.h>
+#include <tcpup/tcp_var.h>
 #include <tcpup/tcp_subr.h>
 #include <tcpup/tcp_debug.h>
 #include <tcpup/tcp_crypt.h>
@@ -22,13 +23,7 @@
 #include <tcpup/tcp_device.h>
 
 #include "tcp_channel.h"
-
-extern "C" void tcp_channel_forward(struct sockaddr *dest, socklen_t destlen) __attribute__ ((weak));
-
-void tcp_channel_forward(struct sockaddr *dest, socklen_t destlen)
-{
-	printf ("emptycall\n");
-}
+#define MAX_DEV_CNT 8
 
 static FILTER_HOOK *_filter_hook;
 static int _set_filter_hook(FILTER_HOOK *hook)
@@ -37,15 +32,12 @@ static int _set_filter_hook(FILTER_HOOK *hook)
 	return 0;
 }
 
-struct tcpup_device {
+struct tcpup_device_ipv6 {
 	struct tx_aiocb _sockcbp;
 
 	struct tx_task_t _event;
 	struct tx_task_t _dev_idle;
-	struct sockaddr_in _addr_in;
-
-	struct tx_task_t _nat_hold;
-	struct tx_timer_t _nat_hold_timer;
+	struct sockaddr_in6 _addr_in;
 
 public:
 	int _file;
@@ -58,8 +50,6 @@ public:
 	void init(int dobind);
 	void fini();
 	void incoming();
-	void holdon();
-	void reset_nat();
 };
 
 static int _tcp_out_fd = -1;
@@ -69,14 +59,12 @@ static tx_task_q _dev_busy;
 static struct tx_task_t _stop;
 static struct tx_task_t _start;
 
-#define MAX_DEV_CNT 8
-static struct tcpup_device *_paging_devices[MAX_DEV_CNT] = {0};
+static struct tcpup_device_ipv6 *_paging_devices[MAX_DEV_CNT] = {0};
 
-static void dev_nat_holdon(void *ctx);
 static void listen_statecb(void *context);
 static void listen_callback(void *context);
 
-static int tcp_busying(void)
+static int _tcp_busying(void)
 {
 	return _tcp_dev_busy;
 }
@@ -90,7 +78,7 @@ static sockcb_t _socreate(so_conv_t conv)
 {
 	int offset = (rand() % MAX_DEV_CNT) & ~1;
 	if (getenv("RELAYSERVER") != NULL) offset = 0;
-	tcpup_device *this_device = _paging_devices[offset];
+	tcpup_device_ipv6 *this_device = _paging_devices[offset];
 
 	if (this_device != NULL && this_device->_dobind == 0) {
 		int idle, idleout;
@@ -102,6 +90,7 @@ static sockcb_t _socreate(so_conv_t conv)
 		if (idleout && idle && this_device->_t_rcvtime < this_device->_t_sndtime) {
 			if (_paging_devices[offset + 1] != NULL) {
 				_paging_devices[offset + 1]->fini();
+				delete _paging_devices[offset + 1];
 				_paging_devices[offset + 1] = NULL;
 			}
 
@@ -113,10 +102,10 @@ static sockcb_t _socreate(so_conv_t conv)
 	}
 
 	if (this_device == NULL) {
-		this_device = new tcpup_device;
+		this_device = new tcpup_device_ipv6;
 		this_device->init(0);
 		this_device->_offset = offset;
-		tx_task_active(&this_device->_event, "d-read");
+		tx_task_active(&this_device->_event, "d-r");
 
 		_paging_devices[offset] = this_device;
 	}
@@ -127,38 +116,36 @@ static sockcb_t _socreate(so_conv_t conv)
 static void dev_idle_callback(void *uup)
 {
 	tx_task_wakeup(&_dev_busy, "idle");
-	TCP_DEBUG(1, "dev_idle_callback\n");
+	TCP_DEBUG(0x1, "dev_idle_callback\n");
 
 	return ;
 }
 
 static void _tcp_devbusy(struct tcpcb *tp, tx_task_t *task)
 {
-#if 0
 	if ((tp->t_flags & TF_DEVBUSY) == 0) {
 		tx_task_record(&_dev_busy, &tp->t_event_devbusy);
 		tp->t_flags |= TF_DEVBUSY;
 		if (_tcp_dev_busy == 0) {
 			/* TODO: fixme: device busy */
-			sock_write_wait(_sockcbp, &_dev_idle);
+			// sock_write_wait(_sockcbp, &_dev_idle);
 			_tcp_dev_busy = 1;
 		}
 	}
-#endif
 }
 
-static struct sockaddr_in _tcp_out_addr = { 0 };
+static struct sockaddr_in6 _tcp_out_addr = { 0 };
 static void _tcp_set_outter_address(struct tcpip_info *info)
 {
 	int error;
 	struct sockaddr *out_addr;
 
-	_tcp_out_addr.sin_family = AF_INET;
-	_tcp_out_addr.sin_port   = (info->port);
-	_tcp_out_addr.sin_addr.s_addr   = (info->address);
+	_tcp_out_addr.sin6_family = AF_INET6;
+	_tcp_out_addr.sin6_port   = (info->port);
+	// _tcp_out_addr.sin_addr.s_addr   = (info->address);
 	out_addr = (struct sockaddr *)&_tcp_out_addr;
 
-	_tcp_out_fd = socket(AF_INET, SOCK_DGRAM, 0);
+	_tcp_out_fd = socket(AF_INET6, SOCK_DGRAM, 0);
 	assert(_tcp_out_fd != -1);
 
 	error = bind(_tcp_out_fd, out_addr, sizeof(_tcp_out_addr));
@@ -167,83 +154,68 @@ static void _tcp_set_outter_address(struct tcpip_info *info)
 	return;
 }
 
-static struct sockaddr_in _tcp_dev_addr = { 0 };
+static struct sockaddr_in6 _tcp_dev_addr = { 0 };
 static void _tcp_set_device_address(struct tcpip_info *info)
 {
-	_tcp_dev_addr.sin_family = AF_INET;
-	_tcp_dev_addr.sin_port   = (info->port);
-	_tcp_dev_addr.sin_addr.s_addr   = (info->address);
+	_tcp_dev_addr.sin6_family = AF_INET6;
+	_tcp_dev_addr.sin6_port   = (info->port);
+	// _tcp_dev_addr.sin_addr.s_addr   = (info->address);
 	return;
 }
 
-static struct sockaddr_in _tcp_keep_addr = { 0 };
+static struct sockaddr_in6 _tcp_keep_addr = { 0 };
 static void _tcp_set_keepalive_address(struct tcpip_info *info)
 {
-	_tcp_keep_addr.sin_family = AF_INET;
-	_tcp_keep_addr.sin_port   = (info->port);
-	_tcp_keep_addr.sin_addr.s_addr   = (info->address);
+	_tcp_keep_addr.sin6_family = AF_INET6;
+	_tcp_keep_addr.sin6_port   = (info->port);
+	// _tcp_keep_addr.sin_addr.s_addr   = (info->address);
 }
 
-#define _DNS_CLIENT_
-#ifdef _DNS_CLIENT_
-
 static unsigned char dns_filling_byte[] = {
-	'.', 'K', 'L', 'O', 'I', 'M', 'H', 'V'
+        0x20, 0x88, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x04, 0x77, 0x77, 0x77,
+        0x77, 0x00, 0x00, 0x01, 0x00, 0x01
 };
 
-#else
-
-static unsigned char dns_filling_byte[] = {
-	'.', 'K', 'L', 'O', 'I', 'M', 'H', 'V'
-};
-
-#endif
-
-unsigned _last_mstamp;
-unsigned _last_mstamp_save;
-
-void tcpup_device::init(int dobind)
+void tcpup_device_ipv6::init(int dobind)
 {
 	int error;
 	socklen_t alen;
-	struct sockaddr_in saddr;
+	struct sockaddr_in6 saddr;
 
 	memcpy(&_addr_in, &_tcp_dev_addr, sizeof(_addr_in));
-	_addr_in.sin_family = AF_INET;
+	_addr_in.sin6_family = AF_INET6;
 
 	tx_loop_t *loop = tx_loop_default();
 	tx_task_init(&_event, loop, listen_callback, this);
 	tx_task_init(&_dev_idle, loop, dev_idle_callback, this);
 
-	tx_task_init(&_nat_hold, loop, dev_nat_holdon, this);
-	tx_timer_init(&_nat_hold_timer, loop, &_nat_hold);
-
-	_file = socket(AF_INET, SOCK_DGRAM, 0);
+	_file = socket(AF_INET6, SOCK_DGRAM, 0);
 	assert(_file != -1);
 
 	if (dobind) {
 		error = bind(_file, (struct sockaddr *)&_addr_in, sizeof(_addr_in));
 		assert(error == 0);
-		tx_timer_reset(&_nat_hold_timer, 15000);
 		_dobind = 1;
 	} else {
-		_addr_in.sin_port = 0;
+		_addr_in.sin6_port = 0;
 		error = bind(_file, (struct sockaddr *)&_addr_in, sizeof(_addr_in));
 		assert(error == 0);
 	}
 
+	char inetbuf[128];
 	alen = sizeof(saddr);
 	getsockname(_file, (struct sockaddr *)&saddr, &alen);
-	LOG_INFO("bind@address# %s:%u\n",
-			inet_ntoa(saddr.sin_addr), htons(saddr.sin_port));
+	fprintf(stderr, "bind@address# %s:%u\n",
+			inet_ntop(AF_INET6, &saddr.sin6_addr, inetbuf, sizeof(inetbuf)), htons(saddr.sin6_port));
 
-	_addr_in.sin_port = saddr.sin_port;
-	if (saddr.sin_addr.s_addr != 0)
-		_addr_in.sin_addr = saddr.sin_addr;
+	_addr_in.sin6_port = saddr.sin6_port;
+	if (IN6_IS_ADDR_UNSPECIFIED(&saddr.sin6_addr))
+		_addr_in.sin6_addr = saddr.sin6_addr;
 
 #if defined(WIN32) || defined(__APPLE__)
 	int bufsize = 1024 * 1024;
-	setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
+	//setsockopt(_file, SOL_SOCKET, SO_SNDBUF, (char *)&bufsize, sizeof(bufsize));
 	setsockopt(_file, SOL_SOCKET, SO_RCVBUF, (char *)&bufsize, sizeof(bufsize));
 	tx_setblockopt(_file, 0);
 #endif
@@ -264,21 +236,19 @@ static void module_init(void)
 	tx_task_active(&_start, "start");
 	// TODO: fixme how to do when stop loop
 	/* slotwait_atstop(&_stop); */
-       _last_mstamp_save = tx_getticks();
-       _last_mstamp = _last_mstamp_save;
 }
 
 static void listen_statecb(void *context)
 {
 	int state;
 	int offset = 0;
-	tcpup_device *this_device = _paging_devices[offset];
+	tcpup_device_ipv6 *this_device = _paging_devices[offset];
 
 	state = (int)(uint64_t)context;
 	switch (state) {
 		case 1:
 			if (this_device == NULL) {
-				this_device = new tcpup_device;
+				this_device = new tcpup_device_ipv6;
 				this_device->init(1);
 				this_device->_offset = offset;
 				tx_task_active(&this_device->_event, "listen");
@@ -297,8 +267,20 @@ static void listen_statecb(void *context)
 	return;
 }
 
+#ifndef WIN32
+#define IOVEC struct iovec
+#define LPIOVEC struct iovec *
+#define IOV_LEN(var) var.iov_len
+#define IOV_BASE(var) var.iov_base
+#else
+#define IOVEC WSABUF
+#define LPIOVEC LPWSABUF
+#define IOV_LEN(var) var.len
+#define IOV_BASE(var) var.buf
+#endif
+
 #define RCVPKT_MAXCNT 256
-#define RCVPKT_MAXSIZ 1500
+#define RCVPKT_MAXSIZ 1492
 
 static u_short _rcvpkt_len[RCVPKT_MAXCNT];
 static tcpup_addr _rcvpkt_addr[RCVPKT_MAXCNT];
@@ -306,40 +288,41 @@ static char  _rcvpkt_buf[RCVPKT_MAXSIZ * RCVPKT_MAXCNT];
 
 static void listen_callback(void *context)
 {
-	struct tcpup_device *up;
+	struct tcpup_device_ipv6 *up;
 
-	up = (struct tcpup_device *)context;
+	up = (struct tcpup_device_ipv6 *)context;
 	up->incoming();
 	return;
 }
 
-void tcpup_device::incoming(void)
+void tcpup_device_ipv6::incoming(void)
 {
 	int len;
 	int pktcnt;
 	socklen_t salen;
-	struct sockaddr saaddr;
-	char packet[RCVPKT_MAXSIZ + 1];
+	struct sockaddr_in6 saaddr;
+	struct icmphdr *icmphdr;
+	char packet[RCVPKT_MAXSIZ];
 
 	if (tx_readable(&_sockcbp)) {
 		char *p;
 		unsigned short key;
 		ticks = tx_getticks();
 
-		p = _rcvpkt_buf;
 		pktcnt = 0;
-		packet[RCVPKT_MAXSIZ] = 0;
+		p = _rcvpkt_buf;
 		for (int i = 0; i < RCVPKT_MAXCNT; i++) {
 			salen = sizeof(saaddr);
-			len = recvfrom(_file, packet, RCVPKT_MAXSIZ, MSG_DONTWAIT, &saaddr, &salen);
+			len = recvfrom(_file, packet, RCVPKT_MAXSIZ, MSG_DONTWAIT, (struct sockaddr *)&saaddr, &salen);
 			tx_aincb_update(&_sockcbp, len);
 			if (len == -1) break;
 
 			int offset = sizeof(dns_filling_byte);
+
 			if (len >= offset + TCPUP_HDRLEN) {
 				struct tcpup_addr from;
-				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
-				// memcpy(&key, packet + 14, 2);
+				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is ipv6 overflow %d\n", salen);
+				memcpy(&key, packet + 14, sizeof(key));
 				packet_decrypt(htons(key), p, packet + offset, len - offset);
 
 				if (_filter_hook != NULL) {
@@ -351,13 +334,6 @@ void tcpup_device::incoming(void)
 					}
 				}
 
-#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
-				if (_dobind > 0 && (packet[7] || packet[6])) {
-					struct sockaddr_in *inp = (struct sockaddr_in *)&saaddr;
-					memcpy(&inp->sin_addr, packet, 4);
-					memcpy(&inp->sin_port, packet + 6, 2);
-				}
-#endif
 				memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
 				_rcvpkt_addr[pktcnt].namlen = salen;
 				_rcvpkt_len[pktcnt++] = (len - offset);
@@ -370,9 +346,9 @@ void tcpup_device::incoming(void)
 		int handled;
 		p = _rcvpkt_buf;
 		for (int i = 0; i < pktcnt; i++) {
+			char inbuf[128];
 			handled = tcpup_do_packet(_offset, p, _rcvpkt_len[i], &_rcvpkt_addr[i]);
-			TCP_DEBUG(handled == 0, "error packet drop: %s\n",
-					inet_ntoa(((struct sockaddr_in *)(&saaddr))->sin_addr));
+			TCP_DEBUG(handled == 0, "error packet drop: %s\n", inet_ntop(AF_INET6, &saaddr.sin6_addr, inbuf, sizeof(inbuf)));
 			p += _rcvpkt_len[i];
 		}
 	}
@@ -387,49 +363,21 @@ static void module_clean(void)
 	tx_task_drop(&_stop);
 }
 
-void tcpup_device::fini()
+void tcpup_device_ipv6::fini()
 {
-	LOG_INFO("udp_listen: exiting\n");
-	tx_timer_stop(&_nat_hold_timer);
-	tx_task_drop(&_nat_hold);
-
+	fprintf(stderr, "udp_listen: exiting\n");
 	tx_task_drop(&_dev_idle);
 	tx_task_drop(&_event);
 	tx_aiocb_fini(&_sockcbp);
 	closesocket(_file);
 }
 
-static char _reg_net[] = "HELO 172.0.0.0/16 via feedf00d";
-
-static void dev_nat_holdon(void *ctx)
-{
-	struct tcpup_device *up;
-
-	up = (struct tcpup_device *)ctx;
-	up->holdon();
-	return;
-}
-
-void tcpup_device::reset_nat(void)
-{
-	struct sockaddr_in addr_in1;
-	addr_in1.sin_family = AF_INET;
-	addr_in1.sin_port   = _tcp_keep_addr.sin_port;
-	addr_in1.sin_addr.s_addr   = _tcp_keep_addr.sin_addr.s_addr;
-
-	if (_dobind == 1 && addr_in1.sin_addr.s_addr) {
-		tx_timer_reset(&_nat_hold_timer, 15000);
-	}
-
-	return;
-}
-
-extern "C" void tcp_backwork(struct tcpip_info *info)
+static void _tcp_backwork(struct tcpip_info *info)
 {
 #if 0
-	struct sockaddr_in addr_in1;
-	addr_in1.sin_family = AF_INET;
-	addr_in1.sin_port   = info->port;
+	struct sockaddr_in6 addr_in1;
+	addr_in1.sin6_family = AF_INET6;
+	addr_in1.sin6_port   = info->port;
 	addr_in1.sin_addr.s_addr   = info->address;
 
 	sendto(_file, "HELO", 4, 0,
@@ -438,14 +386,22 @@ extern "C" void tcp_backwork(struct tcpip_info *info)
 	return;
 }
 
+static u_short get_addr_port(struct tcpup_addr const *name)
+{
+	struct sockaddr_in6 *saip;
+	saip = (struct sockaddr_in6 *)name->name;
+	return saip->sin6_port;
+}
+
 static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
 {
 	int fd;
-    int error;
+	int error;
 
 	if (offset >= MAX_DEV_CNT || _paging_devices[offset] == NULL) {
-		LOG_INFO("offset: %d\n", offset);
-		if ((offset & 01) && offset < MAX_DEV_CNT && _paging_devices[offset - 1]) {
+		fprintf(stderr, "offset: %d\n", offset);
+		if ((offset & 01) && offset < MAX_DEV_CNT 
+				&& _paging_devices[offset - 1]) {
 			offset --;
 		} else {
 			return -1;
@@ -454,17 +410,6 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	
 	fd = _paging_devices[offset]->_file;
 	_paging_devices[offset]->_t_sndtime = time(NULL);
-	_paging_devices[offset]->reset_nat();
-
-#ifdef _FEATRUE_INOUT_TWO_INTERFACE_
-	if (_tcp_out_fd >= 0) {
-		struct sockaddr_in _addr_in;
-		_addr_in = _paging_devices[offset]->_addr_in;
-		memcpy(dns_filling_byte, &_addr_in.sin_addr, sizeof(_addr_in.sin_addr));
-		memcpy(dns_filling_byte + 6, &_addr_in.sin_port, sizeof(_addr_in.sin_port));
-		fd = _tcp_out_fd;
-	}
-#endif
 
 #ifndef WIN32
 	struct iovec  iovecs[10];
@@ -481,6 +426,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	msg0.msg_control = NULL;
 	msg0.msg_controllen = 0;
 	msg0.msg_flags = 0;
+
 	error = sendmsg(fd, &msg0, 0);
 #else
 	DWORD transfer = 0;
@@ -489,46 +435,21 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	iovecs[0].buf = (char *)dns_filling_byte;
 	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
 
-	transfer = 1;
 	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,
 			(const sockaddr *)name->name, name->namlen, NULL, NULL);
-	error = ((error == 0 || WSAGetLastError() == WSA_IO_PENDING)? transfer: -1);
+	error = (error == 0? transfer: -1);
 #endif
 
-	TCP_DEBUG(error == -1, "utxpl_output send failure\n");
+	TCP_DEBUG(error == -1, "utxpl_output send failure v6: %s\n", strerror(errno));
 	return error;
 }
 
-void tcpup_device::holdon(void)
-{
-	struct sockaddr_in addr_in1;
-	addr_in1.sin_family = AF_INET;
-	addr_in1.sin_port   = _tcp_keep_addr.sin_port;
-	addr_in1.sin_addr.s_addr   = _tcp_keep_addr.sin_addr.s_addr;
-
-	if (addr_in1.sin_addr.s_addr) {
-		tx_timer_reset(&_nat_hold_timer, 15000);
-
-		rgn_iovec iov;
-		struct tcpup_addr name;
-
-		memcpy(name.name, &_tcp_keep_addr, sizeof(_tcp_keep_addr));
-		name.namlen = sizeof(_tcp_keep_addr);
-
-		iov.iov_len = sizeof(_reg_net);
-		iov.iov_base = _reg_net;
-		_utxpl_output(0, &iov, 1, &name);
-	}
-
-	return;
-}
-
-struct module_stub  tcp_device_udp_mod = {
+struct module_stub  tcp_device_ipv6_mod = {
 	module_init, module_clean
 };
 
-struct if_dev_cb _udp_if_dev_cb = {
-	head_size: 20 + 8 + 22,
+struct if_dev_cb _ipv6_if_dev_cb = {
+	head_size: 40 + 8 + 22,
 	output: _utxpl_output,
 	set_filter: _set_filter_hook,
 	socreate: _socreate,

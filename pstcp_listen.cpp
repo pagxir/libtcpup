@@ -62,7 +62,7 @@ static void accept_statecb(void *ignore)
 	int state;
 	/* int error = -1; */
 
-	state = (int)(long)ignore;
+	state = (int)(uint64_t)ignore;
 	if (state == 0) {
 		LOG_DEBUG("listen_stop\n");
 		tx_task_drop(&_event);

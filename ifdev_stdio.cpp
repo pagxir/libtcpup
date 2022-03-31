@@ -129,7 +129,7 @@ static void listen_statecb(void *context)
 {
 	int state;
 
-	state = (int)(long)context;
+	state = (int)(uint64_t)context;
 	switch (state) {
 		case 1:
 			_dummy.init(1);

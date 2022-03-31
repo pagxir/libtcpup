@@ -39,37 +39,38 @@ struct relay_data {
 };
 
 class tcp_channel {
-   	public:
-		tcp_channel(int fd);
-		~tcp_channel();
+    public:
+	tcp_channel(int fd);
+	~tcp_channel();
 
-	public:
-		int run(void);
-        void check_proxy_proto(void);
-        void sockv4_proto_input(void);
-        void sockv5_proto_input(void);
+    public:
+	int run(void);
+	void check_proxy_proto(void);
+	void sockv4_proto_input(void);
+	void sockv5_proto_input(void);
 
-        int do_fake_proxy_hello(void);
-        int fill_connect_buffer(struct relay_data *up);
-		static void tc_callback(void *context);
+	int do_fake_proxy_hello(void);
+	int fill_connect_buffer(struct relay_data *up);
+	static void tc_callback(void *context);
 
-	private:
-		int m_file;
-		int m_flags;
-		int proto_flags;
+    private:
+	int m_file;
+	int m_flags;
+	int proto_flags;
 
-	private:
-		tx_task_t m_task;
-		sockcb_t  m_peer;
-		struct tx_aiocb  m_sockcbp;
+    private:
+	tx_task_t m_task;
+	sockcb_t  m_peer;
+	struct tx_aiocb  m_sockcbp;
 
-	private:
-        struct relay_data c2r;
-        struct relay_data r2c;
+    private:
+	struct relay_data c2r;
+	struct relay_data r2c;
 };
 
-static u_short _forward_port = 0; // 1080
-static u_long  _forward_addr = INADDR_ANY;
+static u_char ga_shadow[128];
+static sockaddr *ga_peername = NULL;
+static socklen_t gl_peername = 0;
 
 static u_short _relay_port = 5030;
 static u_long  _relay_server = INADDR_ANY;
@@ -78,9 +79,9 @@ static void set_relay_info(sockcb_t tp, int type, char *host, u_short port);
 tcp_channel::tcp_channel(int file)
 	:m_file(file), m_flags(0)
 {
-	static u_long conv = time(NULL);
-	m_peer = socreate(conv++);
-	assert(m_peer != NULL);
+    static u_long conv = time(NULL);
+    m_peer = socreate(conv++);
+    assert(m_peer != NULL);
 
     m_flags = TF_PROXY_HELLO;
     proto_flags = 0;
@@ -91,25 +92,25 @@ tcp_channel::tcp_channel(int file)
     r2c.flag = 0;
     r2c.off = r2c.len = 0;
 
-	tx_loop_t *loop = tx_loop_default();
-	tx_aiocb_init(&m_sockcbp, loop, file);
-	tx_task_init(&m_task, loop, tc_callback, this);
+    tx_loop_t *loop = tx_loop_default();
+    tx_aiocb_init(&m_sockcbp, loop, file);
+    tx_task_init(&m_task, loop, tc_callback, this);
 
-	if (_relay_server != INADDR_ANY) {
-		m_flags |= DIRECT_PROTO;
-		m_flags &= ~TF_PROXY_HELLO;
-		unsigned int addr = _relay_server;
-		set_relay_info(m_peer, 0x01, (char *)&addr, _relay_port);
-	}
+    if (_relay_server != INADDR_ANY) {
+	m_flags |= DIRECT_PROTO;
+	m_flags &= ~TF_PROXY_HELLO;
+	unsigned int addr = _relay_server;
+	set_relay_info(m_peer, 0x01, (char *)&addr, _relay_port);
+    }
 }
 
 tcp_channel::~tcp_channel()
 {
-	fprintf(stderr, "tcp_channel::~tcp_channel\n");
-	tx_aiocb_fini(&m_sockcbp);
-	closesocket(m_file);
-	soclose(m_peer);
-	tx_task_drop(&m_task);
+    fprintf(stderr, "tcp_channel::~tcp_channel\n");
+    tx_aiocb_fini(&m_sockcbp);
+    closesocket(m_file);
+    soclose(m_peer);
+    tx_task_drop(&m_task);
 }
 
 static const int SUPPORTED_PROTO = UNKOWN_PROTO| SOCKV4_PROTO| SOCKV5_PROTO| DIRECT_PROTO ;
@@ -160,43 +161,42 @@ int tcp_channel::fill_connect_buffer(struct relay_data *p)
     int count;
     char *buf;
 
-
     if (!tx_readable(&m_sockcbp)) {
-        tx_aincb_active(&m_sockcbp, &m_task);
-        return 0;
+	tx_aincb_active(&m_sockcbp, &m_task);
+	return 0;
     }
 
     if (p->len < (int)sizeof(p->buf)) {
-        buf = p->buf + p->len;
-        len = sizeof(p->buf) - p->len;
-  
-		count = recv(m_file, buf, len, 0);
-		tx_aincb_update(&m_sockcbp, count);
-        switch (count) {
-            case -1:
-            case 0:
-                if (tx_readable(&m_sockcbp)) {
-                    fprintf(stderr, "stream is closed: %d %d\n", count, tx_readable(&m_sockcbp));
-                    p->flag |= RDF_EOF;
-                }
-                break;
+	buf = p->buf + p->len;
+	len = sizeof(p->buf) - p->len;
 
-            default:
-                p->len += count;
-                break;
-        }
+	count = recv(m_file, buf, len, 0);
+	tx_aincb_update(&m_sockcbp, count);
+	switch (count) {
+	    case -1:
+	    case 0:
+		if (tx_readable(&m_sockcbp)) {
+		    fprintf(stderr, "stream is closed: %d %d\n", count, tx_readable(&m_sockcbp));
+		    p->flag |= RDF_EOF;
+		}
+		break;
 
-        return 0;
+	    default:
+		p->len += count;
+		break;
+	}
+
+	return 0;
     }
 
     if (p->len == (int)sizeof(p->buf)) {
-        fprintf(stderr, "buffer is full\n");
-        return -1;
+	fprintf(stderr, "buffer is full\n");
+	return -1;
     }
 
     if (!tx_readable(&m_sockcbp)) {
-        tx_aincb_active(&m_sockcbp, &m_task);
-        return 0;
+	tx_aincb_active(&m_sockcbp, &m_task);
+	return 0;
     }
 
     return 0;
@@ -210,110 +210,110 @@ enum socksv5_proto_flags {
 
 static void set_relay_info(sockcb_t tp, int type, char *host, u_short port)
 {
-	int len;
-	char *p, buf[60];
-	static unsigned int type_len_map[8] = {0x0, 0x04, 0x0, 0x0, 0x10};
+    int len;
+    char *p, buf[60];
+    static unsigned int type_len_map[8] = {0x0, 0x04, 0x0, 0x0, 0x10};
 
-	p = buf;
-	*p++ = (type & 0xff);
-	*p++ = 0;
+    p = buf;
+    *p++ = (type & 0xff);
+    *p++ = 0;
 
-	memcpy(p, &port, 2);
-	p += 2;
+    memcpy(p, &port, 2);
+    p += 2;
 
-	len = type_len_map[type & 0x7];
-	if (type == 0x03) {
-		fprintf(stderr, "domain: %s:%d\n", host, htons(port));
-		len = strlen(host);
-		if (len > 46) return;
-	}
+    len = type_len_map[type & 0x7];
+    if (type == 0x03) {
+	fprintf(stderr, "domain: %s:%d\n", host, htons(port));
+	len = strlen(host);
+	if (len > 46) return;
+    }
 
-	memcpy(p, host, len);
-	p += len;
+    memcpy(p, host, len);
+    p += len;
 
-	sooptset_target(tp, buf, p - buf);
-	return;
+    sooptset_target(tp, buf, p - buf);
+    return;
 }
 
 void tcp_channel::sockv4_proto_input(void)
 {
-	char *limit;
-	struct buf_match m;
-	static u_char resp_v4[] = {
-		0x00, 0x5A, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00
-	};
+    char *limit;
+    struct buf_match m;
+    static u_char resp_v4[] = {
+	0x00, 0x5A, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00
+    };
 
-	tcp_channel *up = this;
-	buf_init(&m, up->c2r.buf, up->c2r.len);
+    tcp_channel *up = this;
+    buf_init(&m, up->c2r.buf, up->c2r.len);
 
-	up->proto_flags |= AUTHED_Z;
-	if ((up->proto_flags & AUTHED_Z)) {
-		if (buf_equal(&m, 0, 0x04) &&
-				buf_equal(&m, 1, 0x01) && buf_valid(&m, 8)) {
-			int type;
-			char *addrp;
-			char *end = 0;
-			u_short in_port1;
-			limit = up->c2r.buf + up->c2r.len;
+    up->proto_flags |= AUTHED_Z;
+    if ((up->proto_flags & AUTHED_Z)) {
+	if (buf_equal(&m, 0, 0x04) &&
+		buf_equal(&m, 1, 0x01) && buf_valid(&m, 8)) {
+	    int type;
+	    char *addrp;
+	    char *end = 0;
+	    u_short in_port1;
+	    limit = up->c2r.buf + up->c2r.len;
 
-			end = (up->c2r.buf + 2);
-			memcpy(&in_port1, end, sizeof(in_port1));
-			end += sizeof(in_port1);
+	    end = (up->c2r.buf + 2);
+	    memcpy(&in_port1, end, sizeof(in_port1));
+	    end += sizeof(in_port1);
 
-			addrp = end;
-			end += sizeof(int);
+	    addrp = end;
+	    end += sizeof(int);
 
-			end = (char *)memchr(end, 0, limit - end);
-			if (end != NULL) {
-				type = 0x01;
-				if (!memcmp(addrp, "\000\000\000", 3)) {
-					addrp = ++end;
-					type = 0x03;
-					end = (char *)memchr(end, 0, limit - end);
-				}
-
-				if (end != NULL) {
-					set_relay_info(m_peer, type, addrp, in_port1);
-
-					end++;
-					memmove(up->c2r.buf, end, limit - end);
-					up->c2r.len = limit - end;
-
-					memcpy(up->r2c.buf, resp_v4, sizeof(resp_v4));
-					tx_outcb_write(&m_sockcbp, up->r2c.buf, sizeof(resp_v4));
-
-					up->m_flags &= ~SOCKV4_PROTO;
-					up->m_flags |= DIRECT_PROTO;
-					return;
-				} else {
-					goto more_to_come;
-				}
-			} else {
-				goto more_to_come;
-			}
+	    end = (char *)memchr(end, 0, limit - end);
+	    if (end != NULL) {
+		type = 0x01;
+		if (!memcmp(addrp, "\000\000\000", 3)) {
+		    addrp = ++end;
+		    type = 0x03;
+		    end = (char *)memchr(end, 0, limit - end);
 		}
-	}
 
-	if (!buf_overflow(&m)) {
-		fprintf(stderr, "socks4 no overflow\n");
-		goto failure_closed;
+		if (end != NULL) {
+		    set_relay_info(m_peer, type, addrp, in_port1);
+
+		    end++;
+		    memmove(up->c2r.buf, end, limit - end);
+		    up->c2r.len = limit - end;
+
+		    memcpy(up->r2c.buf, resp_v4, sizeof(resp_v4));
+		    tx_outcb_write(&m_sockcbp, up->r2c.buf, sizeof(resp_v4));
+
+		    up->m_flags &= ~SOCKV4_PROTO;
+		    up->m_flags |= DIRECT_PROTO;
+		    return;
+		} else {
+		    goto more_to_come;
+		}
+	    } else {
+		goto more_to_come;
+	    }
 	}
+    }
+
+    if (!buf_overflow(&m)) {
+	fprintf(stderr, "socks4 no overflow\n");
+	goto failure_closed;
+    }
 
 more_to_come:
-	if (up->c2r.len == sizeof(up->c2r.buf)) {
-		fprintf(stderr, "socks4 buffer full\n");
-		goto failure_closed;
-	} else if (up->c2r.flag & RDF_EOF) {
-		fprintf(stderr, "socks4 stream closed\n");
-		goto failure_closed;
-	}
+    if (up->c2r.len == sizeof(up->c2r.buf)) {
+	fprintf(stderr, "socks4 buffer full\n");
+	goto failure_closed;
+    } else if (up->c2r.flag & RDF_EOF) {
+	fprintf(stderr, "socks4 stream closed\n");
+	goto failure_closed;
+    }
 
-	tx_aincb_active(&m_sockcbp, &m_task);
-	return;
+    tx_aincb_active(&m_sockcbp, &m_task);
+    return;
 
 failure_closed:
-	up->m_flags |= UNKOWN_PROTO;
-	return;
+    up->m_flags |= UNKOWN_PROTO;
+    return;
 }
 
 void tcp_channel::sockv5_proto_input(void)
@@ -496,7 +496,6 @@ int tcp_channel::run(void)
 	int len = 0;
 	int error = 0;
 	int change = 0;
-	struct sockaddr_in name;
 
     if (m_flags & TF_PROXY_HELLO) {
         error = do_fake_proxy_hello();
@@ -507,11 +506,7 @@ int tcp_channel::run(void)
     }
 
 	if ((m_flags & TF_CONNECT) == 0) {
-		name.sin_family = AF_INET;
-		name.sin_port   = (_forward_port);
-		name.sin_addr.s_addr = (_forward_addr);
-
-	   	error = soconnect(m_peer, (struct sockaddr *)&name, sizeof(name));
+	   	error = soconnect(m_peer, (struct sockaddr *)ga_peername, gl_peername);
 		m_flags |= TF_CONNECT;
 		if (error == 1) {
 			sopoll(m_peer, SO_SEND, &m_task);
@@ -664,27 +659,29 @@ void new_tcp_channel(int fd)
 	return;
 }
 
-extern "C" void tcp_channel_forward(struct tcpip_info *info)
+extern "C" void tcp_channel_forward(struct sockaddr *dest, socklen_t destlen)
 {
-	char *env, *p;
-	char  server[128];
+    char *env, *p;
+    char  server[128];
 
-	_forward_addr = info->address;
-	_forward_port = info->port;
+    assert(destlen < sizeof(ga_shadow));
+    memcpy(ga_shadow, dest, destlen);
+    ga_peername = (struct sockaddr *)ga_shadow;
+    gl_peername = destlen;
 
-	env = getenv("RELAYSERVER");
+    env = getenv("RELAYSERVER");
 
-	if (env != NULL) {
-		strcpy(server, env);
-		p = strrchr(server, ':');
-		if (p != NULL) {
-			*p++ = 0;
-			_relay_port = htons(atoi(p));
-		}
-
-		_relay_server = inet_addr(server);
+    if (env != NULL) {
+	strcpy(server, env);
+	p = strrchr(server, ':');
+	if (p != NULL) {
+	    *p++ = 0;
+	    _relay_port = htons(atoi(p));
 	}
 
-	return;
+	_relay_server = inet_addr(server);
+    }
+
+    return;
 }
 

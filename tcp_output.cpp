@@ -710,7 +710,6 @@ timer:
 	   	return -1;
    	}
 
-
 	this_sent += tilen;
 	TCPSTAT_INC(tcps_sndtotal);
 	if (recwin > 0 && SEQ_GT(tp->rcv_nxt + recwin, tp->rcv_adv))

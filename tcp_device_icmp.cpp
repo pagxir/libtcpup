@@ -282,7 +282,7 @@ static void listen_statecb(void *context)
 	int offset = 0;
 	TCPUP_DEVICE_ICMP_CLASS *this_device = _paging_devices[offset];
 
-	state = (int)(long)context;
+	state = (int)(uint64_t)context;
 	switch (state) {
 		case 1:
 			if (this_device == NULL) {
@@ -318,7 +318,7 @@ static void listen_statecb(void *context)
 #endif
 
 #define RCVPKT_MAXCNT 256
-#define RCVPKT_MAXSIZ 1500
+#define RCVPKT_MAXSIZ 1492
 
 static u_short _rcvpkt_len[RCVPKT_MAXCNT];
 static tcpup_addr _rcvpkt_addr[RCVPKT_MAXCNT];
@@ -541,27 +541,6 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	msg0.msg_iov  = (struct iovec*)iovecs;
 	msg0.msg_iovlen = count + 1;
 
-#ifndef DISABLE_ENCRYPT
-	int datlen = 0;
-	unsigned short key = rand();
-	unsigned char _plain_stream[RCVPKT_MAXSIZ];
-	unsigned char *bp, _crypt_stream[RCVPKT_MAXSIZ];
-
-	bp = _plain_stream;
-	for (int i = 0; i < count; i++) {
-		memcpy(bp, iov[i].iov_base, iov[i].iov_len);
-		bp += iov[i].iov_len;
-	}
-
-	datlen = (bp - _plain_stream);
-	memcpy((char *)(icmp_hdr_fill) + 14, &key, 2);
-	packet_encrypt(htons(key), _crypt_stream, _plain_stream, datlen);
-	iovecs[1].iov_base = _crypt_stream;
-	iovecs[1].iov_len  = datlen;
-	msg0.msg_iov  = (struct iovec*)iovecs;
-	msg0.msg_iovlen = 2;
-#endif
-
 	msg0.msg_control = NULL;
 	msg0.msg_controllen = 0;
 	msg0.msg_flags = 0;
@@ -575,26 +554,6 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	iovecs[0].len = sizeof(icmp_hdr_fill);
 	iovecs[0].buf = (char *)icmp_hdr_fill;
 	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
-
-#ifndef DISABLE_ENCRYPT
-	int datlen = 0;
-	unsigned short key = rand();
-	unsigned char _plain_stream[RCVPKT_MAXSIZ];
-	unsigned char *bp, _crypt_stream[RCVPKT_MAXSIZ];
-
-	bp = _plain_stream;
-	for (int i = 0; i < count; i++) {
-		memcpy(bp, iov[i].iov_base, iov[i].iov_len);
-		bp += iov[i].iov_len;
-	}
-
-	datlen = (bp - _plain_stream);
-	memcpy((char *)(icmp_hdr_fill) + 14, &key, 2);
-	packet_encrypt(htons(key), _crypt_stream, _plain_stream, datlen);
-	iovecs[1].buf = (char *)_crypt_stream;
-	iovecs[1].len = datlen;
-	count = 1;
-#endif
 
 	icmp_hdr_fill[0].u0.pair = name->xdat;
 	icmp_update_checksum((unsigned char *)&icmp_hdr_fill[0].checksum, iovecs, count + 1);

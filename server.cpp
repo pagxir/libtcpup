@@ -72,7 +72,6 @@ static void enable_raw_mode()
 }
 #endif
 
-
 #ifdef _WINSRV_
 void _winsrv_stop()
 {

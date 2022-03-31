@@ -117,7 +117,7 @@ int tcp_usr_accept(sockcb_t so, struct sockaddr **nam)
 
 	if (nam != NULL) {
 		size_t cplen;
-		static struct sockaddr_in so_addr;
+		static struct sockaddr_in6 so_addr;
 		*nam = (struct sockaddr *)&so_addr;
 
 		tp = so->so_pcb;
@@ -540,15 +540,15 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 }
 
 int tcp_connect(struct tcpcb *tp,
-		const struct sockaddr_in *name)
+		const struct sockaddr *name, socklen_t len)
 {
 	if (tp->t_state == TCPS_CLOSED) {
 		tp->iss = tcp_iss;
 		tcp_iss += TCP_ISSINCR / 2;
 		tcp_sendseqinit(tp);
 		tp->t_state = TCPS_SYN_SENT;
-		memcpy(tp->dst_addr.name, name, sizeof(*name));
-		tp->dst_addr.namlen = sizeof(*name);
+		memcpy(tp->dst_addr.name, name, len);
+		tp->dst_addr.namlen = len;
 		tp->dst_addr.xdat = tp->tp_socket->so_conv;
 		TCP_TRACE_AWAYS(tp, "TCPS_CLOSED -> TCPS_SYN_SENT\n");
 		return 0;
@@ -700,15 +700,16 @@ static int tcp_usr_connect(sockcb_t so, const struct sockaddr *nam, size_t len)
 	int error = 0;
 	struct tcpcb *tp = NULL;
 	struct sockaddr_in *sinp;
+	struct sockaddr_in6 *sin6p;
 
 	sinp = (struct sockaddr_in *)nam;
-	if (len != sizeof (*sinp)) {
-		TCP_DEBUG(1, "tcp_usr_connect failure\n");
+	if (len != sizeof (*sinp) && len != sizeof(*sin6p)) {
+		TCP_DEBUG(1, "tcp_usr_connect failure: %d\n", len);
 		return (EINVAL);
 	}
 
 	tp = so->so_pcb;
-	if ((error = tcp_connect(tp, (struct sockaddr_in *)nam)) != 0)
+	if ((error = tcp_connect(tp, nam, len)) != 0)
 		goto out;
 
 	tcp_timer_activate(tp, TT_KEEP, TP_KEEPINIT(tp));

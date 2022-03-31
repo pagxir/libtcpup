@@ -220,7 +220,7 @@ static void *do_sync_dns_query(void *up)
 static DWORD CALLBACK wrap_sync_dns_query(LPVOID lpArg)
 {
 	void *p = do_sync_dns_query(lpArg);
-	return DWORD(p);
+	return (DWORD)(uint64_t)(p);
 }
 #endif
 

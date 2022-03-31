@@ -90,15 +90,6 @@ newreno_ack_received(struct cc_var *ccv, uint16_t type)
 		/* ABC is on by default, so incr equals 0 frequently. */
 		if (incr > 0) {
 			CCV(ccv, snd_cwnd) = min(cw + incr, TCP_MAXWIN << WINDOW_SCALE);
-
-#ifdef LIMIT_BANDWIDTH
-			int minrtt = CCV(ccv, t_srtt) >> TCP_RTT_SHIFT;
-			int maxseg = CCV(ccv, t_maxseg);
-			if (minrtt > 10 && cw + incr > LIMIT_BANDWIDTH * minrtt / 8000) {
-				int limit = LIMIT_BANDWIDTH * minrtt / 8000;
-				if (limit > maxseg) CCV(ccv, snd_cwnd) = limit;
-			}
-#endif
 		}
 	}
 }
@@ -185,15 +176,6 @@ newreno_post_recovery(struct cc_var *ccv)
 				ccv->curack + CCV(ccv, t_maxseg);
 		else
 			CCV(ccv, snd_cwnd) = CCV(ccv, snd_ssthresh);
-
-#ifdef LIMIT_BANDWIDTH
-		int minrtt = CCV(ccv, t_srtt) >> TCP_RTT_SHIFT;
-		int maxseg = CCV(ccv, t_maxseg);
-		if (minrtt > 10 && CCV(ccv, snd_cwnd) > LIMIT_BANDWIDTH * minrtt / 8000) {
-			int limit = LIMIT_BANDWIDTH * minrtt / 8000;
-			if (limit > maxseg) CCV(ccv, snd_cwnd) = limit;
-		}
-#endif
 	}
 }
 
