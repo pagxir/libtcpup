@@ -149,7 +149,7 @@ hhook_run_tcp_est_out(struct tcpcb *tp, struct tcphdr *th,
 		hhook_data.to = to;
 		hhook_data.len = len;
 		hhook_data.tso = tso;
-		ertt_add_tx_segment_info_hook(0, 0, 0, &hhook_data, &tp->osd->ertt, tp->osd);
+		// ertt_add_tx_segment_info_hook(0, 0, 0, &hhook_data, &tp->osd->ertt, tp->osd);
 
 #if 0
 		hhook_run_hooks(V_tcp_hhh[HHOOK_TCP_EST_OUT], &hhook_data,
@@ -616,16 +616,6 @@ sendit:
 		TCP_TRACE_CHECK(tp, th->th_flags & TH_FIN, "%x FIN sent\n", tp->tp_socket->so_conv);
 		TCP_TRACE_CHECK(tp, tilen == 0 && tp->t_state > TCPS_ESTABLISHED,
 				"%x finish ack state %d, rcv_nxt %x, %x, %x\n", tp->tp_socket->so_conv, tp->t_state, tp->rcv_nxt, htonl(th->th_seq), htonl(th->th_ack));
-	}
-
-	if (IN_FASTRECOVERY(tp->t_flags)) {
-		tcp_seq seq = htonl(th->th_seq);
-		u_int32_t ts = to.to_tsval;
-		if (tp->undo_seq_left == 0 && SEQ_LT(seq, tp->snd_recover)) {
-			tp->undo_ts_left = ts;
-			tp->undo_seq_left = seq;
-			tp->undo_rexmt_out++;
-		}
 	}
 
 	th->th_ckpass = update_ckpass(iobuf, 3);

@@ -42,7 +42,6 @@ u_long utx_ntohl(u_long v)
 }
 
 int get_device_mtu();
-void ertt_uma_ctor(void *mem, int size, void *arg, int flags);
 
 struct tcpcb * tcp_newtcpcb(sockcb_t so)
 {
@@ -85,7 +84,6 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 	tp->relay_len = 0;
 
 	tp->osd = (struct osd *)malloc(sizeof(*tp->osd));
-	ertt_uma_ctor(tp->osd, 0, NULL, 0);
 	tcp_setuptimers(tp);
 
 	tp->ccv = (struct cc_var *)tp->cc_mem;

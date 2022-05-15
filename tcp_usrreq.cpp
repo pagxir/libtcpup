@@ -220,7 +220,7 @@ void tcp_discardcb(struct tcpcb *tp)
 	tcp_free_sackholes(tp);
 	if (CC_ALGO(tp)->cb_destroy != NULL)
 		CC_ALGO(tp)->cb_destroy(tp->ccv);
-	ertt_uma_dtor(tp->osd, 0, 0);
+	// ertt_uma_dtor(tp->osd, 0, 0);
 	free(tp->osd);
 
 	// CC_ALGO(tp) = NULL;

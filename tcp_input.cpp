@@ -50,7 +50,7 @@ hhook_run_tcp_est_in(struct tcpcb *tp, struct tcphdr *th, struct tcpopt *to)
 		hhook_data.tp = tp;
 		hhook_data.th = th;
 		hhook_data.to = to;
-		ertt_packet_measurement_hook(0, 0, NULL, &hhook_data, &tp->osd->ertt, tp->osd);
+		// ertt_packet_measurement_hook(0, 0, NULL, &hhook_data, &tp->osd->ertt, tp->osd);
 
 #if 0
 		hhook_run_hooks(V_tcp_hhh[HHOOK_TCP_EST_IN], &hhook_data,
@@ -206,8 +206,6 @@ cc_post_recovery(struct tcpcb *tp, struct tcphdr *th)
 	}
 	/* XXXLAS: EXIT_RECOVERY ? */
 	tp->t_bytes_acked = 0;
-	tp->undo_seq_left = 0;
-	tp->undo_ts_left = 0;
 }
 
 /*
@@ -1192,7 +1190,6 @@ close:
 						tcp_timer_activate(tp, TT_REXMT, 0);
 						tp->t_rtttime = 0;
 						VAR_UNUSED(onxt);
-						tp->undo_ts_left = 0;
 
 						TCPSTAT_INC(tcps_sack_recovery_episode);
 						tp->sack_newdata = tp->snd_nxt;
@@ -1238,14 +1235,8 @@ close:
 
 			if (IN_FASTRECOVERY(tp->t_flags)) {
 				if (SEQ_LT(th->th_ack, tp->snd_recover)) {
-					if (tp->undo_ts_left > 0 &&
-							TSTMP_LT(to.to_tsecr, tp->undo_ts_left)) {
-						TCP_TRACE_AWAYS(NULL, "quck recovery %x \n", so->so_conv);
-						cc_post_recovery(tp, th);
-					} else {
-						TCP_TRACE_AWAYS(tp, "slow recovery %x \n", so->so_conv);
-						tcp_sack_partialack(tp, th);
-					}
+					TCP_TRACE_AWAYS(tp, "slow recovery %x \n", so->so_conv);
+					tcp_sack_partialack(tp, th);
 				} else {
 					cc_post_recovery(tp, th);
 				}

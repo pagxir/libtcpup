@@ -47,8 +47,7 @@ CLT_OBJ = client.o tcp_listen.o tcp_channel.o
 USRV_OBJ = server.o pstcp_listen.o pstcp_http.o 
 MAIN_OBJ = pstcp_main.o pstcp_listen.o pstcp_http.o 
 NCAT_OBJ = netcat.o pstcp_listen.o pstcp_netcat.o
-CC_OBJS =  cc_hybla.o cc_hybla0.o cc_newreno.o cc_cubic.o cc.o cc_htcp.o cc_vegas.o h_ertt.o
-CC_OBJS +=  cc_vegasab.o 
+CC_OBJS =  cc_hybla.o cc_newreno.o cc_cubic.o cc.o cc_htcp.o cc_rateq.o
 LOCAL_OBJECTS := libtx.a socket.o rgnbuf.o tcp_debug.o \
 		  tcp_input.o tcp_output.o tcp_timer.o tcp_subr.o \
 		  tcp_usrreq.o tcp_sack.o $(CC_OBJS) tcp_crypt.o client_track.o router.o tcp_device.o \
