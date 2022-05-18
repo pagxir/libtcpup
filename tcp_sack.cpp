@@ -436,6 +436,8 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 	/* Send one or 2 segments based on how much new data was acked. */
 	if ((BYTES_THIS_ACK(tp, th) / tp->t_maxseg) >= 2)
 		num_segs = 2;
+
+        num_segs = ((BYTES_THIS_ACK(tp, th) + tp->last_sacked) + (tp->t_maxseg / 4)) / tp->t_maxseg;
 	tp->snd_cwnd = (tp->sackhint.sack_bytes_rexmit +
 	    (tp->snd_nxt - tp->sack_newdata) + num_segs * tp->t_maxseg);
 	if (tp->snd_cwnd > tp->snd_ssthresh)

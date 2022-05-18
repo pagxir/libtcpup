@@ -359,6 +359,7 @@ int tcp_filter_xmit(struct tcpcb *tp)
 	    continue;
 	}
 
+	tcp_cancel_devbusy(tp);
 	break;
     } while (1);
 

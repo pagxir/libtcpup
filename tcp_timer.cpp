@@ -389,6 +389,7 @@ static struct tx_timer_t _delack_timer;
 
 void tcp_cancel_devbusy(struct tcpcb *tp)
 {
+	tp->t_flags &= ~TF_DEVBUSY;
 	tx_task_drop(&tp->t_event_devbusy);
 	return;
 }
