@@ -18,7 +18,8 @@
 
 #include "tcp_filter.h"
 
-#define TXSI_SACKED 1
+#define TXSI_SACKED      1
+#define TXSI_REXMIT_SACK 2
 
 void tcp_sack_mark_loss(struct tcpcb *tp, tcp_seq seq, size_t len);
 
@@ -75,7 +76,7 @@ int tcp_filter_out(struct tcp_hhook_data *ctx_data)
     txsi->seq = ntohl(th->th_seq);
     txsi->len = len;
     txsi->tsloss = 0;
-    txsi->sacked = th->th_win;
+    txsi->sacked = 0;
 
     txsi->tx_ts = (to->to_tsval) - tp->ts_offset;
     txsi->rx_ts = (to->to_tsecr);
@@ -292,10 +293,13 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	    flags &= ~TH_FIN;
 	}
 
-	if (txsi->seq == tp->snd_rto &&
-		tcp_timer_active(tp, TT_REXMT)) {
-	    tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
-	}
+	if ((tp->snd_rto || txsi->seq == tp->snd_rto)
+			&& tcp_timer_active(tp, TT_REXMT))
+		tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
+
+	if (tp->snd_rto == txsi->seq ||
+			SEQ_LT(tp->snd_rto, tp->snd_una))
+		tp->snd_rto = 0;
 
 	to.to_flags |= TOF_TS;
 	to.to_tsval = (tcp_snd_getticks);
@@ -336,16 +340,11 @@ int tcp_filter_xmit(struct tcpcb *tp)
 {
     struct txseginfo *txsi;
 
-    do {
-
-	if (pacing_check(tp, tp->t_pacing)) {
-	    tcp_devbusy(tp, &tp->t_event_devbusy);
-	    return 0;
-	}
+    while (!pacing_check(tp, tp->t_pacing)) {
 
 	txsi = TAILQ_FIRST(&tp->txsegi_rexmt_q);
 	if (txsi != NULL) {
-            TAILQ_REMOVE(&tp->txsegi_rexmt_q, txsi, txsegi_lnk);
+	    TAILQ_REMOVE(&tp->txsegi_rexmt_q, txsi, txsegi_lnk);
 	    tcp_filter_output(tp, txsi);
 	    free(txsi);
 	    continue;
@@ -353,16 +352,24 @@ int tcp_filter_xmit(struct tcpcb *tp)
 
 	txsi = TAILQ_FIRST(&tp->txsegi_xmt_q);
 	if (txsi != NULL) {
-            TAILQ_REMOVE(&tp->txsegi_xmt_q, txsi, txsegi_lnk);
+	    TAILQ_REMOVE(&tp->txsegi_xmt_q, txsi, txsegi_lnk);
 	    tcp_filter_output(tp, txsi);
 	    free(txsi);
 	    continue;
 	}
 
-	tcp_cancel_devbusy(tp);
-	break;
-    } while (1);
+	assert (TAILQ_EMPTY(&tp->txsegi_xmt_q));
+	assert (TAILQ_EMPTY(&tp->txsegi_rexmt_q));
 
+#if 0
+	TCP_DEBUG(1, "NO MORE DATA: %d %d %d %x",
+		tp->t_dupacks, tp->snd_cwnd, tp->t_rxtcur, IN_FASTRECOVERY(tp->t_flags));
+#endif
+	tcp_cancel_devbusy(tp);
+	return 0;
+    }
+
+    tcp_devbusy(tp, &tp->t_event_devbusy);
     return 0;
 }
 
@@ -384,6 +391,7 @@ int tcp_filter_free(struct tcpcb *tp)
 	txsi = TAILQ_FIRST(&tp->txsegi_xmt_q);
     }
 
+    tcp_cancel_devbusy(tp);
     return 0;
 }
 
