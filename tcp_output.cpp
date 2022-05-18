@@ -241,8 +241,9 @@ again:
 		} else {
 			len = ((long)ulmin(cwin, p->end - p->rxmit));
 		}
-		off = p->rxmit - tp->snd_una;
+
 		if (len > 0) {
+		        off = p->rxmit - tp->snd_una;
 			sack_rxmit = 1;
 			sendalot = 1;
 			TCPSTAT_INC(tcps_sack_rexmits);
@@ -541,7 +542,7 @@ send_label:
 			tcp_timer_active(tp, TT_PERSIST)) {
 			th->th_seq = htonl(tp->snd_nxt);
 		} else {
-			th->th_seq = htonl(tp->snd_max);
+			th->th_seq = htonl(tp->snd_max_out);
 		}
 	} else {
 		th->th_seq = htonl(p->rxmit);

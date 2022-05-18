@@ -262,7 +262,14 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	    off = 0;
 	}
 
+
 	int flags = tcp_outflags[tp->t_state];
+
+	if ((flags & TH_SYN) && SEQ_GT(tp->snd_nxt, tp->snd_una)) {
+	    if (tp->t_state != TCPS_SYN_RECEIVED)
+		flags &= ~TH_SYN;
+	    off--;
+	}
 
 	to.to_flags = 0;
 	/* Maximum segment size. */
@@ -281,11 +288,6 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	    to.to_flags |= TOF_SACK;
 	    to.to_nsacks = tp->rcv_numsacks;
 	    to.to_sacks = (u_char *)tp->sackblks;
-	}
-
-	if (tp->t_rtttime == txsi->tx_ts &&
-		tp->t_rtseq == txsi->seq) {
-	    tp->t_rtttime = ticks;
 	}
 
 	if (SEQ_LT(seq + len,
@@ -327,6 +329,22 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	th->th_win   = htons((tp->rcv_adv - tp->rcv_nxt) >> WINDOW_SCALE);
 	th->th_ckpass	= 0;
 	th->th_ckpass = update_ckpass(iobuf, 3);
+
+#if 0
+	if (tp->t_rtttime == txsi->tx_ts &&
+		tp->t_rtseq == txsi->seq) {
+	    tp->t_rtttime = ticks;
+	}
+#endif
+	if (SEQ_GT(seq + len, tp->snd_max_out)) {
+	    tp->snd_max_out = seq + len;
+
+	    if (tp->t_rtttime == 0) {
+		TCPSTAT_INC(tcps_segstimed);
+		tp->t_rtttime = ticks;
+		tp->t_rtseq = seq;
+	    }
+	}
 
 	assert(len + optlen <= tp->t_maxseg);
 	utxpl_output(tp->tp_socket->so_iface, iobuf, 3, &tp->dst_addr);

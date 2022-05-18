@@ -60,7 +60,7 @@
 
 #define tcp_sendseqinit(tp) \
         (tp)->snd_una = (tp)->snd_nxt = (tp)->snd_max = (tp)->snd_up = \
-            (tp)->snd_recover = (tp)->iss
+            (tp)->snd_max_out = (tp)->snd_recover = (tp)->iss
 
 /*
  * Clock macros for RFC 1323 timestamps.

@@ -116,7 +116,7 @@ rateq_ack_received(struct cc_var *ccv, uint16_t ack_type)
 
     rto = tp->t_rxtcur;
 
-    if (tp->t_rxtcur > 0 &&
+    if (tp->t_rxtcur > 0 && !IN_RECOVERY(CCV(ccv, t_flags)) &&
 	    ccv->bytes_this_ack + tp->last_sacked > 0 &&
 	    ack_type == CC_ACK && (ccv->flags & CCF_CWND_LIMITED)) {
 	u_int snd_cwnd = CCV(ccv, snd_cwnd);

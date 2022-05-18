@@ -157,7 +157,8 @@ struct tcpcb {
                                          */
         tcp_seq snd_nxt;                /* send next */
         tcp_seq snd_up;                 /* send urgent pointer */
-        tcp_seq snd_rto;                 /* send urgent pointer */
+        tcp_seq snd_rto;                /* rto pointer */
+        tcp_seq snd_max_out;            /* snd max sent pointer */
 
         tcp_seq snd_wl1;                /* window update seg seq number */
         tcp_seq snd_wl2;                /* window update seg ack number */
