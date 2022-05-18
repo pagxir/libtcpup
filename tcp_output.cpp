@@ -215,7 +215,7 @@ again:
 		long cwin;
 
 		cwin = min(tp->snd_wnd, tp->snd_cwnd) - sack_bytes_rxmt;
-		if (cwin < 0)
+		if (cwin < tp->t_maxseg)
 			cwin = 0;
 
 		/* Do not retransmit SACK segments beyond snd_recover */
@@ -283,9 +283,15 @@ after_sack_rexmit:
 	 * in which case len is already set.
  	 */
 	if (sack_rxmit == 0) {
-		if (sack_bytes_rxmt == 0)
-			len = ((long)ulmin(rgn_len(tp->rgn_snd), sendwin) - off);
-		else {
+		if (sack_bytes_rxmt == 0) {
+			if (sendwin > rgn_len(tp->rgn_snd)) {
+				len = ((long)rgn_len(tp->rgn_snd) - off);
+			} else if (sendwin - off < tp->t_maxseg) {
+				len = 0;
+			} else {
+				len = (sendwin - off);
+			}
+		} else {
 			long cwin; 
 
 			/*
@@ -306,7 +312,7 @@ after_sack_rexmit:
 					cwin = tp->snd_cwnd -
 				 		 (tp->snd_nxt - tp->sack_newdata) -
 						 sack_bytes_rxmt;
-					if (cwin < 0)
+					if (cwin < tp->t_maxseg)
 						cwin = 0;
 					len = lmin(len, cwin);
 			  }
