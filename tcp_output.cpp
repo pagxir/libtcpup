@@ -456,8 +456,8 @@ dontupdate:
 	if (SEQ_GT(tp->snd_max, tp->snd_una) &&
 		!tcp_timer_active(tp, TT_REXMT) &&
 		!tcp_timer_active(tp, TT_PERSIST)) {
-		assert (tp->snd_max != tp->snd_una);
-		tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
+		tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur * 2);
+		TCP_DEBUG(1, "dupack %d %x %d\n", tp->t_dupacks, IN_FASTRECOVERY(tp->t_flags), tp->filter_nboard);
 		goto just_return;
 	}
 
@@ -602,7 +602,7 @@ send_label:
 		}
 
 timer:
-		if (!tcp_timer_active(tp, TT_REXMT) && error == 1 &&
+		if (!tcp_timer_active(tp, TT_REXMT) && error > 0 &&
 			((sack_rxmit && tp->snd_nxt != tp->snd_max) ||
 				(tp->snd_nxt != tp->snd_una))) {
 			if ( tcp_timer_active(tp, TT_PERSIST) ) {
@@ -613,7 +613,7 @@ timer:
 			assert (tp->snd_max != tp->snd_una);
 			assert(error > 0);
 			tp->snd_rto = htonl(th->th_seq);
-			tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
+			tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur * 2);
 		}
 	} else {
 		int xlen = len;
@@ -638,8 +638,10 @@ timer:
 
 	if (error == 0 && len > 0) {
 	    // TCP_DEBUG(1, "filter");
+#if 0
 	    if (sack_rxmit)
 		tp->sackhint.sack_bytes_rexmit -= len;
+#endif
 	    sendalot = 1;
 	}
 

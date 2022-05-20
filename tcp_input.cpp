@@ -140,6 +140,7 @@ cc_cong_signal(struct tcpcb *tp, struct tcphdr *th, uint32_t type)
 		case CC_NDUPACK:
 			if (!IN_FASTRECOVERY(tp->t_flags)) {
 				tp->snd_recover = tp->snd_max;
+				tp->ts_recover = ticks;
 				tp->t_flags |= TF_ECN_SND_CWR;
 			}
 			break;
@@ -148,6 +149,7 @@ cc_cong_signal(struct tcpcb *tp, struct tcphdr *th, uint32_t type)
 			if (!IN_CONGRECOVERY(tp->t_flags)) {
 				TCPSTAT_INC(tcps_ecn_rcwnd);
 				tp->snd_recover = tp->snd_max;
+				tp->ts_recover = ticks;
 				tp->t_flags |= TF_ECN_SND_CWR;
 			}
 			break;
@@ -167,6 +169,7 @@ cc_cong_signal(struct tcpcb *tp, struct tcphdr *th, uint32_t type)
 			tp->snd_cwnd = tp->snd_cwnd_prev;
 			tp->snd_ssthresh = tp->snd_ssthresh_prev;
 			tp->snd_recover = tp->snd_recover_prev;
+			tp->ts_recover = ticks;
 			if (tp->t_flags & TF_WASFRECOVERY)
 				ENTER_FASTRECOVERY(tp->t_flags);
 			if (tp->t_flags & TF_WASCRECOVERY)
@@ -456,8 +459,10 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 				TCPSTAT_ADD(tcps_rcvackbyte, acked);
 				rgn_drop(tp->rgn_snd, acked);
 				if (SEQ_GT(tp->snd_una, tp->snd_recover) &&
-						SEQ_LEQ(th->th_ack, tp->snd_recover))
+						SEQ_LEQ(th->th_ack, tp->snd_recover)) {
 					tp->snd_recover = th->th_ack - 1;
+				        tp->ts_recover = ticks;
+				}
 
 				/*
 				 * Let the congestion control algorithm update
@@ -1220,8 +1225,11 @@ close:
 
 			if (IN_FASTRECOVERY(tp->t_flags)) {
 				if (SEQ_LT(th->th_ack, tp->snd_recover)) {
-					// TCP_TRACE_AWAYS(tp, "slow recovery %x \n", so->so_conv);
-					tcp_sack_partialack(tp, th);
+				    tcp_sack_partialack(tp, th, TSTMP_GEQ(to.to_tsecr, tp->ts_recover));
+				    if (TSTMP_GEQ(to.to_tsecr, tp->ts_recover)) {
+					TCP_TRACE_AWAYS(tp, "slow recovery %x isnew %d\n", so->so_conv, TSTMP_GEQ(to.to_tsecr, tp->ts_recover));
+					tp->ts_recover = ticks;
+				    }
 				} else {
 					cc_post_recovery(tp, th);
 				}
@@ -1295,8 +1303,10 @@ process_ACK:
 
 			if (!IN_RECOVERY(tp->t_flags) &&
 					SEQ_GT(tp->snd_una, tp->snd_recover) &&
-					SEQ_LEQ(th->th_ack, tp->snd_recover))
+					SEQ_LEQ(th->th_ack, tp->snd_recover)) {
 				tp->snd_recover = th->th_ack - 1;
+				tp->ts_recover = ticks;
+			}
 
 			if (IN_RECOVERY(tp->t_flags) &&
 				SEQ_GEQ(th->th_ack, tp->snd_recover)) {
@@ -1305,8 +1315,10 @@ process_ACK:
 			}
 
 			tp->snd_una = th->th_ack;
-			if (SEQ_GT(tp->snd_una, tp->snd_recover))
+			if (SEQ_GT(tp->snd_una, tp->snd_recover)) {
 				tp->snd_recover = tp->snd_una;
+				tp->ts_recover = ticks;
+			}
 
 			if (SEQ_LT(tp->snd_nxt, tp->snd_una))
 				tp->snd_nxt = tp->snd_una;

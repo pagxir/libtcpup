@@ -180,6 +180,7 @@ struct tcpcb {
                                          */
         u_long  snd_spare2;             /* unused */
         tcp_seq snd_recover;            /* for use in NewReno Fast Recovery */
+        u_int   ts_recover;            /* for use in NewReno Fast Recovery */
 
         u_int   t_maxopd;               /* mss plus options */
 
@@ -825,7 +826,7 @@ void     tcp_update_sack_list(struct tcpcb *tp, tcp_seq rcv_laststart, tcp_seq r
 void     tcp_clean_sackreport(struct tcpcb *tp);
 void     tcp_sack_adjust(struct tcpcb *tp);
 struct sackhole *tcp_sack_output(struct tcpcb *tp, int *sack_bytes_rexmt);
-void     tcp_sack_partialack(struct tcpcb *, struct tcphdr *);
+void     tcp_sack_partialack(struct tcpcb *, struct tcphdr *, int);
 void     tcp_free_sackholes(struct tcpcb *tp);
 int      tcp_newreno(struct tcpcb *, struct tcphdr *);
 u_long   tcp_seq_subtract(u_long, u_long );

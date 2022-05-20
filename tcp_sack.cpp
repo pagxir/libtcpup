@@ -427,9 +427,10 @@ tcp_free_sackholes(struct tcpcb *tp)
  * the midst of sack recovery.
  */
 void
-tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
+tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th, int newseg)
 {
 	int num_segs = 1;
+	int bytes_acked = 0;
 
 	tcp_timer_activate(tp, TT_REXMT, 0);
 	tp->t_rtttime = 0;
@@ -437,9 +438,33 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th)
 	if ((BYTES_THIS_ACK(tp, th) / tp->t_maxseg) >= 2)
 		num_segs = 2;
 
-        num_segs = ((BYTES_THIS_ACK(tp, th) + tp->last_sacked) + (tp->t_maxseg / 4)) / tp->t_maxseg;
+        bytes_acked = max(BYTES_THIS_ACK(tp, th) + tp->last_sacked, num_segs * tp->t_maxseg);
 	tp->snd_cwnd = (tp->sackhint.sack_bytes_rexmit +
-	    (tp->snd_nxt - tp->sack_newdata) + num_segs * tp->t_maxseg);
+	    (tp->snd_nxt - tp->sack_newdata) + bytes_acked);
+
+	if (newseg) {
+		int missing_cwnd = 0;
+		struct sackhole *hole = NULL;
+
+		hole = tp->sackhint.nexthole;
+		if (hole == NULL || SEQ_LT(hole->rxmit, hole->end))
+			goto out;
+
+		while ((hole = TAILQ_NEXT(hole, scblink)) != NULL) {
+			if (SEQ_LT(tp->snd_recover, hole->rxmit)) {
+				break;
+			}
+
+			if (SEQ_LT(hole->rxmit, hole->end)) {
+				missing_cwnd += hole->end - hole->rxmit;
+			}
+		}
+
+		TCP_DEBUG(1, "missing_cwnd: %d\n", missing_cwnd);
+		tp->snd_cwnd += missing_cwnd;
+	}
+out:
+
 	if (tp->snd_cwnd > tp->snd_ssthresh)
 		tp->snd_cwnd = tp->snd_ssthresh;
 	tp->t_flags |= TF_ACKNOW;

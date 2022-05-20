@@ -61,7 +61,7 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 
 	TCP_DEBUG(1, "tp->t_maxseg = %u\n", tp->t_maxseg);
 	tp->snd_max_space = (8 * 1024 * 1024);
-	tp->rgn_snd = rgn_create(128 * 1024);
+	tp->rgn_snd = rgn_create(1024 * 1024);
 	tp->rcv_max_space = (2 * 1024 * 1024);
 	tp->rgn_rcv = rgn_create(512 * 1024);
 	tp->snd_wnd = tp->t_maxseg;

@@ -135,8 +135,10 @@ int tcp_filter_in(struct tcp_hhook_data *ctx_data)
 	    while (txsi != NULL) {
 		if (SEQ_GEQ(txsi->seq, sack.start) &&
 			SEQ_GEQ(sack.end, txsi->seq + txsi->len) && !(txsi->flags & TXSI_SACKED)) {
+#if 0
 		    if (tp->sackhint.sack_bytes_rexmit > txsi->len)
 			tp->sackhint.sack_bytes_rexmit -= txsi->len;
+#endif
 		    txsi->flags |= TXSI_SACKED;
 		}
 		txsi = TAILQ_NEXT(txsi, txsegi_lnk);
@@ -191,7 +193,7 @@ int tcp_filter_in(struct tcp_hhook_data *ctx_data)
     return 0;
 }
 
-static int total = 0;
+int total = 0;
 
 int pacing_check(struct tcpcb *tp, u_int64_t pacing)
 {
@@ -259,9 +261,9 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	if (SEQ_LT(seq, tp->snd_una)) {
 	    len = (txsi->seq + txsi->len - tp->snd_una);
 	    seq = tp->snd_una;
+	    assert(len > 0);
 	    off = 0;
 	}
-
 
 	int flags = tcp_outflags[tp->t_state];
 

@@ -111,9 +111,10 @@ out:
 
 int tcp_filter_lost(struct tcpcb *tp, int *retp);
 
+extern int total;
 static void tcp_rexmt_timo(void *up)
 {
-	int trans, lost;
+	int trans = total, lost;
 	u_long rexmt;
    	struct tcpcb *tp;
 
@@ -124,7 +125,7 @@ static void tcp_rexmt_timo(void *up)
 
 	lost = tcp_filter_lost(tp, &trans);
 	TCP_TRACE_AWAYS(tp, "tcp rexmt time out %x una %x rec %x rec %x dup %d %d tx %d/%d\n",
-		tp->tp_socket->so_conv, tp->snd_una, tp->snd_recover, IN_FASTRECOVERY(tp->t_flags), tp->t_dupacks, tp->t_rxtcur, lost, trans);
+		tp->tp_socket->so_conv, tp->snd_una, tp->snd_recover, IN_FASTRECOVERY(tp->t_flags), tp->t_dupacks, tp->t_rxtcur, tp->rcv_nxt, trans);
 
    	if (++tp->t_rxtshift > TCP_MAXRXTSHIFT) {
 	   	tp->t_rxtshift = TCP_MAXRXTSHIFT;
@@ -172,6 +173,7 @@ static void tcp_rexmt_timo(void *up)
 
    	tp->snd_nxt = tp->snd_una;
    	tp->snd_recover = tp->snd_max;
+	tp->ts_recover = ticks;
    	tp->t_flags |= TF_ACKNOW;
    	tp->t_rtttime = 0;
 

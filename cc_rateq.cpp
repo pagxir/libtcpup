@@ -116,14 +116,14 @@ rateq_ack_received(struct cc_var *ccv, uint16_t ack_type)
 
     rto = tp->t_rxtcur;
 
-    if (tp->t_rxtcur > 0 && !IN_RECOVERY(CCV(ccv, t_flags)) &&
+    if (tp->t_rxtcur > 0 && !IN_FASTRECOVERY(CCV(ccv, t_flags)) &&
 	    ccv->bytes_this_ack + tp->last_sacked > 0 &&
 	    ack_type == CC_ACK && (ccv->flags & CCF_CWND_LIMITED)) {
 	u_int snd_cwnd = CCV(ccv, snd_cwnd);
 	u_int this_acked = ccv->bytes_this_ack + tp->last_sacked;
-	u_int pacing_cwnd = rto * 2 * CCV(ccv, pacing_rate) / 1000;
+	u_int pacing_cwnd = rto * CCV(ccv, pacing_rate) / 1000;
 
-	CCV(ccv, snd_cwnd) = min(snd_cwnd + this_acked, pacing_cwnd);
+	CCV(ccv, snd_cwnd) = min(snd_cwnd + this_acked, pacing_cwnd + 3 * tp->t_maxseg);
 	return;
     }
 
@@ -152,7 +152,7 @@ rateq_cb_init(struct cc_var *ccv)
     if (rateq_data == NULL)
 	return (UTXENOMEM);
 
-    CCV(ccv, pacing_rate) = (1 << 20);
+    CCV(ccv, pacing_rate) = 1750000;
     TCP_DEBUG(1, "pacing rate: %d\n", CCV(ccv, pacing_rate));
     rateq_data->slow_start_toggle = 1;
     ccv->cc_data = rateq_data;
@@ -166,7 +166,7 @@ rateq_cb_init(struct cc_var *ccv)
 static void
 rateq_cong_signal(struct cc_var *ccv, uint32_t signal_type)
 {
-    u_int snd_cwnd = CCV(ccv, snd_cwnd);
+    u_int win = CCV(ccv, snd_cwnd);
     u_int snd_ssthresh = CCV(ccv, snd_ssthresh);
 
     if (newreno_cc_algo.cong_signal)
@@ -184,11 +184,10 @@ rateq_cong_signal(struct cc_var *ccv, uint32_t signal_type)
 	TCP_DEBUG(1, "enter rto err recovery");
     }
 
-    if (tp->t_rxtcur > 0 && signal_type == CC_RTO) {
-	u_int pacing_cwnd = 2 * rto * CCV(ccv, pacing_rate) / 1000;
+    if (tp->t_rxtcur > 0 /* && signal_type == CC_RTO */ ) {
+	u_int pacing_cwnd = rto * CCV(ccv, pacing_rate) / 1000;
 
-	CCV(ccv, snd_cwnd) = pacing_cwnd;
-	CCV(ccv, snd_ssthresh) = (pacing_cwnd * 2);
+	CCV(ccv, snd_ssthresh) = pacing_cwnd;
 	return;
     }
 
@@ -227,7 +226,7 @@ rateq_conn_init(struct cc_var *ccv)
     }
 }
 
-    static int
+static int
 rateq_mod_init(void)
 {
     return (0);
