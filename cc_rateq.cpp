@@ -87,8 +87,9 @@ static void		rateq_post_recovery(struct cc_var *ccv);
 struct rateq {
     int slow_start_toggle;
     int snd_cwnd_save;
-    time_t last_print;
 };
+
+static int TCPUP_PACING_RATE = 750000;
 
 struct cc_algo rateq_cc_algo = {
     "rateq",
@@ -152,7 +153,7 @@ rateq_cb_init(struct cc_var *ccv)
     if (rateq_data == NULL)
 	return (UTXENOMEM);
 
-    CCV(ccv, pacing_rate) = 1750000;
+    CCV(ccv, pacing_rate) = TCPUP_PACING_RATE;
     TCP_DEBUG(1, "pacing rate: %d\n", CCV(ccv, pacing_rate));
     rateq_data->slow_start_toggle = 1;
     ccv->cc_data = rateq_data;
@@ -177,14 +178,14 @@ rateq_cong_signal(struct cc_var *ccv, uint32_t signal_type)
 
     rto = tp->t_rxtcur;
     if (signal_type == CC_NDUPACK) {
-	TCP_DEBUG(1, "enter fast recovery");
+	TCP_DEBUG(1, "enter fast recovery: %d %p %d\n", tp->t_dupacks, TAILQ_FIRST(&tp->snd_holes), tp->filter_nboard);
     }
 
     if (signal_type == CC_RTO_ERR) {
 	TCP_DEBUG(1, "enter rto err recovery");
     }
 
-    if (tp->t_rxtcur > 0 /* && signal_type == CC_RTO */ ) {
+    if (tp->t_rxtcur > 0 && signal_type == CC_RTO) {
 	u_int pacing_cwnd = rto * CCV(ccv, pacing_rate) / 1000;
 
 	CCV(ccv, snd_ssthresh) = pacing_cwnd;
@@ -229,5 +230,14 @@ rateq_conn_init(struct cc_var *ccv)
 static int
 rateq_mod_init(void)
 {
+    int rate = TCPUP_PACING_RATE;
+    const char *env_pacing_rate = getenv("PACING_RATE");
+
+    if (env_pacing_rate)
+	rate = atol(env_pacing_rate);
+
+    if (rate > 8000)
+	TCPUP_PACING_RATE = rate;
+
     return (0);
 }

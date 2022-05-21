@@ -285,12 +285,9 @@ after_sack_rexmit:
  	 */
 	if (sack_rxmit == 0) {
 		if (sack_bytes_rxmt == 0) {
-			if (sendwin > rgn_len(tp->rgn_snd)) {
-				len = ((long)rgn_len(tp->rgn_snd) - off);
-			} else if (sendwin - off < tp->t_maxseg) {
-				len = 0;
-			} else {
-				len = (sendwin - off);
+			len = 0;
+			if (sendwin >= off + tp->t_maxseg || rgn_len(tp->rgn_snd) < off + tp->t_maxseg) {
+				len = ((long)ulmin(rgn_len(tp->rgn_snd), sendwin) - off);
 			}
 		} else {
 			long cwin; 
@@ -456,7 +453,7 @@ dontupdate:
 	if (SEQ_GT(tp->snd_max, tp->snd_una) &&
 		!tcp_timer_active(tp, TT_REXMT) &&
 		!tcp_timer_active(tp, TT_PERSIST)) {
-		tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur * 2);
+		tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
 		TCP_DEBUG(1, "dupack %d %x %d\n", tp->t_dupacks, IN_FASTRECOVERY(tp->t_flags), tp->filter_nboard);
 		goto just_return;
 	}

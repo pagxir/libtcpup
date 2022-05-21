@@ -298,19 +298,20 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 	int todrop, acked;
 	int needoutput = 0;
 	int ourfinisacked = 0;
-	struct tcphdr *th;
+	struct tcphdr *th, mth;
 	const char *dat = NULL;
 	u_long tiwin;
 	struct tcpopt to;
 	struct tcpcb tcb = {0};
 
-	th = (struct tcphdr *)buf;
+	th = (struct tcphdr *)&mth;
 	TCPSTAT_INC(tcps_rcvtotal);
 	if (len < sizeof(*th)) {
 		TCP_DEBUG(len < sizeof(*th), "incorrect paket %d\n", len);
 		return;
 	}
 
+	memcpy(&mth, buf, sizeof(mth));
 	th->th_seq = ntohl(th->th_seq);
 	th->th_ack = ntohl(th->th_ack);
 	th->th_win = ntohs(th->th_win);
@@ -350,7 +351,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 	/*
 	 * Parse options on any incoming segment.
 	 */
-	int hdrlen = tcp_dooptions(&to, (u_char *)(th + 1),
+	int hdrlen = tcp_dooptions(&to, (u_char *)(buf + sizeof(mth)),
 			th->th_opten << 2, (thflags & TH_SYN) ? TO_SYN : 0);
 	if (len < hdrlen) {
 		TCP_DEBUG(len < hdrlen, "incorrect paket %d %d\n", len, hdrlen);
@@ -1182,6 +1183,10 @@ close:
 						VAR_UNUSED(onxt);
 
 						TCPSTAT_INC(tcps_sack_recovery_episode);
+						u_short update_checksum(const void *buf, size_t count);
+						assert(0 == update_checksum(buf, len));
+
+						if (tp->filter_nboard == 0) TCP_DEBUG(1, "filter_nboard not 0");
 						tp->sack_newdata = tp->snd_nxt;
 						tp->snd_cwnd = tp->t_maxseg;
 						(void)tcp_output(tp);

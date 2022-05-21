@@ -124,7 +124,7 @@ static void tcp_rexmt_timo(void *up)
 	tcp_filter_free(tp);
 
 	lost = tcp_filter_lost(tp, &trans);
-	TCP_TRACE_AWAYS(tp, "tcp rexmt time out %x una %x rec %x rec %x dup %d %d tx %d/%d\n",
+	TCP_DEBUG(1, "tcp rexmt time out %x una %x rec %x rec %x dup %d %d tx %x/%d\n",
 		tp->tp_socket->so_conv, tp->snd_una, tp->snd_recover, IN_FASTRECOVERY(tp->t_flags), tp->t_dupacks, tp->t_rxtcur, tp->rcv_nxt, trans);
 
    	if (++tp->t_rxtshift > TCP_MAXRXTSHIFT) {
@@ -168,9 +168,6 @@ static void tcp_rexmt_timo(void *up)
 	   	tp->t_srtt = 0;
    	}
 
-   	tcp_seq snd_nxt = tp->snd_nxt;
-   	tcp_seq snd_cwnd = tp->snd_cwnd;
-
    	tp->snd_nxt = tp->snd_una;
    	tp->snd_recover = tp->snd_max;
 	tp->ts_recover = ticks;
@@ -180,13 +177,6 @@ static void tcp_rexmt_timo(void *up)
 	cc_cong_signal(tp, NULL, CC_RTO);
 	tp->snd_cwnd = tp->t_maxseg;
    	(void)tcp_output(tp);
-
-#if 0
-	ENTER_FASTRECOVERY(tp->t_flags);
-	tp->snd_fack = tp->snd_una;
-	tp->snd_cwnd = snd_cwnd;
-	tp->snd_nxt = snd_nxt;
-#endif
 
 	return;
 }
@@ -251,8 +241,7 @@ static void tcp_output_wrap(void *uup)
 	struct tcpcb *tp;
 	tp = (struct tcpcb *)uup;
 
-	tp->t_flags &= ~TF_DEVBUSY;
-	// tcp_cancel_devbusy(tp);
+	tcp_cancel_devbusy(tp);
 
 	ticks = tcp_ts_getticks();
 	(void)tcp_filter_xmit(tp);
