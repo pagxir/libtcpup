@@ -196,6 +196,7 @@ int tcp_output(struct tcpcb *tp)
 
 again:
 
+	assert(tp->snd_cwnd >= tp->t_maxseg);
 	if (SEQ_LT(tp->snd_nxt, tp->snd_max))
 		tcp_sack_adjust(tp);
 
@@ -214,7 +215,7 @@ again:
 		(p = tcp_sack_output(tp, &sack_bytes_rxmt))) {
 		long cwin;
 
-		cwin = min(tp->snd_wnd, tp->snd_cwnd) - sack_bytes_rxmt;
+		cwin = sendwin - sack_bytes_rxmt;
 		if (cwin < tp->t_maxseg)
 			cwin = 0;
 
@@ -286,7 +287,8 @@ after_sack_rexmit:
 	if (sack_rxmit == 0) {
 		if (sack_bytes_rxmt == 0) {
 			len = 0;
-			if (sendwin >= off + tp->t_maxseg || rgn_len(tp->rgn_snd) < off + tp->t_maxseg) {
+			if (sendwin >= off + tp->t_maxseg || (tp->t_flags & TF_FORCEDATA) ||
+					rgn_len(tp->rgn_snd) < off + tp->t_maxseg) {
 				len = ((long)ulmin(rgn_len(tp->rgn_snd), sendwin) - off);
 			}
 		} else {
@@ -312,6 +314,7 @@ after_sack_rexmit:
 						 sack_bytes_rxmt;
 					if (cwin < tp->t_maxseg)
 						cwin = 0;
+					assert(~tp->t_flags & TF_FORCEDATA);
 					len = lmin(len, cwin);
 			  }
 		}
@@ -515,9 +518,9 @@ send_label:
 			TCPSTAT_INC(tcps_sndpack);
 			TCPSTAT_ADD(tcps_sndbyte, len);
 		}
+#if 0
 		// TCP_TRACE_CHECK(tp, off && p, "%x len %d, off %d, optlen %d, %x\n", tp->tp_socket->so_conv, len, off, optlen, to.to_flags);
 		rgn_peek(tp->rgn_snd, iobuf + 1, len, off);
-#if 0
 		if (off + len == rgn_len(tp->rgn_snd))
 			flags |= TH_PUSH;
 #endif

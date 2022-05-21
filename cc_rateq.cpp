@@ -115,15 +115,16 @@ rateq_ack_received(struct cc_var *ccv, uint16_t ack_type)
     long rto;
     struct tcpcb *tp = ccv->tcp;
 
-    rto = tp->t_rxtcur;
+    rto = TCP_REXMTVAL(tp);
 
-    if (tp->t_rxtcur > 0 && !IN_FASTRECOVERY(CCV(ccv, t_flags)) &&
+    if (rto > 0 && !IN_FASTRECOVERY(CCV(ccv, t_flags)) &&
 	    ccv->bytes_this_ack + tp->last_sacked > 0 &&
 	    ack_type == CC_ACK && (ccv->flags & CCF_CWND_LIMITED)) {
 	u_int snd_cwnd = CCV(ccv, snd_cwnd);
 	u_int this_acked = ccv->bytes_this_ack + tp->last_sacked;
 	u_int pacing_cwnd = rto * CCV(ccv, pacing_rate) / 1000;
 
+	assert(snd_cwnd + this_acked >= tp->t_maxseg);
 	CCV(ccv, snd_cwnd) = min(snd_cwnd + this_acked, pacing_cwnd + 3 * tp->t_maxseg);
 	return;
     }
@@ -169,6 +170,7 @@ rateq_cong_signal(struct cc_var *ccv, uint32_t signal_type)
 {
     u_int win = CCV(ccv, snd_cwnd);
     u_int snd_ssthresh = CCV(ccv, snd_ssthresh);
+    u_int fastrecovery = IN_FASTRECOVERY(CCV(ccv, t_flags));
 
     if (newreno_cc_algo.cong_signal)
 	newreno_cc_algo.cong_signal(ccv, signal_type);
@@ -176,16 +178,18 @@ rateq_cong_signal(struct cc_var *ccv, uint32_t signal_type)
     long rto;
     struct tcpcb *tp = ccv->tcp;
 
-    rto = tp->t_rxtcur;
-    if (signal_type == CC_NDUPACK) {
-	TCP_DEBUG(1, "enter fast recovery: %d %p %d\n", tp->t_dupacks, TAILQ_FIRST(&tp->snd_holes), tp->filter_nboard);
+    rto = TCP_REXMTVAL(tp);
+    if (signal_type == CC_NDUPACK && !fastrecovery) {
+	TCP_DEBUG(1, "enter fast recovery: %d %p %d\n",
+		tp->t_dupacks, TAILQ_FIRST(&tp->snd_holes), tp->filter_nboard);
+	CCV(ccv, snd_ssthresh) = snd_ssthresh;
     }
 
     if (signal_type == CC_RTO_ERR) {
 	TCP_DEBUG(1, "enter rto err recovery");
     }
 
-    if (tp->t_rxtcur > 0 && signal_type == CC_RTO) {
+    if (rto > 0 && signal_type == CC_RTO) {
 	u_int pacing_cwnd = rto * CCV(ccv, pacing_rate) / 1000;
 
 	CCV(ccv, snd_ssthresh) = pacing_cwnd;
@@ -201,13 +205,14 @@ rateq_post_recovery(struct cc_var *ccv)
     long rto;
     struct tcpcb *tp = ccv->tcp;
 
-    rto = tp->t_rxtcur;
+    rto = TCP_REXMTVAL(tp);
 
     if (IN_FASTRECOVERY(CCV(ccv, t_flags)) &&
-	    tp->t_rxtcur > 0 && (ccv->flags & CCF_CWND_LIMITED)) {
+	    rto > 0 && (ccv->flags & CCF_CWND_LIMITED)) {
 	u_int pacing_cwnd = rto * CCV(ccv, pacing_rate) / 1000;
 
-	CCV(ccv, snd_cwnd) = pacing_cwnd;
+	CCV(ccv, snd_cwnd) = pacing_cwnd + tp->t_maxseg;
+	assert(pacing_cwnd  >= 0);
 	return;
     }
 }
@@ -220,7 +225,7 @@ rateq_conn_init(struct cc_var *ccv)
     rateq_data = (struct rateq *)ccv->cc_data;
     rateq_data->slow_start_toggle = 1;
 
-    long rto = CCV(ccv, t_rxtcur);
+    long rto = TCP_REXMTVAL(ccv->tcp);
     if (rto > 0) {
 	long snd_cwnd = rto * CCV(ccv, pacing_rate) / 1000;
 	CCV(ccv, snd_cwnd) = max(snd_cwnd/CCV(ccv, t_maxseg), 2) * CCV(ccv, t_maxseg);

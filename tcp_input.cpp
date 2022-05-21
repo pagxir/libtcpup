@@ -129,6 +129,7 @@ cc_conn_init(struct tcpcb *tp)
 	else
 		tp->snd_cwnd = tp->t_maxseg;
 
+    assert(tp->snd_cwnd >= tp->t_maxseg);
     if (CC_ALGO(tp)->conn_init != NULL)
         CC_ALGO(tp)->conn_init(tp->ccv);
 }
@@ -167,6 +168,7 @@ cc_cong_signal(struct tcpcb *tp, struct tcphdr *th, uint32_t type)
 			TCPSTAT_INC(tcps_sndrexmitbad);
 			/* RTO was unnecessary, so reset everything. */
 			tp->snd_cwnd = tp->snd_cwnd_prev;
+	assert(tp->snd_cwnd >= tp->t_maxseg);
 			tp->snd_ssthresh = tp->snd_ssthresh_prev;
 			tp->snd_recover = tp->snd_recover_prev;
 			tp->ts_recover = ticks;
@@ -1157,6 +1159,7 @@ close:
 								tp->snd_cwnd += tp->t_maxseg;
 								if (tp->snd_cwnd > tp->snd_ssthresh)
 									tp->snd_cwnd = tp->snd_ssthresh;
+								assert(tp->snd_cwnd >= tp->t_maxseg);
 							}
 						} else
 							tp->snd_cwnd += tp->t_maxseg;
@@ -1211,6 +1214,7 @@ close:
 							(tp->snd_nxt - tp->snd_una) +
 							(tp->t_dupacks - tp->snd_limited) * tp->t_maxseg;
 
+						assert(tp->snd_cwnd >= tp->t_maxseg);
 						avail = rgn_len(tp->rgn_snd) - 
 							(tp->snd_nxt - tp->snd_una);
 						if (avail > 0)
@@ -1221,6 +1225,7 @@ close:
 						} else if (sent > 0)
 							++tp->snd_limited;
 						tp->snd_cwnd = oldcwnd;
+						assert(tp->snd_cwnd >= tp->t_maxseg);
 						goto drop;
 					}
 				} else 

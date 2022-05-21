@@ -14,6 +14,7 @@
 #include <utx/socket.h>
 
 #include <tcpup/tcp.h>
+#include <tcpup/tcp_var.h>
 #include <tcpup/tcp_subr.h>
 #include <tcpup/tcp_debug.h>
 #include <tcpup/tcp_crypt.h>
@@ -43,6 +44,7 @@ struct icmphdr {
 	unsigned int   reserved[2];
 };
 
+static struct tx_poll_t _dev_idle_poll;
 static FILTER_HOOK *_filter_hook;
 static int _set_filter_hook(FILTER_HOOK *hook)
 {
@@ -148,23 +150,23 @@ static void dev_idle_callback(void *uup)
 {
 	tx_task_wakeup(&_dev_busy, "idle");
 	TCP_DEBUG(0x1, "dev_idle_callback\n");
+	_tcp_dev_busy = 0;
 
 	return ;
 }
 
 static void _tcp_devbusy(struct tcpcb *tp, tx_task_t *task)
 {
-#if 0
 	if ((tp->t_flags & TF_DEVBUSY) == 0) {
 		tx_task_record(&_dev_busy, &tp->t_event_devbusy);
 		tp->t_flags |= TF_DEVBUSY;
 		if (_tcp_dev_busy == 0) {
 			/* TODO: fixme: device busy */
-			sock_write_wait(_sockcbp, &_dev_idle);
+			// sock_write_wait(_sockcbp, &_dev_idle);
+			tx_poll_active(&_dev_idle_poll);
 			_tcp_dev_busy = 1;
 		}
 	}
-#endif
 }
 
 static struct sockaddr_in _tcp_out_addr = { 0 };
@@ -270,6 +272,7 @@ static void module_init(void)
 	tx_taskq_init(&_dev_busy);
 	tx_task_init(&_stop, loop, listen_statecb, (void *)0);
 	tx_task_init(&_start, loop, listen_statecb, (void *)1);
+	tx_poll_init(&_dev_idle_poll, loop, dev_idle_callback, NULL);
 
 	tx_task_active(&_start, "start");
 	// TODO: fixme how to do when stop loop

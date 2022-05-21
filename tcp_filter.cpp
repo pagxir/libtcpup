@@ -86,6 +86,15 @@ int tcp_filter_out(struct tcp_hhook_data *ctx_data)
     else
 	TAILQ_INSERT_TAIL(&tp->txsegi_xmt_q, txsi, txsegi_lnk);
 
+    if (tp->t_flags & TF_DEVBUSY) {
+	return 1;
+    }
+
+    if (tp->pacing_rate > tp->t_maxseg) {
+	tx_task_active(&tp->t_event_devbusy, "sch_next");
+	return 1;
+    }
+
     tcp_filter_xmit(tp);
     return 1;
 }

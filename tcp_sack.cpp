@@ -399,6 +399,33 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 		else
 			sblkp--;
 	}
+
+	sblkp = &sack_blocks[num_sack_blks - 1];        /* Last SACK block */
+	if (IN_FASTRECOVERY(tp->t_flags)
+		&& tcp_timer_active(tp, TT_REXMT)
+		&& tp->t_dupacks > 3 && th_ack == tp->snd_una
+		&& SEQ_LT(tp->sack_newdata, sblkp->end)) {
+#if 0
+
+	    struct sackhole *hole = TAILQ_FIRST(&tp->snd_holes);
+	    if (hole != NULL) {
+		tcp_timer_activate(tp, TT_REXMT, 0);
+		tp->sack_newdata = tp->snd_nxt;
+		tp->sackhint.sack_bytes_rexmit = 0;
+		tp->t_rtttime = 0;
+		tp->snd_cwnd = tp->t_maxseg;
+		hole->rxmit = hole->start;
+		tp->sackhint.nexthole = hole;
+	    }
+
+	    while ((hole = TAILQ_NEXT(hole, scblink)) != NULL) {
+		hole->rxmit = hole->start;
+	    }
+#endif
+	
+	    tcp_timer_activate(tp, TT_REXMT, 1);
+	    TCP_DEBUG(1, "lost rexmit");
+	}
 }
 
 /*
@@ -442,6 +469,8 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th, int newseg)
 	tp->snd_cwnd = (tp->sackhint.sack_bytes_rexmit +
 	    (tp->snd_nxt - tp->sack_newdata) + bytes_acked);
 
+#if 0
+	assert(tp->snd_cwnd >= tp->t_maxseg);
 	if (newseg) {
 		int missing_cwnd = 0;
 		struct sackhole *hole = NULL;
@@ -465,9 +494,11 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th, int newseg)
 	}
 out:
 
+#endif
 	if (tp->snd_cwnd > tp->snd_ssthresh)
 		tp->snd_cwnd = tp->snd_ssthresh;
 	tp->t_flags |= TF_ACKNOW;
+	assert(tp->snd_cwnd >= tp->t_maxseg);
 	(void) tcp_output(tp);
 }
 
