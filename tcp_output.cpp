@@ -593,6 +593,11 @@ send_label:
 		tp->snd_nxt += len;
 		if (SEQ_GT(tp->snd_nxt, tp->snd_max)) {
 			tp->snd_max = tp->snd_nxt;
+
+			if (flags & (TH_SYN| TH_FIN)) {
+				tp->snd_max_out = tp->snd_nxt;
+			}
+
 			if (tp->t_rtttime == 0) {
 				assert(error > 0);
 				tp->t_rtttime = ticks; // NEED TO FIXME
