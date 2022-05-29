@@ -124,7 +124,6 @@ rateq_ack_received(struct cc_var *ccv, uint16_t ack_type)
 	u_int this_acked = ccv->bytes_this_ack + tp->last_sacked;
 	u_int pacing_cwnd = rto * CCV(ccv, pacing_rate) / 1000;
 
-	assert(snd_cwnd + this_acked >= tp->t_maxseg);
 	CCV(ccv, snd_cwnd) = min(snd_cwnd + this_acked, pacing_cwnd + 3 * tp->t_maxseg);
 	return;
     }

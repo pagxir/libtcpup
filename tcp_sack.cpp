@@ -470,7 +470,6 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th, int newseg)
 	    (tp->snd_nxt - tp->sack_newdata) + bytes_acked);
 
 #if 0
-	assert(tp->snd_cwnd >= tp->t_maxseg);
 	if (newseg) {
 		int missing_cwnd = 0;
 		struct sackhole *hole = NULL;
@@ -495,10 +494,10 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th, int newseg)
 out:
 
 #endif
-	if (tp->snd_cwnd > tp->snd_ssthresh)
+	if (tp->snd_cwnd > tp->snd_ssthresh &&
+			tp->snd_ssthresh > tp->t_maxseg)
 		tp->snd_cwnd = tp->snd_ssthresh;
 	tp->t_flags |= TF_ACKNOW;
-	assert(tp->snd_cwnd >= tp->t_maxseg);
 	(void) tcp_output(tp);
 }
 

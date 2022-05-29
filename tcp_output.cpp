@@ -196,7 +196,6 @@ int tcp_output(struct tcpcb *tp)
 
 again:
 
-	assert(tp->snd_cwnd >= tp->t_maxseg);
 	if (SEQ_LT(tp->snd_nxt, tp->snd_max))
 		tcp_sack_adjust(tp);
 
@@ -331,7 +330,7 @@ after_sack_rexmit:
 		off--, len++;
 	}
 
-	if ((flags & TH_SYN) && (tp->t_flags & TF_NOOPT)) {
+	if (flags & TH_SYN) {
 		len = 0;
 		flags &= ~TH_FIN;
 	}
@@ -518,12 +517,10 @@ send_label:
 			TCPSTAT_INC(tcps_sndpack);
 			TCPSTAT_ADD(tcps_sndbyte, len);
 		}
-#if 0
 		// TCP_TRACE_CHECK(tp, off && p, "%x len %d, off %d, optlen %d, %x\n", tp->tp_socket->so_conv, len, off, optlen, to.to_flags);
 		rgn_peek(tp->rgn_snd, iobuf + 1, len, off);
 		if (off + len == rgn_len(tp->rgn_snd))
 			flags |= TH_PUSH;
-#endif
 	} else {
 		if (tp->t_flags & TF_ACKNOW) {
 			TCPSTAT_INC(tcps_sndacks);

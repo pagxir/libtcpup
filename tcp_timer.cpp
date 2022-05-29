@@ -140,7 +140,6 @@ static void tcp_rexmt_timo(void *up)
 	int stat = client_track_fetch(tp->tp_socket->so_conv, &tp->dst_addr, sizeof(tp->dst_addr), tp->t_rcvtime);
 	if (tp->t_rxtshift == 1) {
 	   	tp->snd_cwnd_prev = tp->snd_cwnd;
-		assert(tp->snd_cwnd >= tp->t_maxseg);
 	   	tp->snd_recover_prev = tp->snd_recover;
 	   	tp->snd_ssthresh_prev = tp->snd_ssthresh;
 	   	if (IN_FASTRECOVERY(tp->t_flags))

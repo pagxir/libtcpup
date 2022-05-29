@@ -129,7 +129,6 @@ cc_conn_init(struct tcpcb *tp)
 	else
 		tp->snd_cwnd = tp->t_maxseg;
 
-    assert(tp->snd_cwnd >= tp->t_maxseg);
     if (CC_ALGO(tp)->conn_init != NULL)
         CC_ALGO(tp)->conn_init(tp->ccv);
 }
@@ -168,7 +167,6 @@ cc_cong_signal(struct tcpcb *tp, struct tcphdr *th, uint32_t type)
 			TCPSTAT_INC(tcps_sndrexmitbad);
 			/* RTO was unnecessary, so reset everything. */
 			tp->snd_cwnd = tp->snd_cwnd_prev;
-	assert(tp->snd_cwnd >= tp->t_maxseg);
 			tp->snd_ssthresh = tp->snd_ssthresh_prev;
 			tp->snd_recover = tp->snd_recover_prev;
 			tp->ts_recover = ticks;
@@ -1157,9 +1155,9 @@ close:
 								tp->sackhint.sack_bytes_rexmit;
 							if (awnd < (int)tp->snd_ssthresh) {
 								tp->snd_cwnd += tp->t_maxseg;
-								if (tp->snd_cwnd > tp->snd_ssthresh)
+								if (tp->snd_cwnd > tp->snd_ssthresh &&
+										tp->snd_ssthresh > tp->t_maxseg)
 									tp->snd_cwnd = tp->snd_ssthresh;
-								assert(tp->snd_cwnd >= tp->t_maxseg);
 							}
 						} else
 							tp->snd_cwnd += tp->t_maxseg;
@@ -1186,8 +1184,6 @@ close:
 						VAR_UNUSED(onxt);
 
 						TCPSTAT_INC(tcps_sack_recovery_episode);
-						u_short update_checksum(const void *buf, size_t count);
-						assert(0 == update_checksum(buf, len));
 
 						if (tp->filter_nboard == 0) TCP_DEBUG(1, "filter_nboard not 0");
 						tp->sack_newdata = tp->snd_nxt;
@@ -1214,7 +1210,6 @@ close:
 							(tp->snd_nxt - tp->snd_una) +
 							(tp->t_dupacks - tp->snd_limited) * tp->t_maxseg;
 
-						assert(tp->snd_cwnd >= tp->t_maxseg);
 						avail = rgn_len(tp->rgn_snd) - 
 							(tp->snd_nxt - tp->snd_una);
 						if (avail > 0)
@@ -1225,7 +1220,6 @@ close:
 						} else if (sent > 0)
 							++tp->snd_limited;
 						tp->snd_cwnd = oldcwnd;
-						assert(tp->snd_cwnd >= tp->t_maxseg);
 						goto drop;
 					}
 				} else 

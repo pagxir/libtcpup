@@ -90,7 +90,6 @@ newreno_ack_received(struct cc_var *ccv, uint16_t type)
 		/* ABC is on by default, so incr equals 0 frequently. */
 		if (incr > 0) {
 			CCV(ccv, snd_cwnd) = min(cw + incr, TCP_MAXWIN << WINDOW_SCALE);
-			assert(CCV(ccv, snd_cwnd) >= CCV(ccv, t_maxseg));
 		}
 	}
 }
@@ -120,7 +119,6 @@ newreno_after_idle(struct cc_var *ccv)
 		rw = CCV(ccv, t_maxseg) * 2;
 
 	CCV(ccv, snd_cwnd) = min(rw, CCV(ccv, snd_cwnd));
-	assert(CCV(ccv, snd_cwnd) >= CCV(ccv, t_maxseg));
 }
 
 /*
@@ -178,8 +176,6 @@ newreno_post_recovery(struct cc_var *ccv)
 				ccv->curack + CCV(ccv, t_maxseg);
 		else
 			CCV(ccv, snd_cwnd) = CCV(ccv, snd_ssthresh);
-
-	        assert(CCV(ccv, snd_cwnd) >= CCV(ccv, t_maxseg));
 	}
 }
 
