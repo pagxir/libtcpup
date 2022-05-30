@@ -190,6 +190,7 @@ cc_cong_signal(struct tcpcb *tp, struct tcphdr *th, uint32_t type)
 static void inline
 cc_post_recovery(struct tcpcb *tp, struct tcphdr *th)
 {
+	tp->t_flags &= ~TF_SIGNATURE;
     if (CC_ALGO(tp)->post_recovery != NULL) {
 		tp->ccv->curack = th->th_ack;
         CC_ALGO(tp)->post_recovery(tp->ccv);
@@ -521,7 +522,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 
 			int old = rgn_size(tp->rgn_rcv);
 			if (old < (tp->rcv_max_space >> 1) &&
-					rgn_len(tp->rgn_rcv) + tp->t_maxseg * 4  > (old - (old >> 2))) {
+					rgn_len(tp->rgn_rcv) + tp->t_maxseg * 4  > (old - (old >> 3))) {
 				tp->rgn_rcv = rgn_resize(tp->rgn_rcv, (old << 1));
 				TCP_TRACE_AWAYS(tp, "expand connection receive space from %d to %d\n", old, old << 1);
 			}

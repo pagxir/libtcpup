@@ -196,6 +196,7 @@ int tcp_output(struct tcpcb *tp)
 
 again:
 
+	assert(tp->snd_cwnd >= tp->t_maxseg);
 	if (SEQ_LT(tp->snd_nxt, tp->snd_max))
 		tcp_sack_adjust(tp);
 

@@ -403,27 +403,10 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 	sblkp = &sack_blocks[num_sack_blks - 1];        /* Last SACK block */
 	if (IN_FASTRECOVERY(tp->t_flags)
 		&& tcp_timer_active(tp, TT_REXMT)
-		&& tp->t_dupacks > 3 && th_ack == tp->snd_una
-		&& SEQ_LT(tp->sack_newdata, sblkp->end)) {
-#if 0
-
-	    struct sackhole *hole = TAILQ_FIRST(&tp->snd_holes);
-	    if (hole != NULL) {
-		tcp_timer_activate(tp, TT_REXMT, 0);
-		tp->sack_newdata = tp->snd_nxt;
-		tp->sackhint.sack_bytes_rexmit = 0;
-		tp->t_rtttime = 0;
-		tp->snd_cwnd = tp->t_maxseg;
-		hole->rxmit = hole->start;
-		tp->sackhint.nexthole = hole;
-	    }
-
-	    while ((hole = TAILQ_NEXT(hole, scblink)) != NULL) {
-		hole->rxmit = hole->start;
-	    }
-#endif
-	
+		&& !(TF_SIGNATURE & tp->t_flags) && th_ack == tp->snd_una
+		&& SEQ_LT(tp->sack_newdata + tp->t_maxseg, sblkp->end)) {
 	    tcp_timer_activate(tp, TT_REXMT, 1);
+            EXIT_FASTRECOVERY(tp->t_flags);
 	    TCP_DEBUG(1, "lost rexmit");
 	}
 }
@@ -497,6 +480,7 @@ out:
 	if (tp->snd_cwnd > tp->snd_ssthresh &&
 			tp->snd_ssthresh > tp->t_maxseg)
 		tp->snd_cwnd = tp->snd_ssthresh;
+	tp->t_flags |= TF_SIGNATURE;
 	tp->t_flags |= TF_ACKNOW;
 	(void) tcp_output(tp);
 }

@@ -140,23 +140,27 @@ static void hybla_ack_received(struct cc_var *ccv, uint16_t type)
 		is_slow_start = 1;
 	} else {
 		increment = (ca->rho2_71s * seg)/ cw;
-		incr = (increment * min(ccv->bytes_this_ack, seg)) >> 7;
-		if (incr == 0)
-			ca->snd_cwnd_cnt++;
-		else
-			ca->snd_cwnd_cnt = 0;
+		if (increment < 128) ca->snd_cwnd_cnt++;
 	}
 
-	if (increment == 0 &&
-		ca->snd_cwnd_cnt * seg >= cw) {
+	odd = increment % 128;
+	cw += (increment >> 7) * CCV(ccv, t_maxseg);
+	ca->snd_cwnd_cents += odd;
+
+	while (ca->snd_cwnd_cents >= 128) {
+		cw += seg;
+		ca->snd_cwnd_cents -= 128;
 		ca->snd_cwnd_cnt = 0;
-		incr = seg;
+	}
+
+	if (increment == 0 && odd == 0 &&
+		ca->snd_cwnd_cnt * CCV(ccv, t_maxseg) >= cw) {
+		cw += CCV(ccv, t_maxseg);
+		ca->snd_cwnd_cnt = 0;
 	}
 
 	if (is_slow_start)
-		cw = min(cw + incr, CCV(ccv, snd_ssthresh) + 1);
-	else
-		cw = (cw + incr);
+		cw = min(cw, CCV(ccv, snd_ssthresh) + 1);
 
 	CCV(ccv, snd_cwnd) = min(cw, TCP_MAXWIN << WINDOW_SCALE);
 	return;
@@ -177,7 +181,7 @@ static int hybla_cb_init(struct cc_var *ccv)
 
         if (ca == NULL)
                 return (UTXENOMEM);
-		memset(ca, 0, sizeof(*ca));
+	memset(ca, 0, sizeof(*ca));
         ccv->cc_data = ca;
 
         return (0);
@@ -187,6 +191,6 @@ static int hybla_mod_init(void)
 {
 
         // newreno_cc_algo.post_recovery;
-		hybla_cc_algo.after_idle = newreno_cc_algo.after_idle;
+	hybla_cc_algo.after_idle = newreno_cc_algo.after_idle;
         return (0);
 }
