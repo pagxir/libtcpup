@@ -117,6 +117,7 @@ rateq_ack_received(struct cc_var *ccv, uint16_t ack_type)
 
     rto = TCP_REXMTVAL(tp);
 
+#if 0
     if (rto > 0 && !IN_FASTRECOVERY(CCV(ccv, t_flags)) &&
 	    ccv->bytes_this_ack + tp->last_sacked > 0 &&
 	    ack_type == CC_ACK && (ccv->flags & CCF_CWND_LIMITED)) {
@@ -127,6 +128,7 @@ rateq_ack_received(struct cc_var *ccv, uint16_t ack_type)
 	CCV(ccv, snd_cwnd) = min(snd_cwnd + this_acked, pacing_cwnd + 3 * tp->t_maxseg);
 	return;
     }
+#endif
 
     newreno_cc_algo.ack_received(ccv, ack_type);
 }
@@ -178,6 +180,7 @@ rateq_cong_signal(struct cc_var *ccv, uint32_t signal_type)
     struct tcpcb *tp = ccv->tcp;
 
     rto = TCP_REXMTVAL(tp);
+#if 0
     if (signal_type == CC_NDUPACK && !fastrecovery) {
 	TCP_DEBUG(1, "enter fast recovery: %d %p %d\n",
 		tp->t_dupacks, TAILQ_FIRST(&tp->snd_holes), tp->filter_nboard);
@@ -194,6 +197,7 @@ rateq_cong_signal(struct cc_var *ccv, uint32_t signal_type)
 	CCV(ccv, snd_ssthresh) = pacing_cwnd;
 	return;
     }
+#endif
 
     return;
 }
@@ -206,14 +210,17 @@ rateq_post_recovery(struct cc_var *ccv)
 
     rto = TCP_REXMTVAL(tp);
 
+#if 0
     if (IN_FASTRECOVERY(CCV(ccv, t_flags)) &&
 	    rto > 0 && (ccv->flags & CCF_CWND_LIMITED)) {
 	u_int pacing_cwnd = rto * CCV(ccv, pacing_rate) / 1000;
 
-	CCV(ccv, snd_cwnd) = pacing_cwnd + tp->t_maxseg;
+	CCV(ccv, snd_cwnd) = pacing_cwnd + tp->t_maxseg * 3;
 	assert(pacing_cwnd  >= 0);
 	return;
     }
+#endif
+    newreno_cc_algo.post_recovery(ccv);
 }
 
 static void

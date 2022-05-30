@@ -164,7 +164,7 @@ cc_after_idle(struct tcpcb *tp)
 int tcp_output(struct tcpcb *tp)
 {
 	int error;
-	long len, recwin, sendwin;
+	long len, recwin, sendwin, cwnd;
 	int off, flags;
 	struct tcphdr *th;
 	unsigned optlen;
@@ -194,16 +194,20 @@ int tcp_output(struct tcpcb *tp)
 		}
 	}
 
+	cwnd = tp->snd_cwnd + get_filter_win(tp);
+	if (cwnd < tp->t_maxseg) {
+		TCP_DEBUG(1, "incorrent cwnd size: %d", tp->snd_cwnd);
+		cwnd = tp->t_maxseg;
+	}
 again:
 
-	assert(tp->snd_cwnd >= tp->t_maxseg);
 	if (SEQ_LT(tp->snd_nxt, tp->snd_max))
 		tcp_sack_adjust(tp);
 
 	sendalot = 0;
 	/* this_snd_nxt = tp->snd_nxt; */
 	off = tp->snd_nxt - tp->snd_una;
-	sendwin = min(tp->snd_wnd, tp->snd_cwnd);
+	sendwin = min(tp->snd_wnd, cwnd);
 
 	flags = tcp_outflags[tp->t_state];
 
@@ -309,7 +313,7 @@ after_sack_rexmit:
 			  * of len is bungled by the optimizer.
 			  */
 			  if (len > 0) {
-					cwin = tp->snd_cwnd -
+					cwin = cwnd -
 				 		 (tp->snd_nxt - tp->sack_newdata) -
 						 sack_bytes_rxmt;
 					if (cwin < tp->t_maxseg)

@@ -230,6 +230,7 @@ struct tcpcb {
 
 	TAILQ_HEAD(txseginfo_head, txseginfo) txsegi_xmt_q;
 	struct txseginfo_head txsegi_rexmt_q;
+	int txsegi_length;
 
         tcp_seq snd_fack;               /* last seq number(+1) sack'd by rcv'r*/
         int     rcv_numsacks;           /* # distinct sack blks present */

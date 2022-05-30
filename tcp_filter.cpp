@@ -39,6 +39,42 @@ int is_sacked(struct tcpcb *tp, tcp_seq seq, size_t len)
     return 0;
 }
 
+int get_filter_win(struct tcpcb *tp)
+{
+    if (tp->pacing_rate == 0) {
+	return 0;
+    }
+
+    if (!IN_FASTRECOVERY(tp->t_flags) &&
+	    TAILQ_EMPTY(&tp->snd_holes) &&
+	    SEQ_GEQ(tp->snd_recover, tp->snd_una) &&
+	    SEQ_LT(tp->snd_nxt, tp->snd_recover)) {
+	return 0;
+    }
+
+    long rto = TCP_REXMTVAL(tp);
+    unsigned ticks = tx_getticks();
+    unsigned pacing = (tp->t_pacing >> PACING_SHIFT);
+
+    if (TSTMP_GT(ticks, pacing)) {
+	uint64_t cw = ticks;
+	uint64_t maxcw = rto * tp->pacing_rate * 2 / 1000;
+	uint64_t pipefly = (tp->txsegi_length * tp->t_maxseg) << PACING_SHIFT;
+
+	cw = ((cw << PACING_SHIFT) - tp->t_pacing) * tp->pacing_rate / 1000;
+	if (cw > pipefly) cw -= pipefly;
+	cw = ((cw >> PACING_SHIFT) / tp->t_maxseg);
+
+	if (tp->snd_cwnd + cw > maxcw) {
+		return max(maxcw, tp->snd_cwnd) - tp->snd_cwnd;
+	}
+
+	return tp->t_maxseg * cw;
+    }
+
+    return 0;
+}
+
 int tcp_filter_out(struct tcp_hhook_data *ctx_data)
 {
     struct tcpcb *tp;
@@ -86,6 +122,7 @@ int tcp_filter_out(struct tcp_hhook_data *ctx_data)
     else
 	TAILQ_INSERT_TAIL(&tp->txsegi_xmt_q, txsi, txsegi_lnk);
 
+    tp->txsegi_length ++;
     if (tp->t_flags & TF_DEVBUSY) {
 	return 1;
     }
@@ -375,6 +412,7 @@ int tcp_filter_xmit(struct tcpcb *tp)
 	if (txsi != NULL) {
 	    TAILQ_REMOVE(&tp->txsegi_rexmt_q, txsi, txsegi_lnk);
 	    tcp_filter_output(tp, txsi);
+	    tp->txsegi_length --;
 	    free(txsi);
 	    continue;
 	}
@@ -383,6 +421,7 @@ int tcp_filter_xmit(struct tcpcb *tp)
 	if (txsi != NULL) {
 	    TAILQ_REMOVE(&tp->txsegi_xmt_q, txsi, txsegi_lnk);
 	    tcp_filter_output(tp, txsi);
+	    tp->txsegi_length --;
 	    free(txsi);
 	    continue;
 	}
@@ -420,6 +459,7 @@ int tcp_filter_free(struct tcpcb *tp)
 	txsi = TAILQ_FIRST(&tp->txsegi_xmt_q);
     }
 
+    tp->txsegi_length = 0;
     tcp_cancel_devbusy(tp);
     return 0;
 }
