@@ -82,7 +82,7 @@ static void     rateq_cong_signal(struct cc_var *ccv, uint32_t signal_type);
 static void     rateq_conn_init(struct cc_var *ccv);
 static int      rateq_mod_init(void);
 static void 	rateq_after_idle(struct cc_var *ccv);
-static void		rateq_post_recovery(struct cc_var *ccv);
+static void	rateq_post_recovery(struct cc_var *ccv);
 
 struct rateq {
     int slow_start_toggle;

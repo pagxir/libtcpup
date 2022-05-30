@@ -403,11 +403,12 @@ tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 	sblkp = &sack_blocks[num_sack_blks - 1];        /* Last SACK block */
 	if (IN_FASTRECOVERY(tp->t_flags)
 		&& tcp_timer_active(tp, TT_REXMT)
-		&& !(TF_SIGNATURE & tp->t_flags) && th_ack == tp->snd_una
+		&& !((TF_WASFRECOVERY| TF_SIGNATURE) & tp->t_flags) && th_ack == tp->snd_una
 		&& SEQ_LT(tp->sack_newdata + tp->t_maxseg, sblkp->end)) {
-	    tcp_timer_activate(tp, TT_REXMT, 1);
-            EXIT_FASTRECOVERY(tp->t_flags);
-	    TCP_DEBUG(1, "lost rexmit");
+		tcp_timer_activate(tp, TT_REXMT, 0);
+		tx_task_active(&tp->t_timer_rexmt_t, "fast timo");
+		tp->t_flags |= TF_WASFRECOVERY;
+		TCP_DEBUG(1, "lost rexmit");
 	}
 }
 

@@ -523,8 +523,8 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
                         if (to.to_tsecr) {
 				const int oldsz = rgn_size(tp->rgn_rcv);
 				if (TSTMP_GT(to.to_tsecr, tp->rfbuf_ts) &&
-						to.to_tsecr - tp->rfbuf_ts <= hz) {
-					if (tp->rfbuf_cnt > (oldsz / 8 * 7)
+						to.to_tsecr - tp->rfbuf_ts < hz) {
+					if (tp->rfbuf_cnt > (oldsz / 8 * 6)
 							&& oldsz * 2 < tp->rcv_max_space) {
 						TCP_TRACE_AWAYS(tp, "expand connection receive space from %d to %d\n", oldsz, oldsz * 2);
 						tp->rgn_rcv = rgn_resize(tp->rgn_rcv, oldsz * 2);
@@ -558,6 +558,10 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 		if (win < 0) win = 0;
 		tp->rcv_wnd = max(win, (int) (tp->rcv_adv - tp->rcv_nxt));
 	} while ( 0 );
+
+        /* Reset receive buffer auto scaling when not in bulk receive mode. */
+        tp->rfbuf_ts = 0;
+        tp->rfbuf_cnt = 0;
 
 	/* Reset receive buffer auto scaling when not in bulk receive mode. */
 	switch (tp->t_state) {
