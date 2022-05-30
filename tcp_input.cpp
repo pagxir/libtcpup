@@ -520,12 +520,21 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 			TCPSTAT_ADD(tcps_rcvbyte, tlen);
 			rgn_put(tp->rgn_rcv, dat, tlen);
 
-			int old = rgn_size(tp->rgn_rcv);
-			if (old < (tp->rcv_max_space >> 1) &&
-					rgn_len(tp->rgn_rcv) + tp->t_maxseg * 4  > (old - (old >> 3))) {
-				tp->rgn_rcv = rgn_resize(tp->rgn_rcv, (old << 1));
-				TCP_TRACE_AWAYS(tp, "expand connection receive space from %d to %d\n", old, old << 1);
-			}
+                        if (to.to_tsecr) {
+				const int oldsz = rgn_size(tp->rgn_rcv);
+				if (TSTMP_GT(to.to_tsecr, tp->rfbuf_ts) &&
+						to.to_tsecr - tp->rfbuf_ts <= hz) {
+					if (tp->rfbuf_cnt > (oldsz / 8 * 7)
+							&& oldsz * 2 < tp->rcv_max_space) {
+						TCP_TRACE_AWAYS(tp, "expand connection receive space from %d to %d\n", oldsz, oldsz * 2);
+						tp->rgn_rcv = rgn_resize(tp->rgn_rcv, oldsz * 2);
+					}
+					/* Start over with next RTT. */
+					tp->rfbuf_ts = 0;
+					tp->rfbuf_cnt = 0;
+				} else
+					tp->rfbuf_cnt += tlen;  /* add up */
+                        }
 
 			sorwakeup(tp);
 			if (DELAY_ACK(tp)) {

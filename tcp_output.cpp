@@ -492,6 +492,9 @@ send_label:
 		to.to_sacks = (u_char *)tp->sackblks;
 	}
 
+	if (tp->rfbuf_ts == 0)
+		tp->rfbuf_ts = tcp_snd_getticks;
+
 	to.to_flags |= TOF_TS;
 	to.to_tsval = (tcp_snd_getticks);
 	to.to_tsecr = (tp->ts_recent);
@@ -648,7 +651,6 @@ timer:
 	    sendalot = 1;
 	}
 
-retry:
 	if (sendalot)
 		goto again;
 
