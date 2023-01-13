@@ -443,7 +443,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 				 * timestamps of 0 or we could calculate a
 				 * huge RTT and blow up the retransmit timer.
 				 */
-				if (to.to_tsecr != 0) {
+				if (to.to_tsecr != 0 && acked > 0) {
 					u_int t;
 					t = tcp_ts_getticks() - to.to_tsecr;
 					tcp_xmit_timer(tp, TCP_TS_TO_TICKS(t) + 1);
@@ -537,7 +537,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
                         }
 
 			sorwakeup(tp);
-			if (DELAY_ACK(tp)) {
+			if (DELAY_ACK(tp) && tp->t_maxseg/2 <= len) {
 				tp->t_flags |= TF_DELACK;
 			} else {
 				tp->t_flags |= TF_ACKNOW;
