@@ -995,6 +995,10 @@ int main(int argc, char *argv[])
 			check_and_receive(&cb, 0);
                 goto check_pending;
 	    }
+        } else if (strcmp(action, "daemon") == 0) {
+            fprintf(stderr, "become daemon: %d\n", getpid());
+            daemon(0, 0);
+	    while (1) check_and_receive(&cb, 0);
         } else if (strcmp(action, "stun.map") == 0) {
             do_stun_maping(&cb, NULL, 0);
         } else if (strcmp(action, "stun.change") == 0) {

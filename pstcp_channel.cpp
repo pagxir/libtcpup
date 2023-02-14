@@ -48,7 +48,7 @@ struct relay_data {
 #define RDF_FIN 0x02
 #define RDF_BROKEN 0x04
 	int flag;
-	char buf[4096];
+	char buf[1 << 16];
 };
 
 class pstcp_channel {

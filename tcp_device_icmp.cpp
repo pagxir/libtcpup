@@ -149,7 +149,7 @@ static sockcb_t _socreate(so_conv_t conv)
 static void dev_idle_callback(void *uup)
 {
 	tx_task_wakeup(&_dev_busy, "idle");
-	TCP_DEBUG(0x1, "dev_idle_callback\n");
+	// TCP_DEBUG(0x1, "dev_idle_callback\n");
 	_tcp_dev_busy = 0;
 
 	return ;
@@ -497,6 +497,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 {
 	int fd;
 	int error;
+	char hold_buffer[2048];
 
 	if (offset >= 32 || _paging_devices[offset] == NULL) {
 		fprintf(stderr, "offset: %d\n", offset);
@@ -537,6 +538,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	iovecs[0].iov_len = sizeof(icmp_hdr_fill);
 	iovecs[0].iov_base = icmp_hdr_fill;
 	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs + 1, count, hold_buffer);
 
 	struct msghdr msg0;
 	msg0.msg_name = (void *)name->name;
@@ -557,6 +559,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	iovecs[0].len = sizeof(icmp_hdr_fill);
 	iovecs[0].buf = (char *)icmp_hdr_fill;
 	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs, count, hold_buffer);
 
 	icmp_hdr_fill[0].u0.pair = name->xdat;
 	icmp_update_checksum((unsigned char *)&icmp_hdr_fill[0].checksum, iovecs, count + 1);

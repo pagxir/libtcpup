@@ -444,7 +444,8 @@ extern "C" void tcp_backwork(struct tcpip_info *info)
 static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
 {
 	int fd;
-    int error;
+	int error;
+	char hold_buffer[2049];
 
 	if (offset >= MAX_DEV_CNT || _paging_devices[offset] == NULL) {
 		LOG_INFO("offset: %d\n", offset);
@@ -474,6 +475,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	iovecs[0].iov_len = sizeof(dns_filling_byte);
 	iovecs[0].iov_base = dns_filling_byte;
 	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs, count + 1, hold_buffer);
 
 	struct msghdr msg0;
 	msg0.msg_name = (void *)name->name;
@@ -491,6 +493,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	iovecs[0].len = sizeof(dns_filling_byte);
 	iovecs[0].buf = (char *)dns_filling_byte;
 	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs, count + 1, hold_buffer);
 
 	transfer = 1;
 	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,
