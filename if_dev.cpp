@@ -157,7 +157,6 @@ socklen_t get_link_target(struct sockaddr *dest, socklen_t *destlen, const char 
 {
     int nmatch, rc = 0;
     char domain[128], portstr[64] = "0";
-    struct sockaddr_in *inp = (struct sockaddr_in *)dest;
     struct sockaddr_in6 *in6p = (struct sockaddr_in6 *)dest;
 
     nmatch = sscanf(target, "[%[0-9:.a-fA-F]]:%s", domain, portstr);
@@ -177,21 +176,27 @@ socklen_t get_link_target(struct sockaddr *dest, socklen_t *destlen, const char 
 	    in6p->sin6_port   = htons(atoi(strp));
 	    in6p->sin6_addr   = in6addr_any;
 	} else {
+#if 0
 	    inp->sin_family = AF_INET;
 	    inp->sin_port   = htons(atoi(strp));
 	    inp->sin_addr.s_addr   = INADDR_ANY;
+#endif
+        assert(0);
 	}
     }
 
     nmatch = sscanf(target, "%[0-9.]:%s", domain, portstr);
-    if ((nmatch == 1 || nmatch == 2) && *destlen >= sizeof(*inp)) {
-	inp->sin_family = AF_INET;
-	inp->sin_port   = htons(atoi(portstr));
-	rc = inet_pton(AF_INET, domain, &inp->sin_addr);
-	fprintf(stderr, "ipv4: %s, port: %s\n", domain, portstr);
-	*destlen = sizeof(*inp);
-	goto check_acceptable;
-    }
+	if ((nmatch == 1 || nmatch == 2) && *destlen >= sizeof(*in6p)) {
+		in6p->sin6_family = AF_INET6;
+		in6p->sin6_port   = htons(atoi(portstr));
+
+        struct in_addr one;
+		rc = inet_pton(AF_INET, domain, &one);
+        inet_4to6(&in6p->sin6_addr, &one);
+		fprintf(stderr, "ipv4: %s, port: %s\n", domain, portstr);
+		*destlen = sizeof(*in6p);
+		goto check_acceptable;
+	}
 
     nmatch = sscanf(target, "%[^:]:%s", domain, portstr);
     if (nmatch < 1) {
@@ -234,9 +239,6 @@ socklen_t get_link_target(struct sockaddr *dest, socklen_t *destlen, const char 
 check_acceptable:
     if (_tcp_device_mod == &tcp_device_ipv6_mod && in6p->sin6_family != AF_INET6) {
 	fprintf(stderr, "address unacceptable v6: %s\n", target);
-	return -1;
-    } else if (_tcp_device_mod != &tcp_device_ipv6_mod && inp->sin_family != AF_INET) {
-	fprintf(stderr, "address unacceptable v4: %s\n", target);
 	return -1;
     }
 

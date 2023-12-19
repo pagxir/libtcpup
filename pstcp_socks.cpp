@@ -61,7 +61,7 @@ pstcp_socks::pstcp_socks(struct tcpcb *tp)
 	:m_flags(0)
 {
 	m_peer = tp;
-	m_file = socket(AF_INET, SOCK_STREAM, 0);
+	m_file = socket(AF_INET6, SOCK_STREAM, 0);
 	assert(m_file != -1);
 	
 	m_roff = m_rlen = 0;
@@ -95,7 +95,7 @@ int pstcp_socks::run(void)
 	in_addr in_addr1;
 	u_short in_port1;	
 	socklen_t addr_len1;
-	struct sockaddr_in addr_in1;
+	struct sockaddr_in6 addr_in1;
 
 #if 0
 	while ((TF_SOCKS & m_flags) == 0) {

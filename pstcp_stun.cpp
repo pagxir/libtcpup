@@ -132,9 +132,9 @@ int stun_get_address(int fd, const char * server, int flags, int l_ident, int r_
 			(const struct sockaddr *)&so_addr, sizeof(so_addr));
 }
 
-int stun_set_address(int fd, const char * buf, size_t len, const struct sockaddr_in * addr, socklen_t addrlen)
+int stun_set_address(int fd, const char * buf, size_t len, const struct sockaddr_in6 * addr, socklen_t addrlen)
 {
-	struct sockaddr_in myaddr;
+	struct sockaddr_in6 myaddr;
 
 	struct  {
 		struct mapping_args head;
@@ -164,15 +164,15 @@ int stun_set_address(int fd, const char * buf, size_t len, const struct sockaddr
 	resp.stun_address[0].len  = htons(8);
 	resp.stun_address[0].zero = 0;
 	resp.stun_address[0].family  = 0x01;
-	resp.stun_address[0].port = addr->sin_port;
-	resp.stun_address[0].address = addr->sin_addr.s_addr;
+	resp.stun_address[0].port = addr->sin6_port;
+	resp.stun_address[0].address = addr->sin6_addr;
 
 	resp.stun_address[1].type = htons(SOURCE_ADDRESS);
 	resp.stun_address[1].len  = htons(8);
 	resp.stun_address[1].zero = 0;
 	resp.stun_address[1].family  = 0x01;
-	resp.stun_address[1].port = myaddr.sin_port;
-	resp.stun_address[1].address = myaddr.sin_addr.s_addr;
+	resp.stun_address[1].port = myaddr.sin6_port;
+	resp.stun_address[1].address = myaddr.sin6_addr;
 
 	return sendto(fd, (const char *)&resp, sizeof(resp), 0, (const struct sockaddr *)addr, addrlen);
 }
@@ -521,7 +521,7 @@ int get_stun_port(void)
 {
 	int error;
 	socklen_t namlen;
-	struct sockaddr_in addr;
+	struct sockaddr_in6 addr;
 
 	namlen = sizeof(addr);;
 	error = getsockname(_fd_stun, (struct sockaddr *)&addr, &namlen);

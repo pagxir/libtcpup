@@ -9,7 +9,7 @@
 
 static int _lenfile = -1;
 static struct tx_aiocb _sockcbp;
-static struct sockaddr_in _lenaddr;
+static struct sockaddr_in6 _lenaddr;
 static struct tx_task_t _event, _runstart, _runstop;
 
 static void listen_statecb(void *ignore);
@@ -17,8 +17,8 @@ static void listen_callback(void *context);
 
 extern "C" void set_tcp_listen_address(struct tcpip_info *info)
 {
-	_lenaddr.sin_port = info->port;
-	_lenaddr.sin_addr.s_addr = info->address;
+	_lenaddr.sin6_port = info->port;
+	inet_4to6(&_lenaddr.sin6_addr, &info->address);
 	return;
 }
 
@@ -27,10 +27,10 @@ static void module_init(void)
 	int v = 1;
 	int error;
 
-	_lenaddr.sin_family = AF_INET;
-	if (_lenaddr.sin_port == 0) {
-		_lenaddr.sin_port   = htons(4430);
-		_lenaddr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	_lenaddr.sin6_family = AF_INET;
+	if (_lenaddr.sin6_port == 0) {
+		_lenaddr.sin6_port = htons(4430);
+		_lenaddr.sin6_addr = in6addr_loopback;
 	}
 
 	tx_loop_t *loop = tx_loop_default();
@@ -38,14 +38,14 @@ static void module_init(void)
 	tx_task_init(&_runstop, loop, listen_statecb, (void *)0);
 	tx_task_init(&_runstart, loop, listen_statecb, (void *)1);
 
-	_lenfile = socket(AF_INET, SOCK_STREAM, 0);
+	_lenfile = socket(AF_INET6, SOCK_STREAM, 0);
 	assert(_lenfile != -1);
 
 	tx_setblockopt(_lenfile, 0);
 	setsockopt(_lenfile, SOL_SOCKET, SO_REUSEADDR, (const char *)&v, sizeof(v));
 
 	error = bind(_lenfile, (struct sockaddr *)&_lenaddr, sizeof(_lenaddr));
-	LOG_DEBUG("ipv4 address: %x %d\n", _lenaddr.sin_addr.s_addr, errno);
+	LOG_DEBUG("ipv4 address: %s %d\n", ntop6(_lenaddr.sin6_addr), errno);
 	assert(error == 0);
 
 	error = listen(_lenfile, 5);

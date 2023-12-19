@@ -97,10 +97,10 @@ tcp_channel::tcp_channel(int file)
     tx_task_init(&m_task, loop, tc_callback, this);
 
     if (_relay_server != INADDR_ANY) {
-	m_flags |= DIRECT_PROTO;
-	m_flags &= ~TF_PROXY_HELLO;
-	unsigned int addr = _relay_server;
-	set_relay_info(m_peer, 0x01, (char *)&addr, _relay_port);
+        m_flags |= DIRECT_PROTO;
+        m_flags &= ~TF_PROXY_HELLO;
+        unsigned int addr = _relay_server;
+        set_relay_info(m_peer, 0x01, (char *)&addr, _relay_port);
     }
 }
 

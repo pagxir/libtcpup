@@ -186,7 +186,6 @@ static unsigned char dns_filling_byte[] = {
 
 #endif
 
-
 void tcpup_device_ipv6::init(int dobind)
 {
 	int error;
@@ -332,7 +331,7 @@ void tcpup_device_ipv6::incoming(void)
 			if (len >= offset + TCPUP_HDRLEN) {
 				struct tcpup_addr from;
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is ipv6 overflow %d\n", salen);
-				memcpy(&key, packet + 14, sizeof(key));
+				// memcpy(&key, packet + 14, sizeof(key));
 				packet_decrypt(htons(key), p, packet + offset, len - offset);
 
 				if (_filter_hook != NULL) {

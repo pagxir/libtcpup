@@ -28,6 +28,8 @@ typedef unsigned long long u_int64_t;
 #else
 #include <netdb.h>
 #include <unistd.h>
+#include <arpa/inet.h>
+
 #define closesocket(s) close(s)
 #endif
 
@@ -132,5 +134,22 @@ int set_filter_hook(FILTER_HOOK *hook);
 
 int utxpl_output(int fd, rgn_iovec *buf, size_t count, const struct tcpup_addr *target);
 int utxpl_error(void);
+
+#define ntop6(a) _ntop6(&a)
+inline const char *_ntop6(const void *v6addr) {
+	static char addrbuf[128];
+	return inet_ntop(AF_INET6, v6addr, addrbuf, sizeof(addrbuf));
+}
+
+inline const char *inet_4to6(void *v6ptr, const void *v4ptr)
+{
+    uint32_t *v4 = (uint32_t *)v4ptr;
+    uint32_t *v6 = (uint32_t *)v6ptr;
+
+    v6[2] = ~0u;
+    v6[3] = v4[0];
+    memset(v6, 0, 10);
+    return "";
+}
 
 #endif
