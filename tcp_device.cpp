@@ -420,7 +420,7 @@ void tcpup_device::reset_nat(void)
 	addr_in1.sin6_port   = _tcp_keep_addr.sin6_port;
 	addr_in1.sin6_addr   = _tcp_keep_addr.sin6_addr;
 
-	if (_dobind == 1 && IN6_IS_ADDR_UNSPECIFIED(&addr_in1.sin6_addr)) {
+	if (_dobind == 1 && !IN6_IS_ADDR_UNSPECIFIED(&addr_in1.sin6_addr)) {
 		tx_timer_reset(&_nat_hold_timer, 15000);
 	}
 
@@ -511,8 +511,9 @@ void tcpup_device::holdon(void)
 	addr_in1.sin6_family = AF_INET6;
 	addr_in1.sin6_port   = _tcp_keep_addr.sin6_port;
 	addr_in1.sin6_addr   = _tcp_keep_addr.sin6_addr;
+    uint16_t v4any[] = {0, 0, 0, 0, 0, 0xffff, 0, 0};
 
-	if (IN6_IS_ADDR_UNSPECIFIED(&addr_in1.sin6_addr)) {
+	if (!IN6_IS_ADDR_UNSPECIFIED(&addr_in1.sin6_addr) && memcmp(&addr_in1.sin6_addr, &v4any, sizeof(v4any))) {
 		tx_timer_reset(&_nat_hold_timer, 15000);
 
 		rgn_iovec iov;
