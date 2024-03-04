@@ -14,6 +14,8 @@
 #include <utx/dns_fwd.h>
 #include <tcpup/tcp_debug.h>
 
+#include "pstcp_channel.h"
+
 #ifdef WIN32
 #include <ws2ipdef.h>
 #endif
@@ -148,6 +150,7 @@ struct udp_forward_context {
 	int uf_handle;
 	long uf_rcvtime;
 	long origin;
+	int stat;
 
 	tx_task_t uf_ready;
 	tx_aiocb  uf_aiocb;
@@ -219,6 +222,8 @@ static void on_udp6_receive(void *upp)
 			up->uh.u_len = 20;
 			up->uh.u_port = saaddr.sin6_port;
 			memcpy(up->addr, &saaddr.sin6_addr, sizeof(up->addr));
+
+			NAT64_REVERT(up->addr, ctx->stat);
 			assert(len + sizeof(*up) < sizeof(udp_packet));
 			memcpy(up + 1, packet, len);
 
@@ -346,6 +351,8 @@ static struct sockaddr *udp6_get_dest(struct udp_forward_context *ignore, struct
 	sin.sin6_family = AF_INET6;
 	sin.sin6_port   = (up->u_port);
 	memcpy(&sin.sin6_addr,  uphdr->addr, sizeof(sin.sin6_addr));
+    
+	NAT64_UPDATE(&sin.sin6_addr, &ignore->stat);
 
 	if (plen != NULL) *plen = sizeof(sin);
 	return (struct sockaddr *)&sin;

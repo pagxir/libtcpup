@@ -27,7 +27,7 @@ static void module_init(void)
 	int v = 1;
 	int error;
 
-	_lenaddr.sin6_family = AF_INET;
+	_lenaddr.sin6_family = AF_INET6;
 	if (_lenaddr.sin6_port == 0) {
 		_lenaddr.sin6_port = htons(4430);
 		_lenaddr.sin6_addr = in6addr_loopback;

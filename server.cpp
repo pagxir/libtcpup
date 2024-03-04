@@ -72,6 +72,8 @@ static void enable_raw_mode()
 }
 #endif
 
+int ipv6_npt_add(const char *src_pfx, const char *dst_pfx, size_t pfx_len);
+
 #ifdef _WINSRV_
 void _winsrv_stop()
 {
@@ -111,6 +113,8 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "all ADDRESS should use this format <HOST:PORT> OR <PORT>\n");
 			return 0;
 		} else if (strcmp(argv[i], "-cc.algo") == 0 && i + 1 < argc) {
+			i++;
+		} else if (strcmp(argv[i], "-ipv6-npt") == 0 && i + 1 < argc) {
 			i++;
 		} else if (strcmp(argv[i], "-d") == 0) {
 		} else if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
@@ -170,6 +174,31 @@ int main(int argc, char *argv[])
 			i++;
 		} else if (strcmp(argv[i], "-R") == 0 && i + 1 < argc) {
 			route_cmd(argv[i + 1]);
+			i++;
+		} else if (strcmp(argv[i], "-ipv6-npt") == 0 && i + 1 < argc) {
+			// -ipv4-npt src-pfx/dst-pfx/pfx-len
+			char *args = argv[i + 1];
+			char _ipv4_npt_buf[1200] = {};
+			strncpy(_ipv4_npt_buf, args, sizeof(_ipv4_npt_buf) - 1);
+			
+			const char *src_pfx = NULL;
+			const char *dst_pfx = NULL;
+			char *ptr = _ipv4_npt_buf;
+
+			src_pfx=ptr;
+			while (*ptr != '/')
+				*ptr++;
+			if (*ptr == '/')
+				*ptr++ = 0;
+			dst_pfx=ptr;
+			while (*ptr != '/')
+				*ptr++;
+			if (*ptr == '/')
+				*ptr++ = 0;
+
+			if (src_pfx && dst_pfx)
+				ipv6_npt_add(src_pfx, dst_pfx, atoi(ptr));
+			
 			i++;
 		} else if (strcmp(argv[i], "-K") == 0 && i + 1 < argc) {
 			get_target_address(&keepalive_address, argv[i + 1]);

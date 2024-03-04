@@ -14,6 +14,7 @@
 
 
 #define STACK2TASK(s) (&(s)->tx_sched)
+#define EXTRA_FLAGS_INTERACTIVE (1 << 24)
 
 #define TF_RESOLVED   0x10
 #define TF_RESOLVING  0x20
@@ -71,7 +72,7 @@ class pstcp_channel {
 
 	public:
 		int m_flags;
-		int m_interactive;
+		int m_extraflags;
 		struct relay_data r2s;
 		struct relay_data s2r;
 
@@ -109,7 +110,7 @@ static void anybind(int fd, int family)
 }
 
 	pstcp_channel::pstcp_channel(sockcb_t so)
-:m_flags(0), m_interactive(0)
+:m_flags(0), m_extraflags(0)
 {
 	int len;
 	char relay[128];
@@ -162,7 +163,7 @@ pstcp_channel::~pstcp_channel()
         }
     }
 
-    LOG_DEBUG("link is close: %s:%d, %d", info, port, m_interactive);
+    LOG_DEBUG("link is close: %s:%d, %x", info, port, m_extraflags);
 #endif
 	LOG_DEBUG("pstcp_channel::~pstcp_channel: %d\n", total_instance);
 
@@ -224,8 +225,8 @@ int pstcp_channel::expend_relay(struct sockaddr_storage *destination, sockcb_t t
 						dst4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 					}
 
-					if (hport == 14000) m_interactive = 1;
-					if (hport == 5228) m_interactive = 1;
+					if (hport == 14000) m_extraflags |= EXTRA_FLAGS_INTERACTIVE;
+					if (hport == 5228) m_extraflags |= EXTRA_FLAGS_INTERACTIVE;
 					return 0;
 				}
 
@@ -358,7 +359,7 @@ int pstcp_channel::run0(void)
 	int timeout = 1000 * get_keepalive(total_instance);
 	if ((s2r.flag & RDF_FIN) || (RDF_FIN & r2s.flag)) {
 		timeout = MIN(timeout, 1000 * 120);
-	} else if (m_interactive == 1) {
+	} else if (m_extraflags & EXTRA_FLAGS_INTERACTIVE) {
 		timeout = MAX(timeout, 1000 * 1800);
 	}
 	tx_timer_reset(&tidle, timeout); // close after 3 min idle time
@@ -496,7 +497,7 @@ int pstcp_channel::reset_keepalive()
 
 	if ((s2r.flag & RDF_FIN) || (RDF_FIN & r2s.flag)) {
 		timeout = MIN(timeout, 1000 * 120);
-	} else if (m_interactive == 1) {
+	} else if (m_extraflags & EXTRA_FLAGS_INTERACTIVE) {
 		timeout = MAX(timeout, 1000 * 1800);
 	}
 
@@ -547,6 +548,7 @@ static int peer_info_expend(const char *relay, size_t len, char *domain, size_t 
 	unsigned short val_short;
 	struct sockaddr_in6 *in6p;
 	const struct route_item *fib;
+	char _source[256];
 
 	type = *p++;
 	bug_check(*p++ == 0);
@@ -574,7 +576,9 @@ static int peer_info_expend(const char *relay, size_t len, char *domain, size_t 
 			in6p->sin6_family = AF_INET6;
 			in6p->sin6_port   = val_short;
 			in6p->sin6_addr   = *(struct in6_addr *)p;
-			if (val_short == htons(5228)) *isinteractive = 1;
+			NAT64_UPDATE(&in6p->sin6_addr, isinteractive);
+			LOG_DEBUG("TARGET: %s", inet_ntop(AF_INET6, &in6p->sin6_addr, _source, sizeof(_source)));
+			if (val_short == htons(5228)) *isinteractive |= EXTRA_FLAGS_INTERACTIVE;
 			break;
 
 		case AFTYP_DOMAIN:
@@ -614,7 +618,7 @@ static void do_peer_connect(void *upp, tx_task_stack_t *sta)
 	up->m_flags |= FLAG_CONNECTED;
 
 	relay[len] = 0;
-	type = peer_info_expend(relay, len, domain, sizeof(domain), &sa_store, &up->m_interactive);
+	type = peer_info_expend(relay, len, domain, sizeof(domain), &sa_store, &up->m_extraflags);
 	if (type == AFTYP_DOMAIN) {
 		tx_task_stack_raise(sta, "do_peer_connect");
 		return;
@@ -886,7 +890,7 @@ void pstcp_channel::tc_idleclose(void *context)
 		}
 	}
 
-	LOG_DEBUG("timeout close: %s:%d, %d", info, port, chan->m_interactive);
+	LOG_DEBUG("timeout close: %s:%d, %x", info, port, chan->m_extraflags);
 
 	delete chan;
 	return;
@@ -926,3 +930,92 @@ extern "C" void pstcp_channel_forward(struct tcpip_info *info)
 	return;
 }
 
+struct ipv6_npt_pair {
+	int pfx_len;
+	uint8_t src_pfx[16];
+	uint8_t dst_pfx[16];
+};
+
+static int _ipv6_npt_count = 0;
+static struct ipv6_npt_pair _ipv6_npt_tbl[10];
+
+int ipv6_npt_add(const char *src_pfx, const char *dst_pfx, size_t pfx_len)
+{
+	struct ipv6_npt_pair *pair;
+
+	if (_ipv6_npt_count < 10) {
+		int index = _ipv6_npt_count++;
+
+		pair = &_ipv6_npt_tbl[index];
+		assert(pfx_len <= 128);
+		LOG_DEBUG("ipv6_npt_add: %s %s %d", src_pfx, dst_pfx, pfx_len);
+		inet_pton(AF_INET6, src_pfx, pair->src_pfx);
+		inet_pton(AF_INET6, dst_pfx, pair->dst_pfx);
+		pair->pfx_len = pfx_len;
+	}
+
+	return 0;
+}
+
+static int ipv6_prefix_match(const void *ipv6, const uint8_t *pfx, size_t pfxlen)
+{
+	const uint8_t *pfx_src = (const uint8_t *)ipv6;
+
+	assert(pfxlen <= 128);
+
+	while (pfxlen >= 8) {
+		if (*pfx_src != *pfx)
+			return *pfx_src ^ *pfx;
+		pfx_src++, pfx++;
+		pfxlen -= 8;
+	}
+
+	if (pfxlen > 0) {
+		uint8_t mask = (0xff00 >> pfxlen);
+		return (*pfx_src & mask) ^ (*pfx & mask);
+	}
+
+	return 0;
+}
+
+static int ipv6_prefix_set(void *ipv6, const uint8_t *pfx, size_t pfxlen)
+{
+	uint8_t *pfx_dst = (uint8_t *)ipv6;
+
+	assert(pfxlen <= 128);
+	while (pfxlen >= 8) {
+		*pfx_dst++ = *pfx++;
+		pfxlen -= 8;
+	}
+
+	if (pfxlen > 0) {
+		uint8_t mask = (0xff00 >> pfxlen);
+		*pfx_dst &= ~mask;
+		*pfx_dst |= (mask & *pfx);
+	}
+
+	return 0;
+}
+
+void NAT64_UPDATE(void *addr, int *stat)
+{
+	for (int i = 0; i < _ipv6_npt_count; i++) {
+		struct ipv6_npt_pair *pair = _ipv6_npt_tbl + i;
+		if (ipv6_prefix_match(addr, pair->src_pfx, pair->pfx_len) == 0) {
+			ipv6_prefix_set(addr, pair->dst_pfx, pair->pfx_len);
+			*stat = i;
+			break;
+		}
+	}
+}
+
+void NAT64_REVERT(void *addr, int stat)
+{
+	for (int i = 0; i < _ipv6_npt_count; i++) {
+		struct ipv6_npt_pair *pair = _ipv6_npt_tbl + i;
+		if (ipv6_prefix_match(addr, pair->dst_pfx, pair->pfx_len) == 0 && (stat & 0xffff) == i) {
+			ipv6_prefix_set(addr, pair->src_pfx, pair->pfx_len);
+			break;
+		}
+	}
+}

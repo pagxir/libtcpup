@@ -165,7 +165,7 @@ static void _tcp_set_device_address(struct tcpip_info *info)
 {
 	_tcp_dev_addr.sin6_family = AF_INET6;
 	_tcp_dev_addr.sin6_port   = (info->port);
-	inet_4to6(&_tcp_dev_addr.sin6_addr, &info->address);
+	// inet_4to6(&_tcp_dev_addr.sin6_addr, &info->address);
 	return;
 }
 
