@@ -136,6 +136,7 @@ static void anybind(int fd, int family)
 	m_file = socket(AF_INET6, SOCK_STREAM, 0);
 
 	assert(m_file != -1);
+	disable_ipv6_only(m_file);
 	tx_setblockopt(m_file, 0);
 	anybind(m_file, AF_INET6);
 	tx_aiocb_init(&m_sockcbp, loop, m_file);

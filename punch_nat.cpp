@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <assert.h>
+#include <ctype.h>
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
@@ -14,6 +15,7 @@
 #include <ws2tcpip.h>
 #include <stdio.h>
 #include <conio.h>
+#include <process.h>
 typedef int socklen_t;
 typedef unsigned long in_addr_t;
 typedef unsigned short in_port_t;
@@ -612,9 +614,12 @@ void update_session(struct session_t *s, const char *tag)
 		return;
 	}
 
-	LOG_VERBOSE("send work %p %s\n", s, tag);
+	LOG_VERBOSE("send work %p %s %d\n", s, tag, strlen(s->cache));
 	nbyte = sendto(s->sockfd, s->cache, strlen(s->cache), 0,
 			(const struct sockaddr *)&s->target, sizeof(s->target));
+#if defined(WIN32)
+	LOG_VERBOSE("%d %s:%d %d => %s\n", nbyte, ntop6(s->target.sin6_addr), htons(s->target.sin6_port), WSAGetLastError(), s->cache);
+#endif
 
 	if (s->ttl > 0) {
 		s->ttl --;
@@ -648,7 +653,7 @@ struct natcb_t {
     int got_session_execute;
 
 #if defined(WIN32)
-    FILE *childpipe;
+    HANDLE childpipe;
 #else
     pid_t childpid;
 #endif
@@ -672,7 +677,7 @@ static int disable_ipv6_only(int fd)
 {
 	int error = 0;
 #if defined(WIN32)
-	BOOL optval = 0;
+	bool optval = 0;
 	error = setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&optval, sizeof(optval));
 	if (error == SOCKET_ERROR) LOG_ERROR("disable_ipv6_only failure");
 #endif
@@ -835,14 +840,14 @@ void do_receive_update(struct natcb_t *cb)
 					(in_addr_t*)&_schgaddr.sin_addr, &_schgaddr.sin_port))
 			return;
 
-		LOG_VERBOSE("<<  mapped address: %s:%d\n",
+		LOG_INFO("<<  mapped address: %s:%d\n",
 				inet_ntoa(_schgaddr.sin_addr), htons(_schgaddr.sin_port));
 
 		if (-1 == getchangedbybuf(cb->stunbuf, cb->buflen,
 					(in_addr_t*)&_schgaddr.sin_addr, &_schgaddr.sin_port))
 			return;
 
-		LOG_VERBOSE("<< changed server address: %s:%d\n",
+		LOG_INFO("<< changed server address: %s:%d\n",
 				inet_ntoa(_schgaddr.sin_addr), htons(_schgaddr.sin_port));
 	} else if (cb->buflen > 0) {
 		LOG_VERBOSE("<<  %s\n", cb->stunbuf);
@@ -1140,7 +1145,9 @@ void check_and_receive(struct natcb_t *cb, int usestdin)
 				WSAEventSelect(cb->peer.sockfd, newEvent, FD_READ);
 
 			WSAEVENT waitObjects[] = {GetStdHandle(STD_INPUT_HANDLE), newEvent};
-			int index = WSAWaitForMultipleEvents(2, waitObjects, FALSE, 2200, FALSE);
+			LOG_DEBUG("WSAWaitForMultipleEvents:\n");
+			int index = WSAWaitForMultipleEvents(2, waitObjects, FALSE, 2200, TRUE);
+			LOG_DEBUG("WSAWaitForMultipleEvents: index=%d\n", index);
 
 			if (cb->bear.sockfd > 0 && FD_ISSET(cb->bear.sockfd, &myfds))
 				WSAEventSelect(cb->bear.sockfd, newEvent, 0);
@@ -1158,7 +1165,9 @@ void check_and_receive(struct natcb_t *cb, int usestdin)
 			memset(&timeout, 0, sizeof(timeout));
 		}
 #endif
+		LOG_DEBUG("select:\n");
 		readycount = select(maxfd + 1, &myfds, NULL, NULL, &timeout);
+		LOG_DEBUG("select: %d\n", readycount);
 		if (readycount == 0) {
 			update_timer_list(cb);
 			break;
@@ -1642,113 +1651,29 @@ static int to_ipv4(char *buf, const struct sockaddr_in6 *from)
 	return 0;
 }
 
-void do_repl_exec(struct natcb_t *cb, const char *buf)
+static char _parse_hold[8192];
+static int parse_cmd_line(const char *buf, char *args[], int argc, struct sockaddr_in6 *selfaddr, struct natcb_t *cb)
 {
-	char value[1024];
-	struct sockaddr_in6 selfaddr;
-
-	socklen_t selflen = sizeof(selfaddr);
-	int error = getsockname(cb->peer.sockfd, (struct sockaddr *)&selfaddr, &selflen);
-	if (error == -1) return;
-
-
-	sprintf(value, "%s:%d\n",
-			ntop6(selfaddr.sin6_addr), htons(selfaddr.sin6_port));
-	setenv("LOCAL", value, 1);
-
-	selfaddr = cb->peer.target;
-	sprintf(value, "%s:%d\n",
-			ntop6(selfaddr.sin6_addr), htons(selfaddr.sin6_port));
-	setenv("REMOTE", value, 1);
-
-	sprintf(value, "%d", cb->peer.sockfd);
-	if (cb->passfd == 0) {
-		close(cb->peer.sockfd);
-	} else {
-		setenv("SOCKFD", value, 1);
-	}
-
-	close(cb->bear.sockfd);
-
-#if !defined(WIN32)
-	execl("/bin/sh", "sh", "-c", buf, (char *) NULL);
-#else
-	system(buf);
-#endif
-	exit(0);
-}
-
-void do_fork_exec(struct natcb_t *cb, const char *buf)
-{
-	pid_t pid;
-	char value[1024];
+	int narg = 0;
+	int symbol = 0;
+	int quota = 0;
+	int escape = 0;
+	int newword = 1;
+	char value[126];
+	char *stop = _parse_hold;
 	struct sockaddr_in6 varaddr;
-	struct sockaddr_in6 selfaddr;
 
-	if (buf == NULL) return;
-
-	socklen_t selflen = sizeof(selfaddr);
-	int error = getsockname(cb->peer.sockfd, (struct sockaddr *)&selfaddr, &selflen);
-	if (error == -1) return;
-
-#if !defined(WIN32)
-	pid = fork();
-	if (pid == 0) {
-		sprintf(value, "%s:%d\n",
-				ntop6(selfaddr.sin6_addr), htons(selfaddr.sin6_port));
-		setenv("LOCAL", value, 1);
-
-		selfaddr = cb->peer.target;
-		sprintf(value, "%s:%d\n",
-				inet_ntoa(selfaddr.sin6_addr), htons(selfaddr.sin6_port));
-		setenv("REMOTE", value, 1);
-
-		sprintf(value, "%d", cb->peer.sockfd);
-		if (cb->passfd == 0) {
-			close(cb->peer.sockfd);
-			cb->peer.sockfd = -1;
-		} else {
-			setenv("SOCKFD", value, 1);
-		}
-
-		if (cb->peer.sockfd != cb->bear.sockfd) {
-			close(cb->bear.sockfd);
-		}
-
-		execl("/bin/sh", "sh", "-c", buf, (char *) NULL);
-		exit(0);
-	}
-
-	if (cb->childpid > 0 && cb->exit_child) {
-		kill(cb->childpid, SIGINT);
-		cb->childpid = -1;
-	}
-
-	cb->childpid = pid;
-#else
-	STARTUPINFO si;
-	PROCESS_INFORMATION pi;
-
-	ZeroMemory(&si, sizeof(si));
-	si.cb = sizeof(si);
-	ZeroMemory(&pi, sizeof(pi));
-
-	sprintf(value, "%s:%d\n", ntop6(selfaddr.sin6_addr), htons(selfaddr.sin6_port));
+	sprintf(value, "%s:%d\n", ntop6(selfaddr->sin6_addr), htons(selfaddr->sin6_port));
 	setenv("LOCAL", value, 1);
 
 	varaddr = cb->peer.target;
 	sprintf(value, "%s:%d\n", ntop6(varaddr.sin6_addr), htons(varaddr.sin6_port));
 	setenv("REMOTE", value, 1);
 
-#if 0
-	if (!CreateProcess(NULL, (LPSTR)buf, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
-		printf( "CreateProcess failed %s (%d).\n", buf, WSAGetLastError());
-		return;
-	}
-#endif
 	int mode_var = 0, index_var = 0;
 	const char *s;
-	char *p, ismatch, fullcmd[4096], var[256];
+	char *p, ismatch,  var[256];
+	static char fullcmd[4096];
 	for (s = buf, p = fullcmd; *s; s++) {
 		if (mode_var == 1) {
 			var[index_var] = *s;
@@ -1756,9 +1681,7 @@ void do_fork_exec(struct natcb_t *cb, const char *buf)
 				memmove(var, var + 1, index_var);
 				index_var --;
 				mode_var = 0;
-			}
-
-			if (var[0] != '{' && !isalnum(s[1])) {
+			} else if (var[0] != '{' && !isalnum(s[1])) {
 				mode_var = 0;
 				index_var++;
 			}
@@ -1772,7 +1695,7 @@ void do_fork_exec(struct natcb_t *cb, const char *buf)
 			var[index_var] = 0;
 
 			if (strcmp(var, "LOCAL6") == 0) {
-				varaddr = selfaddr;
+				varaddr = *selfaddr;
 				ismatch = 1;
 			}
 
@@ -1781,11 +1704,10 @@ void do_fork_exec(struct natcb_t *cb, const char *buf)
 				ismatch = 1;
 			}
 
-			const char *origin_p = p;
 			if (ismatch) {
 				int count = sprintf(p, "[%s]:%d", ntop6(varaddr.sin6_addr), htons(varaddr.sin6_port));
 				p += count;
-			} else if (strcmp(var, "LOCAL") == 0 && to_ipv4(p, &selfaddr) == 1) {
+			} else if (strcmp(var, "LOCAL") == 0 && to_ipv4(p, selfaddr) == 1) {
 				int count = strlen(p);
 				p += count;
 			} else if (strcmp(var, "REMOTE") == 0 && to_ipv4(p, &cb->peer.target) == 1) {
@@ -1814,15 +1736,177 @@ void do_fork_exec(struct natcb_t *cb, const char *buf)
 	}
 	*p = 0;
 
-	if (cb->childpipe != NULL && cb->exit_child) {
-		fprintf(cb->childpipe, "exit\n");
+	buf = fullcmd;
+	LOG_VERBOSE("fullcmd: %s\n", fullcmd);
+	if (strncmp(fullcmd, "echo ", 5) == 0) {
+		LOG_INFO("%s\n", fullcmd + 5);
+		return 0;
 	}
-	LOG_DEBUG("fullcmd %s\n", fullcmd);
+
+	for (; *buf; buf++) {
+		int space = isspace(*buf);
+		*stop++ = *buf;
+
+		int del = 0;
+		if (escape) {
+			switch(*buf) {
+				case '\\': case '\'': case '"': case ' ':
+					stop -= 2;
+					*stop++ = *buf;
+			}
+			escape = 0;
+			space = 0;
+		} else if (*buf == '\\') {
+			escape = 1;
+			space = 0;
+		} else {
+			if (quota && *buf != symbol) {
+				space = 0;
+			} else if (quota) {
+				assert(*buf == symbol);
+				stop--;
+				del = 1;
+				quota = 0;
+				space = 0;
+			} else if (*buf == '"' || *buf == '\'') {
+				stop--;
+				del = 1;
+				symbol = *buf;
+				quota = 1;
+				space = 0;
+			}
+		}
+
+		if (newword && space) {
+			stop--;
+		} else if (newword) {
+			assert(narg < argc);
+			args[narg++] = del? stop: stop -1;
+			newword = 0;
+		} else if (space) {
+			*(stop - 1) = 0;
+			newword = 1;
+		} else {
+			/* not space, not newword */
+		}
+	}
+
+	*stop = 0;
+	if (narg < argc)
+		args[narg] = 0;
+
+	for (int i = 0; i < narg; i++) LOG_VERBOSE("i=%d %s\n", i, args[i]);
+	return narg;
+}
+
+void do_repl_exec(struct natcb_t *cb, const char *buf)
+{
+	char value[1024];
+	struct sockaddr_in6 selfaddr = {};
+	struct sockaddr_in6 varaddr = {};
+
+	socklen_t selflen = sizeof(selfaddr);
+	int error = getsockname(cb->peer.sockfd, (struct sockaddr *)&selfaddr, &selflen);
+	if (error == -1) {
+#if defined(WIN32)
+		LOG_INFO("do_repl_exec failure: WSAGetLastError()=%d %d\n", WSAGetLastError(), cb->peer.sockfd);
+#endif
+	}
+
+	sprintf(value, "%s:%d\n",
+			ntop6(selfaddr.sin6_addr), htons(selfaddr.sin6_port));
+	setenv("LOCAL", value, 1);
+
+	varaddr = cb->peer.target;
+	sprintf(value, "%s:%d\n",
+			ntop6(varaddr.sin6_addr), htons(varaddr.sin6_port));
+	setenv("REMOTE", value, 1);
+
+	sprintf(value, "%d", cb->peer.sockfd);
+	if (cb->passfd == 0) {
+		close(cb->peer.sockfd);
+	} else {
+		setenv("SOCKFD", value, 1);
+	}
+
+	close(cb->bear.sockfd);
+
+#if !defined(WIN32)
+	execl("/bin/sh", "sh", "-c", buf, (char *) NULL);
+#else
+	char * args[100];
+	int count = parse_cmd_line(buf, args, 100, &selfaddr, cb);
+	intptr_t val = count? execv(args[0], args): -1;
+#endif
+	exit(0);
+}
+
+void do_fork_exec(struct natcb_t *cb, const char *buf)
+{
+	pid_t pid;
+	char value[1024];
+	struct sockaddr_in6 varaddr;
+	struct sockaddr_in6 selfaddr;
+
+	if (buf == NULL) return;
+
+	socklen_t selflen = sizeof(selfaddr);
+	int error = getsockname(cb->peer.sockfd, (struct sockaddr *)&selfaddr, &selflen);
+	if (error == -1) {
+		LOG_INFO("do_fork_exec failure\n");
+	}
+
+#if !defined(WIN32)
+	pid = fork();
+	if (pid == 0) {
+		sprintf(value, "%s:%d\n",
+				ntop6(selfaddr.sin6_addr), htons(selfaddr.sin6_port));
+		setenv("LOCAL", value, 1);
+
+		selfaddr = cb->peer.target;
+		sprintf(value, "%s:%d\n",
+				ntop6(selfaddr.sin6_addr), htons(selfaddr.sin6_port));
+		setenv("REMOTE", value, 1);
+
+		sprintf(value, "%d", cb->peer.sockfd);
+		if (cb->passfd == 0) {
+			close(cb->peer.sockfd);
+			cb->peer.sockfd = -1;
+		} else {
+			setenv("SOCKFD", value, 1);
+		}
+
+		if (cb->peer.sockfd != cb->bear.sockfd) {
+			close(cb->bear.sockfd);
+		}
+
+		execl("/bin/sh", "sh", "-c", buf, (char *) NULL);
+		exit(0);
+	}
+
+	if (cb->childpid > 0 && cb->exit_child) {
+		kill(cb->childpid, SIGINT);
+		cb->childpid = -1;
+	}
+
+	cb->childpid = pid;
+#else
+
+	if (cb->childpipe != NULL && cb->exit_child) {
+		TerminateProcess(cb->childpipe, 0);
+		CloseHandle(cb->childpipe);
+	}
 	close(cb->peer.sockfd);
 	cb->peer.sockfd = -1;
-	if (cb->childpipe != NULL)
-		_pclose(cb->childpipe);
-	cb->childpipe = _popen(fullcmd, "wt");
+
+	char *args[100];
+	int count = parse_cmd_line(buf, args, 100, &selfaddr, cb);
+	if (count > 0) {
+		cb->childpipe = (HANDLE)_spawnv(_P_NOWAIT, args[0], args);
+	} else {
+		cb->childpipe = 0;
+		return;
+	}
 #endif
 	if (cb->peer.sockfd != -1) close(cb->peer.sockfd);
 	cb->peer.sockfd = socket(AF_INET6, SOCK_DGRAM, 0);
@@ -1874,51 +1958,22 @@ static void nat_session_parse(nat_session_t *session, const char *line)
 	return;
 }
 
-static char *_tmp_line_ptr = 0;
-static char _tmp_line_buf[8192];
+static char _tmp_line_buf[8192] = {};
+static char *_tmp_line_ptr = _tmp_line_buf;
 
 static int save_muliti_line(char *stdbuf)
 {
-	int line = 0;
-	int newline = 1;
+	if (_tmp_line_buf[0])
+		strcat(_tmp_line_buf, "\n");
 
-	for (int i = 0; stdbuf[i]; i++) {
-		if (stdbuf[i] == '\n')
-			newline = 1;
-		else if (newline)
-			line ++;
-	}
-
-	_tmp_line_buf[0] = 0;
-	_tmp_line_ptr = 0;
-	if (line > 1) {
-		while (*stdbuf && *stdbuf != '\n')
-			stdbuf++;
-		if (*stdbuf == '\n') {
-			*stdbuf = 0;
-			strncpy(_tmp_line_buf, stdbuf + 1, sizeof(_tmp_line_buf) -1);
-			_tmp_line_ptr = _tmp_line_buf;
-		}
-	}
-
+	strcat(_tmp_line_buf, stdbuf);
 	return 0;
 }
 
 static int pop_multi_line(char *buf)
 {
-	if (_tmp_line_ptr == 0)  return 0;
-
-#if 0
-	if (_tmp_line_ptr == _tmp_line_buf) {
-		while (*_tmp_line_buf && *_tmp_line_ptr != '\n')
-			_tmp_line_ptr++;
-	}
-#endif
-
-	if (*_tmp_line_ptr == 0) return 0;
-
 	char *ptr = _tmp_line_ptr;
-	while (*_tmp_line_buf && *_tmp_line_ptr != '\n')
+	while (*_tmp_line_ptr && *_tmp_line_ptr != '\n')
 		_tmp_line_ptr++;
 
 	if (_tmp_line_ptr > ptr) {
@@ -1928,9 +1983,78 @@ static int pop_multi_line(char *buf)
 		return 1;
 	}
 
-	_tmp_line_ptr = 0;
-	return 0;
+	if (*_tmp_line_ptr == 0) {
+		_tmp_line_ptr = _tmp_line_buf;
+		_tmp_line_buf[0] = 0;
+		return 0;
+	}
+
+	_tmp_line_ptr++;
+	buf[0] = 0;
+	return 1;
 }
+
+#if defined(WIN32)
+static int _is_eof = 0;
+static int _line_size = 0;
+static char _line_hold[4096];
+
+BOOL checkUnblocking(HANDLE handle, char *buf)
+{
+	DWORD numRead = 0;
+	INPUT_RECORD records[512] = {};
+
+	if (!kbhit()) {
+		FlushConsoleInputBuffer(handle);
+		return FALSE;
+	}
+
+    if(!ReadConsoleInput(handle, records, 512, &numRead)) {
+        // hmm handle this error somehow...
+        return FALSE;
+    }
+
+	for (int i = 0; i < numRead; i++) {
+		INPUT_RECORD record = records[i];
+
+		if (record.EventType != KEY_EVENT) {
+			// don't care about other console events
+			continue;
+		}
+
+		if (!record.Event.KeyEvent.bKeyDown) {
+			// really only care about keydown
+			continue;
+		}
+
+		int code = _line_hold[_line_size] = record.Event.KeyEvent.uChar.AsciiChar;
+		if (code == '\r' || code == '\n') {
+			_line_hold[_line_size] = 0;
+			fprintf(stderr, "\nLINE: %s\n", _line_hold);
+			if (_line_size > 0) save_muliti_line(_line_hold);
+			_line_size = 0;
+		} else if (isprint(code)) {
+			fprintf(stderr, "%c", _line_hold[_line_size]);
+			_line_size ++;
+		}   else if (code == '\b') {
+			fprintf(stderr, "\b \b");
+			_line_size --;
+		} else switch(record.Event.KeyEvent.wVirtualKeyCode) {
+				case 0x44:
+					_is_eof = 1;
+					break;
+
+				default:
+					LOG_VERBOSE("0x%x %x\n", record.Event.KeyEvent.wVirtualKeyCode, record.Event.KeyEvent.wVirtualScanCode);
+			}
+	}
+
+	int test = pop_multi_line(buf);
+	if (test) LOG_DEBUG("pop_multi_line: %s\n", buf);
+	return test;
+}
+
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -1945,7 +2069,25 @@ int main(int argc, char *argv[])
 	srand(time(NULL));
 	do_update_config(&cb, "set stun stun.l.google.com:19302");
 
-	setvbuf(stdin, NULL, _IONBF, 0);
+	for (int i = 1; i < argc; i++) {
+		FILE *fp = NULL;
+		int count = 0;
+		char readbuf[4096];
+		const char *path = argv[i];
+
+		if (*path == '-' || !(fp = fopen(path, "r"))) {
+			continue;
+		}
+
+		count = fread(readbuf, 1, sizeof(readbuf) -1, fp);
+		readbuf[count] = 0;
+
+		save_muliti_line(readbuf);
+		fclose(fp);
+	}
+
+	LOG_INFO("line= %s\n", _tmp_line_buf);
+
 #if !defined(WIN32)
 	signal(SIGCHLD, signal_child_handler);
 #endif
@@ -1954,37 +2096,35 @@ int main(int argc, char *argv[])
 #else
 		DWORD fdwMode, fdwOldMode;
 		HANDLE hStdIn = GetStdHandle(STD_INPUT_HANDLE);
-		GetConsoleMode(hStdIn, &fdwOldMode);
-		fdwMode = fdwOldMode & ~(ENABLE_MOUSE_INPUT | ENABLE_WINDOW_INPUT | ENABLE_QUICK_EDIT_MODE);
-		SetConsoleMode(hStdIn, fdwMode| ENABLE_LINE_INPUT);
-
-		// if (WaitForSingleObject(hStdIn, 1) != WAIT_OBJECT_0) FlushConsoleInputBuffer(hStdIn);
 
 	for ( ; ; ) {
 		DWORD readed = 0;
 		stdbuf[0] = 0;
-
+		
 		if (pop_multi_line(stdbuf)) {
-			LOG_VERBOSE("pop_multi_line: %s\n", stdbuf);
+			LOG_DEBUG("pop_multi_line: %s\n", stdbuf);
+		} else if (_is_eof) {
+			LOG_VERBOSE("eof: \n");
+			break;
 		} else if (WaitForSingleObject(hStdIn, 1) != WAIT_OBJECT_0) {
-			SetConsoleMode(hStdIn, fdwOldMode);
-			FlushConsoleInputBuffer(hStdIn);
-			SetConsoleMode(hStdIn, fdwMode);
 			LOG_VERBOSE("Std not ready failure\n");
 			goto check_pending;
-		} else if (ReadFile(hStdIn, stdbuf, sizeof(stdbuf), &readed, NULL)) {
-			LOG_VERBOSE("readed: %d\n", readed);
-			if (readed == 0) break;
-			stdbuf[readed] = 0;
-			save_muliti_line(stdbuf);
+		} else if (!GetNumberOfConsoleInputEvents(hStdIn, &readed) || readed == 0) {
+			LOG_VERBOSE("GetNumberOfConsoleInputEvents: %d\n", readed);
+			goto check_pending;
+		} else if (checkUnblocking(hStdIn, stdbuf)) {
+			LOG_DEBUG("checkUnblocking: %s\n", stdbuf);
+			readed = 1;
+			// FlushConsoleInputBuffer(hStdIn);
 		} else {
-			LOG_INFO("ReadFile failure\n");
+			readed = 0;
+			LOG_VERBOSE("ReadFile failure\n");
 			goto check_pending;
 		}
 #endif
 
 		if (sscanf(stdbuf, "%128s", action) != 1) {
-			LOG_INFO("goto check_pending\n");
+			LOG_VERBOSE("goto check_pending: %s\n", stdbuf);
 			goto check_pending;
 		}
 
@@ -2000,9 +2140,11 @@ int main(int argc, char *argv[])
 		}
 
 		if (change && sscanf(stdbuf, "%128s", action) != 1) {
+			LOG_DEBUG("skip action: %s\n", action);
 			goto check_pending;
 		}
 
+		LOG_VERBOSE("check action: %s\n", action);
 		if (strcmp(action, "bind") == 0) {
 			do_bind_address(&cb, stdbuf);
 		} else if (strcmp(action, "dump") == 0) {
@@ -2058,8 +2200,10 @@ int main(int argc, char *argv[])
 			do_peer_exchange(&cb, helo_line);
 			cb.out_ping = 1;
 		} else if (strcmp(action, "exec") == 0) {
+		    LOG_INFO("exec %s = %s\n", action, stdbuf + 5);
 			do_repl_exec(&cb, stdbuf + 5);
 		} else if (strcmp(action, "fork") == 0) {
+		    LOG_INFO("fork %s = %s\n", action, stdbuf + 5);
 			do_fork_exec(&cb, stdbuf + 5);
 		} else if (strcmp(action, "daemon") == 0) {
 			for ( ; ; ) check_and_receive(&cb, 0);
@@ -2089,6 +2233,11 @@ check_pending:
 
 #if !defined(WIN32)
 	if (cb.childpid > 0) kill(cb.childpid, SIGINT);
+#else
+	if (cb.childpipe > 0) {
+		TerminateProcess(cb.childpipe, 0);
+		CloseHandle(cb.childpipe);
+	}
 #endif
 	natcb_free(&cb);
 

@@ -153,6 +153,7 @@ static void _tcp_set_outter_address(struct tcpip_info *info)
 
 	_tcp_out_fd = socket(AF_INET6, SOCK_DGRAM, 0);
 	assert(_tcp_out_fd != -1);
+	disable_ipv6_only(_tcp_out_fd);
 
 	error = bind(_tcp_out_fd, out_addr, sizeof(_tcp_out_addr));
 	assert(error != -1);
@@ -223,6 +224,7 @@ void tcpup_device::init(int dobind)
 
 	_file = socket(AF_INET6, SOCK_DGRAM, 0);
 	assert(_file != -1);
+	disable_ipv6_only(_file);
 
 	if (dobind) {
 		error = bind(_file, (struct sockaddr *)&_addr_in, sizeof(_addr_in));
@@ -499,6 +501,12 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,
 			(const sockaddr *)name->name, name->namlen, NULL, NULL);
 	error = ((error == 0 || WSAGetLastError() == WSA_IO_PENDING)? transfer: -1);
+	{
+		char abuf[56];
+		struct sockaddr_in6 *inp6 = (struct sockaddr_in6 *) name->name;
+		TCP_DEBUG(error == -1, "utxpl_output send failure: %s\n", inet_ntop(AF_INET6, &inp6->sin6_addr, abuf, sizeof(abuf)));
+	}
+	TCP_DEBUG(error == -1, "utxpl_output send failure: %d\n", WSAGetLastError());
 #endif
 
 	TCP_DEBUG(error == -1, "utxpl_output send failure\n");
@@ -560,3 +568,15 @@ struct if_dev_cb _udp_if_dev_cb = {
 };
 
 #endif
+
+int disable_ipv6_only(int fd)
+{
+	int error = 0;
+#if defined(WIN32)
+	BOOL optval = 0;
+	error = setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&optval, sizeof(optval));
+	if (error == SOCKET_ERROR) printf("disable_ipv6_only failure: %d\n", WSAGetLastError());
+#endif
+
+	return error;
+}

@@ -365,6 +365,7 @@ static int udp6_forward_init(struct udp_forward_context *ctx)
 	struct sockaddr * sap = (struct sockaddr *)&sa;
 
 	ctx->uf_handle = socket(AF_INET6, SOCK_DGRAM, 0);
+	disable_ipv6_only(ctx->uf_handle);
 	if (ctx->uf_handle == -1) return -1;
 
 	sa.sin6_family = AF_INET6;

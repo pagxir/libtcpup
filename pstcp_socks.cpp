@@ -63,6 +63,7 @@ pstcp_socks::pstcp_socks(struct tcpcb *tp)
 	m_peer = tp;
 	m_file = socket(AF_INET6, SOCK_STREAM, 0);
 	assert(m_file != -1);
+	disable_ipv6_only(m_file);
 	
 	m_roff = m_rlen = 0;
 	m_woff = m_wlen = 0;

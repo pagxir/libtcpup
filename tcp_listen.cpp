@@ -40,6 +40,7 @@ static void module_init(void)
 
 	_lenfile = socket(AF_INET6, SOCK_STREAM, 0);
 	assert(_lenfile != -1);
+	disable_ipv6_only(_lenfile);
 
 	tx_setblockopt(_lenfile, 0);
 	setsockopt(_lenfile, SOL_SOCKET, SO_REUSEADDR, (const char *)&v, sizeof(v));

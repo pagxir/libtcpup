@@ -152,4 +152,7 @@ inline const char *inet_4to6(void *v6ptr, const void *v4ptr)
     return "";
 }
 
+int disable_ipv6_only(int fd);
+
+
 #endif
