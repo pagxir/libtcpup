@@ -91,7 +91,7 @@ void listen_statecb(void *ignore)
 void listen_callback(void *context)
 {
 	int newfd;
-	struct sockaddr_in newaddr;
+	struct sockaddr_in6 newaddr;
 	size_t newlen = sizeof(newaddr);
 
 	newfd = tx_listen_accept(&_sockcbp, (struct sockaddr *)&newaddr, &newlen);
@@ -99,7 +99,7 @@ void listen_callback(void *context)
 
 	if (newfd != -1) {
 		LOG_DEBUG("new client: %s:%u\n",
-				inet_ntoa(newaddr.sin_addr), ntohs(newaddr.sin_port));
+				ntop6(newaddr.sin6_addr), ntohs(newaddr.sin6_port));
 		tx_setblockopt(newfd, 0);
 		new_tcp_channel(newfd);
 	}
