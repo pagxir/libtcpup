@@ -109,6 +109,7 @@ static sockcb_t _socreate(so_conv_t conv)
 #else
 	int offset = (rand() % 0xF) << 1;
 #endif
+	if (getenv("RELAYSERVER") != NULL) offset = 0;
 	TCPUP_DEVICE_ICMP_CLASS *this_device = _paging_devices[offset];
 
 #ifndef _DNS_CLIENT_
@@ -186,6 +187,11 @@ static void _tcp_set_outter_address(struct tcpip_info *info)
 #else
 	_tcp_out_fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
 	assert(_tcp_out_fd != -1);
+
+#if 0
+    int flags = IP_PMTUDISC_DONT;
+    setsockopt(_tcp_out_fd, IPPROTO_IP, IP_MTU_DISCOVER, &flags, sizeof(flags));
+#endif
 #endif
 
 	error = bind(_tcp_out_fd, out_addr, sizeof(_tcp_out_addr));
@@ -541,8 +547,19 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	packet_encrypt_iovec(iovecs + 1, count, hold_buffer);
 
 	struct msghdr msg0;
+
+	struct sockaddr_in daddr = {};
+	struct sockaddr_in6 *inp6 = (struct sockaddr_in6 *)name->name;
+	const unsigned char * in6p = (const unsigned char *)&inp6->sin6_addr;
+	memcpy(&daddr.sin_addr, in6p + 12, 4);
+	daddr.sin_family = AF_INET;
+
 	msg0.msg_name = (void *)name->name;
 	msg0.msg_namelen = name->namlen;
+	if (inp6->sin6_family == AF_INET6) {
+		msg0.msg_name = (void *)&daddr;
+		msg0.msg_namelen = sizeof(daddr);
+	}
 	msg0.msg_iov  = (struct iovec*)iovecs;
 	msg0.msg_iovlen = count + 1;
 
