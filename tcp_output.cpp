@@ -581,6 +581,11 @@ send_label:
 	else
 	    error = hhook_run_tcp_est_out(tp, th, &to, len, sack_rxmit);
 
+	if (sack_rxmit && error == -1) {
+	    tp->sackhint.sack_bytes_rexmit -= len;
+	    p->rxmit -= len;
+	}
+
 	if ((tp->t_flags & TF_FORCEDATA) == 0 || !tcp_timer_active(tp, TT_PERSIST)) {
 		tcp_seq startseq = tp->snd_nxt;
 

@@ -449,7 +449,8 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th, int newseg)
 	if ((BYTES_THIS_ACK(tp, th) / tp->t_maxseg) >= 2)
 		num_segs = 2;
 
-        bytes_acked = max(BYTES_THIS_ACK(tp, th) + tp->last_sacked, num_segs * tp->t_maxseg);
+        // bytes_acked = max(BYTES_THIS_ACK(tp, th) + tp->last_sacked, num_segs * tp->t_maxseg);
+        bytes_acked = num_segs * tp->t_maxseg;
 	tp->snd_cwnd = (tp->sackhint.sack_bytes_rexmit +
 	    (tp->snd_nxt - tp->sack_newdata) + bytes_acked);
 
@@ -478,9 +479,8 @@ tcp_sack_partialack(struct tcpcb *tp, struct tcphdr *th, int newseg)
 out:
 
 #endif
-	if (tp->snd_cwnd > tp->snd_ssthresh &&
-			tp->snd_ssthresh > tp->t_maxseg)
-		tp->snd_cwnd = tp->snd_ssthresh;
+	if (tp->snd_cwnd > tp->snd_ssthresh)
+	    tp->snd_cwnd = tp->snd_ssthresh;
 	tp->t_flags |= TF_SIGNATURE;
 	tp->t_flags |= TF_ACKNOW;
 	(void) tcp_output(tp);
