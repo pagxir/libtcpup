@@ -171,11 +171,21 @@ static void _tcp_set_keepalive_address(struct tcpip_info *info)
 	// _tcp_keep_addr.sin_addr.s_addr   = (info->address);
 }
 
+#define _DNS_CLIENT_
+#ifdef _DNS_CLIENT_
+
 static unsigned char dns_filling_byte[] = {
-        0x20, 0x88, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x04, 0x77, 0x77, 0x77,
-        0x77, 0x00, 0x00, 0x01, 0x00, 0x01
+	'.', 'K', 'L', 'O', 'I', 'M', 'H', 'V'
 };
+
+#else
+
+static unsigned char dns_filling_byte[] = {
+	'.', 'K', 'L', 'O', 'I', 'M', 'H', 'V'
+};
+
+#endif
+
 
 void tcpup_device_ipv6::init(int dobind)
 {
@@ -397,6 +407,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 {
 	int fd;
 	int error;
+	char hold_buffer[2049];
 
 	if (offset >= MAX_DEV_CNT || _paging_devices[offset] == NULL) {
 		fprintf(stderr, "offset: %d\n", offset);
@@ -416,6 +427,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	iovecs[0].iov_len = sizeof(dns_filling_byte);
 	iovecs[0].iov_base = dns_filling_byte;
 	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs, count + 1, hold_buffer);
 
 	struct msghdr msg0;
 	msg0.msg_name = (void *)name->name;
@@ -434,6 +446,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	iovecs[0].len = sizeof(dns_filling_byte);
 	iovecs[0].buf = (char *)dns_filling_byte;
 	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs, count + 1, hold_buffer);
 
 	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,
 			(const sockaddr *)name->name, name->namlen, NULL, NULL);

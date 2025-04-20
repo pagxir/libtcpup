@@ -162,6 +162,10 @@ int tcp_filter_in(struct tcp_hhook_data *ctx_data)
 	return 0;
     }
 
+    if (tp->pacing_rate == 0) {
+	return 0;
+    }
+
     if (to->to_flags & TOF_SACK) {
 	int old_sacked = 0, new_sacked = 0;
 	struct sackblk sack0, sack1;
