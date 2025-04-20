@@ -155,14 +155,18 @@ static void _tcp_set_outter_address(struct tcpip_info *info)
 	return;
 }
 
+static char ipv6_zero[16] = {0};
 static struct sockaddr_in6 _tcp_dev_addr = { 0 };
 static void _tcp_set_device_address(struct tcpip_info *info)
 {
 	_tcp_dev_addr.sin6_family = AF_INET6;
 	_tcp_dev_addr.sin6_port   = (info->port);
 	// _tcp_dev_addr.sin_addr.s_addr   = (info->address);
+       if (memcmp(ipv6_zero, info->ipv6, sizeof(info->ipv6)))
+               memcpy(&_tcp_dev_addr.sin6_addr, info->ipv6, sizeof(info->ipv6));
 	return;
 }
+
 
 static struct sockaddr_in6 _tcp_keep_addr = { 0 };
 static void _tcp_set_keepalive_address(struct tcpip_info *info)

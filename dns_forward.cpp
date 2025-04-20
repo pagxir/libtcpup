@@ -211,6 +211,11 @@ static void on_udp6_receive(void *upp)
 				len = 1420;
 			}
 
+			if (ctx->do_nat && 
+					saaddr.sin6_port == _fwd_target.sin_port) {
+				saaddr.sin6_port = htons(53);
+			}
+
 			struct udpuphdr6 *up = (struct udpuphdr6 *)udp_packet;
 
 			up->uh.u_conv = ctx->uf_conv;
@@ -343,7 +348,7 @@ static void udp4_forward_init(struct udp_forward_context *ctx)
 	ctx->get_dest  = udp4_get_dest;
 }
 
-static struct sockaddr *udp6_get_dest(struct udp_forward_context *ignore, struct udpuphdr *up, socklen_t *plen)
+static struct sockaddr *udp6_get_dest(struct udp_forward_context *ctx, struct udpuphdr *up, socklen_t *plen)
 {
 	static struct sockaddr_in6 sin = {0};
 	struct udpuphdr6 *uphdr = (struct udpuphdr6 *)up;
@@ -352,7 +357,11 @@ static struct sockaddr *udp6_get_dest(struct udp_forward_context *ignore, struct
 	sin.sin6_port   = (up->u_port);
 	memcpy(&sin.sin6_addr,  uphdr->addr, sizeof(sin.sin6_addr));
     
-	NAT64_UPDATE(&sin.sin6_addr, &ignore->stat);
+	NAT64_UPDATE(&sin.sin6_addr, &ctx->stat);
+	if (_force_override && up->u_port == htons(53)) {
+		sin.sin6_port = _fwd_target.sin_port;
+		ctx->do_nat = 1;
+	}
 
 	if (plen != NULL) *plen = sizeof(sin);
 	return (struct sockaddr *)&sin;

@@ -385,7 +385,8 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 		if ((to.to_flags & TOF_MSS) &&
 				to.to_mss >= 512 && to.to_mss < tp->t_maxseg) {
 			TCP_TRACE_AWAYS(tp, "%x update mss from peer\n", so->so_conv);
-			tp->t_maxseg = to.to_mss;
+			tp->t_max_payload = to.to_mss;
+			tp->t_maxseg = to.to_mss - 10;
 		}
 	}
 
@@ -592,7 +593,8 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 			if ((to.to_flags & TOF_MSS) &&
 					to.to_mss >= 512 && to.to_mss < tp->t_maxseg) {
 				TCP_TRACE_AWAYS(tp, "%x update mss from peer\n", so->so_conv);
-				tp->t_maxseg = to.to_mss;
+				tp->t_maxseg = to.to_mss - 10;
+				tp->t_max_payload = to.to_mss;
 			}
 
 			if (to.to_flags & TOF_TS) {

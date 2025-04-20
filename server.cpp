@@ -176,7 +176,7 @@ int main(int argc, char *argv[])
 			route_cmd(argv[i + 1]);
 			i++;
 		} else if (strcmp(argv[i], "-ipv6-npt") == 0 && i + 1 < argc) {
-			// -ipv4-npt src-pfx/dst-pfx/pfx-len
+			// -ipv6-npt src-pfx/dst-pfx/pfx-len
 			char *args = argv[i + 1];
 			char _ipv4_npt_buf[1200] = {};
 			strncpy(_ipv4_npt_buf, args, sizeof(_ipv4_npt_buf) - 1);

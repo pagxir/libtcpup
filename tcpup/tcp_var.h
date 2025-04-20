@@ -194,6 +194,7 @@ struct tcpcb {
 
         int     t_rxtcur;               /* current retransmit value (ticks) */
         u_int   t_maxseg;               /* maximum segment size */
+        u_int   t_max_payload;               /* maximum segment size */
         int     t_srtt;                 /* smoothed round-trip time */
         int     t_rttvar;               /* variance in round-trip time */
 
@@ -298,6 +299,7 @@ struct tcpcb {
 #undef TCP_TIMER
 
 		tx_task_t t_event_devbusy;
+
 };
 
 TAILQ_HEAD(sackhole_head, sackhole);

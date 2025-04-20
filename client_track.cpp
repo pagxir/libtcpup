@@ -89,6 +89,7 @@ int client_track_update(uint32_t conv, const void *target, size_t len, uint32_t 
 int client_track_fetch(uint32_t conv, void *target, size_t len, uint32_t live)
 {
 	int stat = 0;
+    char buf[256];
 	uint16_t client = htonl(conv) & 0xffff;
 	client_track_t *item = lookup(client);
 
@@ -97,8 +98,8 @@ int client_track_fetch(uint32_t conv, void *target, size_t len, uint32_t live)
 		assert(len == sizeof(item->peer));
 		stat = memcmp(&item->peer, target, sizeof(item->peer));
 		memcpy(target, &item->peer, sizeof(item->peer));
-		struct sockaddr_in *in = (struct sockaddr_in *)item->peer.name;
-		LOG_INFO("client_track_fetch return: %x %x %d %s\n", item->owner, item->tsval, htons(in->sin_port), inet_ntoa(in->sin_addr));
+		struct sockaddr_in6 *in = (struct sockaddr_in6 *)item->peer.name;
+		LOG_INFO("client_track_fetch return: %x %x %d %s\n", item->owner, item->tsval, htons(in->sin6_port), inet_ntop(AF_INET6, &in->sin6_addr, buf, sizeof(buf)));
 	}
 
 	return stat;

@@ -326,7 +326,7 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	to.to_flags = 0;
 	/* Maximum segment size. */
 	if (flags & TH_SYN) {
-	    to.to_mss = tp->t_maxseg;
+	    to.to_mss = tp->t_max_payload;
 	    to.to_flags |= TOF_MSS;
 	}
 
@@ -360,7 +360,7 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	to.to_tsecr = (tp->ts_recent);
 
 	optlen = tcp_addoptions(&to, (u_char *)(th + 1));
-	if (len + optlen > tp->t_maxseg) {
+	if (len + optlen > tp->t_max_payload) {
 	    assert(to.to_nsacks > 0);
 	    to.to_flags &= ~TOF_SACK; 
 	    to.to_tsval = (tcp_snd_getticks);
@@ -398,7 +398,7 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	    }
 	}
 
-	assert(len + optlen <= tp->t_maxseg);
+	assert(len + optlen <= tp->t_max_payload);
 	utxpl_output(tp->tp_socket->so_iface, iobuf, 3, &tp->dst_addr);
 	pacing_adjust(tp, &tp->t_pacing, len + optlen);
 	total++;

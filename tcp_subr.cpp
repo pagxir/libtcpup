@@ -58,6 +58,7 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 	tp->t_flags = 0;
 	tp->t_maxseg = TCP_MSS;
 	tp->t_maxseg = get_device_mtu() - sizeof(struct tcphdr);
+	tp->t_max_payload = tp->t_maxseg + 10;
 
 	TCP_DEBUG(1, "tp->t_maxseg = %u\n", tp->t_maxseg);
 	tp->snd_max_space = (8 * 1024 * 1024);

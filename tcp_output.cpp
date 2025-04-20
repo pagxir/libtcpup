@@ -220,7 +220,7 @@ again:
 		long cwin;
 
 		cwin = sendwin - sack_bytes_rxmt;
-		if (cwin < tp->t_maxseg)
+		if (cwin < 0)
 			cwin = 0;
 
 		/* Do not retransmit SACK segments beyond snd_recover */
@@ -316,7 +316,7 @@ after_sack_rexmit:
 					cwin = cwnd -
 				 		 (tp->snd_nxt - tp->sack_newdata) -
 						 sack_bytes_rxmt;
-					if (cwin < tp->t_maxseg)
+					if (cwin < 0)
 						cwin = 0;
 					assert(~tp->t_flags & TF_FORCEDATA);
 					len = lmin(len, cwin);
@@ -399,6 +399,7 @@ after_sack_rexmit:
 
 		if (sack_rxmit)
 			goto send_label;
+
 	}
 	
 	/*
@@ -480,7 +481,7 @@ send_label:
 	/* Maximum segment size. */
 	if (flags & TH_SYN) {
 		tp->snd_nxt = tp->iss;
-		to.to_mss = tp->t_maxseg;
+		to.to_mss = tp->t_max_payload;
 		to.to_flags |= TOF_MSS;
 	}
 
@@ -508,10 +509,10 @@ send_label:
 	iobuf[0].iov_base = (char *)th;
 	iobuf[0].iov_len  = sizeof(*th) + optlen;
 
-	if (len + optlen > tp->t_maxseg) {
+	if (len + optlen > tp->t_max_payload) {
 		sendalot = 1;
 		flags &= ~TH_FIN;
-		len = tp->t_maxseg - optlen;
+		len = tp->t_max_payload - optlen;
 	}
 
 	if (len) {

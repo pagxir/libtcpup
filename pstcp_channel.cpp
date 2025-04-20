@@ -565,9 +565,10 @@ static int peer_info_expend(const char *relay, size_t len, char *domain, size_t 
 			in6p->sin6_family = AF_INET6;
 			in6p->sin6_port   = val_short;
 			inet_4to6(&in6p->sin6_addr, p);
+			NAT64_UPDATE(&in6p->sin6_addr, isinteractive);
 
 			val_port = htons(val_short);
-			if (val_port == 5228) *isinteractive = 1;
+			if (val_port == 5228) *isinteractive |= EXTRA_FLAGS_INTERACTIVE;
 			break;
 
 		case AFTYP_INET6:
@@ -1003,6 +1004,8 @@ void NAT64_UPDATE(void *addr, int *stat)
 	for (int i = 0; i < _ipv6_npt_count; i++) {
 		struct ipv6_npt_pair *pair = _ipv6_npt_tbl + i;
 		if (ipv6_prefix_match(addr, pair->src_pfx, pair->pfx_len) == 0) {
+			// char buf[128];
+			// LOG_DEBUG("NAT64_UPDATE: %s\n", inet_ntop(AF_INET6, addr, buf, sizeof(buf)));
 			ipv6_prefix_set(addr, pair->dst_pfx, pair->pfx_len);
 			*stat = i;
 			break;
@@ -1015,6 +1018,8 @@ void NAT64_REVERT(void *addr, int stat)
 	for (int i = 0; i < _ipv6_npt_count; i++) {
 		struct ipv6_npt_pair *pair = _ipv6_npt_tbl + i;
 		if (ipv6_prefix_match(addr, pair->dst_pfx, pair->pfx_len) == 0 && (stat & 0xffff) == i) {
+			// char buf[128];
+			// LOG_DEBUG("NAT64_REVERT: %s\n", inet_ntop(AF_INET6, addr, buf, sizeof(buf)));
 			ipv6_prefix_set(addr, pair->src_pfx, pair->pfx_len);
 			break;
 		}
