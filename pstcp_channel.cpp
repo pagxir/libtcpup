@@ -927,7 +927,7 @@ void new_pstcp_channel(sockcb_t tp)
 
 extern "C" void pstcp_channel_forward(struct tcpip_info *info)
 {
-	_forward_addr = ntohl(info->address);
+	_forward_addr = ntohl(info->tii_address);
 	_forward_port = ntohs(info->port);
 	return;
 }

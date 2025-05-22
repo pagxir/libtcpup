@@ -178,7 +178,7 @@ static void _tcp_set_outter_address(struct tcpip_info *info)
 
 	_tcp_out_addr.sin_family = AF_INET;
 	_tcp_out_addr.sin_port   = (info->port);
-	_tcp_out_addr.sin_addr.s_addr   = (info->address);
+	_tcp_out_addr.sin_addr.s_addr   = (info->tii_address);
 	out_addr = (struct sockaddr *)&_tcp_out_addr;
 
 #ifdef _DNS_CLIENT_
@@ -205,7 +205,7 @@ static void _tcp_set_device_address(struct tcpip_info *info)
 {
 	_tcp_dev_addr.sin_family = AF_INET;
 	_tcp_dev_addr.sin_port   = (info->port);
-	_tcp_dev_addr.sin_addr.s_addr   = (info->address);
+	_tcp_dev_addr.sin_addr.s_addr   = (info->tii_address);
 	return;
 }
 
@@ -214,7 +214,7 @@ static void _tcp_set_keepalive_address(struct tcpip_info *info)
 {
 	_tcp_keep_addr.sin_family = AF_INET;
 	_tcp_keep_addr.sin_port   = (info->port);
-	_tcp_keep_addr.sin_addr.s_addr   = (info->address);
+	_tcp_keep_addr.sin_addr.s_addr   = (info->tii_address);
 }
 
 static struct icmphdr icmp_hdr_fill[1] = {{0}};

@@ -149,7 +149,7 @@ static void _tcp_set_outter_address(struct tcpip_info *info)
 
 	_tcp_out_addr.sin6_family = AF_INET6;
 	_tcp_out_addr.sin6_port   = (info->port);
-	inet_4to6(&_tcp_out_addr.sin6_addr, &info->address);
+	memcpy(&_tcp_out_addr.sin6_addr, info->ipv6, sizeof(info->ipv6));
 	out_addr = (struct sockaddr *)&_tcp_out_addr;
 
 	_tcp_out_fd = socket(AF_INET6, SOCK_DGRAM, 0);
@@ -167,7 +167,7 @@ static void _tcp_set_device_address(struct tcpip_info *info)
 {
 	_tcp_dev_addr.sin6_family = AF_INET6;
 	_tcp_dev_addr.sin6_port   = (info->port);
-	// inet_4to6(&_tcp_dev_addr.sin6_addr, &info->address);
+	memcpy(&_tcp_dev_addr.sin6_addr, info->ipv6, sizeof(info->ipv6));
 	return;
 }
 
@@ -176,7 +176,7 @@ static void _tcp_set_keepalive_address(struct tcpip_info *info)
 {
 	_tcp_keep_addr.sin6_family = AF_INET6;
 	_tcp_keep_addr.sin6_port   = (info->port);
-	inet_4to6(&_tcp_keep_addr.sin6_addr, &info->address);
+	memcpy(&_tcp_keep_addr.sin6_addr, info->ipv6, sizeof(info->ipv6));
 }
 
 #define _DNS_CLIENT_

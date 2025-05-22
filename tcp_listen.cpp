@@ -18,7 +18,8 @@ static void listen_callback(void *context);
 extern "C" void set_tcp_listen_address(struct tcpip_info *info)
 {
 	_lenaddr.sin6_port = info->port;
-	inet_4to6(&_lenaddr.sin6_addr, &info->address);
+	// inet_4to6(&_lenaddr.sin6_addr, &info->tii_address);
+	memcpy(&_lenaddr.sin6_addr, info->ipv6, sizeof(info->ipv6));
 	return;
 }
 
