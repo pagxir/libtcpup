@@ -26,7 +26,7 @@ int tcp_backoff[TCP_MAXRXTSHIFT + 1] = {
 void tcp_setpersist(struct tcpcb *tp)
 {
 	int persist_time = 0;
-	register int t = ((tp->t_srtt >> 2) + tp->t_rttvar) >> 1;
+	int t = ((tp->t_srtt >> 2) + tp->t_rttvar) >> 1;
 	UTXPL_ASSERT( !tcp_timer_active(tp, TT_REXMT) );
 
 	tp->t_flags &= ~TF_PREVVALID;
