@@ -99,8 +99,21 @@ tcp_channel::tcp_channel(int file)
     if (_relay_server != INADDR_ANY) {
         m_flags |= DIRECT_PROTO;
         m_flags &= ~TF_PROXY_HELLO;
+	struct sockaddr_in6 sa;
+	socklen_t salen = sizeof(sa);
         unsigned int addr = _relay_server;
+
         set_relay_info(m_peer, 0x01, (char *)&addr, _relay_port);
+	if (addr == htonl(0xfe800001)) {
+	    if (!getsockname(file, (struct sockaddr *)&sa, &salen)) {
+		uint32_t *data = (uint32_t *)&sa.sin6_addr;
+               if (IN6_IS_ADDR_V4MAPPED(&sa.sin6_addr)) {
+                   set_relay_info(m_peer, 0x01, (char *)&data[3], _relay_port);
+               } else {
+                   set_relay_info(m_peer, 0x04, (char *)data, _relay_port);
+               }
+	    }
+	}
     }
 }
 
