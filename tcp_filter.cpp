@@ -283,7 +283,7 @@ int pacing_adjust(struct tcpcb *tp, u_int64_t *pacing, size_t datalen)
     return 0;
 }
 
-tcp_seq update_ckpass(const rgn_iovec iov[], size_t count);
+uint16_t update_ckpass(const rgn_iovec iov[], size_t count);
 
 static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 {
@@ -380,6 +380,7 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	th->th_conv  = (tp->tp_socket->so_conv);
 	th->th_win   = htons((tp->rcv_adv - tp->rcv_nxt) >> WINDOW_SCALE);
 	th->th_sum	= 0;
+	th->th_urp	= 0;
 	th->th_sum  = update_ckpass(iobuf, 3);
 
 #if 0

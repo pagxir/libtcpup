@@ -626,19 +626,18 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 
 	th = (struct tcphdr *)buf;
 	if (len < sizeof(*th) ||
-			(th->th_x2 != 0)) {
-		TCP_DEBUG(len >= sizeof(*th), "BAD TCPUP MAGIC: %x\n", th->th_x2);
-		TCP_DEBUG(1, "BAD TCPUP MAGIC: %x\n", th->th_x2);
+			(th->th_x2 != 0) || (th->th_urp != 0)) {
+		TCP_DEBUG(len >= sizeof(*th), "BAD TCPUP MAGIC: %x %x\n", th->th_x2, th->th_urp);
+		TCP_DEBUG(1, "BAD TCPUP MAGIC: %x %x\n", th->th_x2, th->th_urp);
 		return -1;
 	}
 
-#if 1
 	u_short cksum = update_checksum(buf, len);
 	if (cksum != 0) {
 		TCP_DEBUG(1, "BAD TCPUP CHECKSUM: %x\n", cksum);
+		assert(cksum != 0xffff);
 		return -1;
 	}
-#endif
 
 	sockcb_t so = solookup(th->th_conv);
 	if (so != NULL) {

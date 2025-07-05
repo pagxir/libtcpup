@@ -43,75 +43,61 @@ void tcp_setpersist(struct tcpcb *tp)
 
 u_short update_checksum(const void *buf, size_t count)
 {
-	int cksum = 0;
+	uint32_t cksum = htons(count + IPPROTO_TCP);
+	const uint16_t *base = (const uint16_t *)buf;
+	size_t len = count;
 
-	union {
-		char buf[2];
-		u_short val;
-	} ckstat;
+	while (len >= 2)
+		cksum += *base++;
 
-	int nbytes = 0, total = 0;
-	const char *ptr = (const char *)buf;
+	if (len > 0)
+		cksum += *base & htons(0xff00);
 
-	cksum = htons(6 + count);
-	for (total = 0; total < count; total++) {
-		ckstat.buf[nbytes++] = *ptr++;
-		if (nbytes == 2) {
-			cksum += ckstat.val;
-			nbytes = 0;
-		}
-	}
+	while (cksum >> 16)
+		cksum = (cksum >> 16) + (uint16_t)cksum;
 
-	if (nbytes) {
-		ckstat.buf[1] = 0;
-		cksum += ckstat.val;
-		nbytes = 0;
-	}
-
-	while (cksum >> 16) {
-		int cksum1 = (cksum & 0xffff) + (cksum >> 16);
-		cksum = cksum1;
-	}
-
-	return ~cksum;
+	return (uint16_t)~cksum;
 }
 
-tcp_seq update_ckpass(const rgn_iovec iov[], size_t count)
+uint16_t update_ckpass(const rgn_iovec iov[], size_t num)
 {
 	int i, j;
-	int cksum = 0;
+	size_t total = 0;
+	uint32_t cksum = 0;
 
-	union {
-		char buf[2];
-		u_short val;
-	} ckstat;
-	int nbytes = 0, total = 0;
+	for (i = 0; i < num; i++) {
+		size_t len = iov[i].iov_len;
+		const uint8_t *buf = (const uint8_t *)iov[i].iov_base;
 
-	for (i = 0; i < count; i++) {
-		const char *ptr = (const char *)iov[i].iov_base;
-		for (j = 0; j < iov[i].iov_len; j++) {
-			ckstat.buf[nbytes++] = *ptr++;
-			if (nbytes == 2) {
-				cksum += ckstat.val;
-				nbytes = 0;
-			}
-			total ++;
+		const uint16_t *base = (const uint16_t *)buf;
+		if ((total & 0x1) && len > 0) {
+			base = (const uint16_t *)(buf - 1);
+			cksum += *base++  & htons(0xff);
+			total++;
+			len--;
+		}
+
+		total += len;
+		while (len >= 2) {
+			cksum += *base++;
+			len -= 2;
+		}
+
+		if (len > 0) {
+			cksum += *base & htons(0xff00);
+			len--;
 		}
 	}
 
-	if (nbytes) {
-		ckstat.buf[1] = 0;
-		cksum += ckstat.val;
-		nbytes = 0;
-	}
+	cksum += htons(IPPROTO_TCP + total);
+	// cksum += htons(total);
 
-	cksum += htons(total);
-	cksum += htons(6 + total);
-	while (cksum >> 16) {
-		int cksum1 = (cksum & 0xffff) + (cksum >> 16);
-		cksum = cksum1;
-	}
+	while (cksum >> 16)
+		cksum = (cksum >> 16) + (uint16_t)cksum;
 
+	return cksum;
+
+#if 0
 	union {
 		struct {
 			u_short len;
@@ -123,6 +109,7 @@ tcp_seq update_ckpass(const rgn_iovec iov[], size_t count)
 	ckpass.ck.len = htons(total);
 	ckpass.ck.sum = ~cksum;
 	return ckpass.val;
+#endif
 }
 
 static int inline      hhook_run_tcp_est_out(struct tcpcb *tp,
@@ -562,6 +549,7 @@ send_label:
 	th->th_flags = flags;
 	th->th_conv  = (tp->tp_socket->so_conv);
 	th->th_sum	 = 0;
+	th->th_urp	 = 0;
 
 	if (recwin < (long) rgn_size(tp->rgn_rcv) / 4 &&
 		recwin < (long) tp->t_maxseg)

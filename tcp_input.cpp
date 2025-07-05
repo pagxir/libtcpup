@@ -355,7 +355,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 	 * Parse options on any incoming segment.
 	 */
 	int hdrlen = tcp_dooptions(&to, (u_char *)(buf + sizeof(mth)),
-			th->th_opten << 2, (thflags & TH_SYN) ? TO_SYN : 0);
+			(th->th_opten << 2) - sizeof(*th), (thflags & TH_SYN) ? TO_SYN : 0);
 	if (len < hdrlen) {
 		TCP_DEBUG(len < hdrlen, "incorrect paket %d %d\n", len, hdrlen);
 		return;
