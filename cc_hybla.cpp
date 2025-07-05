@@ -169,28 +169,27 @@ static void hybla_ack_received(struct cc_var *ccv, uint16_t type)
 static void hybla_cb_destroy(struct cc_var *ccv)
 {
 
-        if (ccv->cc_data != NULL)
-                free(ccv->cc_data);
+	if (ccv->cc_data != NULL)
+		free(ccv->cc_data);
 }
 
 static int hybla_cb_init(struct cc_var *ccv)
 {
-        struct hybla *ca;
+	struct hybla *ca;
 
-        ca = (struct hybla*)malloc(sizeof(struct hybla));//, M_HTCP, M_NOWAIT;
+	ca = (struct hybla*)malloc(sizeof(struct hybla));//, M_HTCP, M_NOWAIT;
 
-        if (ca == NULL)
-                return (UTXENOMEM);
+	if (ca == NULL)
+		return (UTXENOMEM);
 	memset(ca, 0, sizeof(*ca));
-        ccv->cc_data = ca;
+	ccv->cc_data = ca;
 
-        return (0);
+	return (0);
 }
 
 static int hybla_mod_init(void)
 {
-
-        // newreno_cc_algo.post_recovery;
+	// newreno_cc_algo.post_recovery;
 	hybla_cc_algo.after_idle = newreno_cc_algo.after_idle;
-        return (0);
+	return (0);
 }

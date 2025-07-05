@@ -626,9 +626,9 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 
 	th = (struct tcphdr *)buf;
 	if (len < sizeof(*th) ||
-			(th->th_magic != MAGIC_UDP_TCP)) {
-		TCP_DEBUG(len >= sizeof(*th), "BAD TCPUP MAGIC: %x\n", th->th_magic);
-		TCP_DEBUG(1, "BAD TCPUP MAGIC: %x\n", th->th_magic);
+			(th->th_x2 != 0)) {
+		TCP_DEBUG(len >= sizeof(*th), "BAD TCPUP MAGIC: %x\n", th->th_x2);
+		TCP_DEBUG(1, "BAD TCPUP MAGIC: %x\n", th->th_x2);
 		return -1;
 	}
 
@@ -658,7 +658,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 			handled = 1;
 		}
 	} else if (handled == 0 && (th->th_flags & TH_CONNECT) == TH_ACK) {
-		if (th->th_magic == MAGIC_UDP_TCP) {
+		if (th->th_x2 == 0) {
 			struct tcpcb tcb = {0};
 			struct sockcb sob = {0};
 			tcb.dst_addr = *from;

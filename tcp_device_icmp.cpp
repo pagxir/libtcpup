@@ -394,7 +394,7 @@ void TCPUP_DEVICE_ICMP_CLASS::incoming(void)
 				/* 0x08, _icmp_is_reply == 0, 0xec, reversed */
 				if ((icmphdr->type == 0x08 && icmphdr->reserved[0] == 0xecececec && _icmp_is_reply) ||
 						(_icmp_is_reply == 0 && icmphdr->type == 0x00 && icmphdr->reserved[0] == 0xcececece)) {
-					if (tphdr->th_magic == MAGIC_UDP_TCP) {
+					if (tphdr->th_x2 == 0) {
 						this->_t_rcvtime = time(NULL);
 						(*(struct sockaddr_in *)&saaddr).sin_port = icmphdr->u0.seqno;
 						memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);

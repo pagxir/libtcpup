@@ -556,12 +556,12 @@ send_label:
 		tp->sackhint.sack_bytes_rexmit += len;
 	}
 
-	th->th_magic = MAGIC_UDP_TCP;
-	th->th_opten = (optlen >> 2);
+	th->th_x2 = 0;
+	th->th_opten = (optlen >> 2) + 5;
 	th->th_ack = htonl(tp->rcv_nxt);
 	th->th_flags = flags;
 	th->th_conv  = (tp->tp_socket->so_conv);
-	th->th_ckpass	= 0;
+	th->th_sum	 = 0;
 
 	if (recwin < (long) rgn_size(tp->rgn_rcv) / 4 &&
 		recwin < (long) tp->t_maxseg)
@@ -574,7 +574,7 @@ send_label:
 	th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
 
 
-	th->th_ckpass = update_ckpass(iobuf, 3);
+	th->th_sum = update_ckpass(iobuf, 3);
 	/* Run HHOOK_TCP_ESTABLISHED_OUT helper hooks. */
 
 	if (len == 0)
@@ -674,7 +674,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 	struct tcphdr tcpup_th0 = {};
 	struct tcphdr *th = &tcpup_th0;
 
-	th->th_magic = MAGIC_UDP_TCP;
+	th->th_x2 = 0;
 	th->th_opten = 0;
 	th->th_ack = htonl(ack);
 	th->th_seq = htonl(seq);
@@ -692,7 +692,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 
 	// th->th_tsval = htonl(tcp_ts_getticks());
 
-	th->th_ckpass	= 0;
+	th->th_sum	= 0;
 	if (tp != NULL && tp->rgn_rcv) {
 		long recwin = rgn_rest(tp->rgn_rcv);
 		if (recwin > (long)(TCP_MAXWIN << WINDOW_SCALE))
@@ -706,7 +706,7 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 	TCP_TRACE_AWAYS(tp, "tcp_respond: %x flags %x seq %x  ack %x ts %x %x\n",
 			th->th_conv, flags, seq, ack, 0, 0);
 
-	th->th_ckpass = update_ckpass(&iov0, 1);
+	th->th_sum = update_ckpass(&iov0, 1);
 	error = utxpl_output(tp->tp_socket->so_iface, &iov0, 1, &tp->dst_addr);
 	VAR_UNUSED(error);
 	return;
@@ -796,6 +796,7 @@ int tcp_addoptions(struct tcpopt *to, u_char *optp)
 					TCPSTAT_INC(tcps_sack_send_blocks);
 					break;
 				}
+#if 0
 			case TOF_DESTINATION:
 				while (!optlen || optlen % 2 != 1) {
 					optlen += TCPOLEN_NOP;
@@ -809,6 +810,7 @@ int tcp_addoptions(struct tcpopt *to, u_char *optp)
 				memcpy(optp, to->to_dsaddr, to->to_dslen);
 				optp += to->to_dslen;
 				break;
+#endif
 			case TOF_TS:
 				while (!optlen || optlen % 4 != 2) {
 					optlen += TCPOLEN_NOP;

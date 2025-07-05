@@ -2,7 +2,7 @@
 #define _SYS_QUEUE_H_
 
 #ifndef WIN32
-#include <sys/cdefs.h>
+// #include <sys/cdefs.h>
 #endif
 
 /*

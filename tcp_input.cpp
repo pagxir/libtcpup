@@ -263,6 +263,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 				to->to_flags |= TOF_SACKPERM;
 				break;
 #endif
+#if 0
             case TCPOPT_DESTINATION:
                 if (optlen <= 2 || (optlen - 2) < 4)
                     continue;
@@ -272,6 +273,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
                 to->to_dslen = (optlen - 2);
                 to->to_dsaddr = cp + 2;
                 break;
+#endif
 			case TCPOPT_SACK:
 				if (optlen <= 2 || (optlen - 2) % TCPOLEN_SACK != 0)
 					continue;

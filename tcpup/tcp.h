@@ -79,18 +79,19 @@ struct tcphdr {
 #else
 struct tcphdr {
 	tcp_seq th_conv;
-	tcp_seq th_ckpass;
 	tcp_seq th_seq;
 	tcp_seq th_ack;
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-	u_char th_magic: 4;
+	u_char th_x2: 4;
 	u_char th_opten: 4;
 #else
 	u_char th_opten: 4;
-	u_char th_magic: 4;
+	u_char th_x2: 4;
 #endif
 	u_char th_flags;
 	u_short th_win;
+	u_short th_sum;                 /* checksum */
+	u_short th_urp;                 /* urgent pointer */
 };
 
 #define TCPUP_HDRLEN sizeof(struct tcphdr)

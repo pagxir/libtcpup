@@ -372,15 +372,15 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	iobuf[0].iov_len  = sizeof(*th) + optlen;
 	rgn_peek(tp->rgn_snd, iobuf + 1, len, off);
 
-	th->th_magic = MAGIC_UDP_TCP;
-	th->th_opten = (optlen >> 2);
+	th->th_x2 = 0;
+	th->th_opten = 5 + (optlen >> 2);
 	th->th_seq = htonl(seq);
 	th->th_ack = htonl(tp->rcv_nxt);
 	th->th_flags = flags;
 	th->th_conv  = (tp->tp_socket->so_conv);
 	th->th_win   = htons((tp->rcv_adv - tp->rcv_nxt) >> WINDOW_SCALE);
-	th->th_ckpass	= 0;
-	th->th_ckpass = update_ckpass(iobuf, 3);
+	th->th_sum	= 0;
+	th->th_sum  = update_ckpass(iobuf, 3);
 
 #if 0
 	if (tp->t_rtttime == txsi->tx_ts &&
