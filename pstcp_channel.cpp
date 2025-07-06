@@ -613,8 +613,13 @@ static void do_peer_connect(void *upp, tx_task_stack_t *sta)
 	pstcp_channel *up = (pstcp_channel *)upp;
 	struct sockaddr_storage sa_store = {};
 
+#if 0
 	len = sooptget_target(up->m_peer, relay, sizeof(relay));
 	assert (len > 4 && len < sizeof(relay));
+#endif
+	uint8_t builtin_target[] = {AFTYP_INET, 0, 0, 22, 127, 0, 0, 1};
+	len = sizeof(builtin_target);
+	memcpy(relay, builtin_target, len);
 
 	up->reset_keepalive();
 	up->m_flags |= FLAG_CONNECTED;

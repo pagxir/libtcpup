@@ -311,6 +311,7 @@ static void listen_statecb(void *context)
 #define RCVPKT_MAXSIZ 1500
 
 static u_short _rcvpkt_len[RCVPKT_MAXCNT];
+static u_short _rcvpkt_link[RCVPKT_MAXCNT];
 static tcpup_addr _rcvpkt_addr[RCVPKT_MAXCNT];
 static char  _rcvpkt_buf[RCVPKT_MAXSIZ * RCVPKT_MAXCNT];
 
@@ -328,6 +329,7 @@ void tcpup_device::incoming(void)
 	int len;
 	int pktcnt;
 	socklen_t salen;
+	u_short psuedo_header[2];
 	struct sockaddr_in6 saaddr;
 	char packet[RCVPKT_MAXSIZ + 1];
 
@@ -346,11 +348,11 @@ void tcpup_device::incoming(void)
 			if (len == -1) break;
 
 			int offset = sizeof(dns_filling_byte);
-			if (len >= offset + TCPUP_HDRLEN) {
+			if (len >= offset + TCPUP_HDRLEN + sizeof(psuedo_header)) {
 				struct tcpup_addr from;
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
 				memcpy(&key, packet + 14, 2);
-				packet_decrypt(htons(key), p, packet + offset, len - offset);
+				packet_decrypt(htons(key), p, packet + offset + sizeof(psuedo_header), len - offset - sizeof(psuedo_header));
 
 				if (_filter_hook != NULL) {
 					memcpy(from.name, &saaddr, salen);
@@ -368,10 +370,14 @@ void tcpup_device::incoming(void)
 					memcpy(&inp->sin_port, packet + 6, 2);
 				}
 #endif
-				memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
-				_rcvpkt_addr[pktcnt].namlen = salen;
-				_rcvpkt_len[pktcnt++] = (len - offset);
-				p += (len - offset);
+				memcpy(psuedo_header, packet + offset, sizeof(psuedo_header));
+				if (psuedo_header[0] == htons(0xfe80)) {
+					memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
+					_rcvpkt_addr[pktcnt].namlen = salen;
+					_rcvpkt_link[pktcnt]  = psuedo_header[1];
+					_rcvpkt_len[pktcnt++] = (len - offset - sizeof(psuedo_header));
+					p += (len - offset - sizeof(psuedo_header));
+				}
 			}
 
 			this->_t_rcvtime = time(NULL);
@@ -380,7 +386,8 @@ void tcpup_device::incoming(void)
 		int handled;
 		p = _rcvpkt_buf;
 		for (int i = 0; i < pktcnt; i++) {
-			handled = tcpup_do_packet(_offset, p, _rcvpkt_len[i], &_rcvpkt_addr[i]);
+			handled = tcpup_do_packet(_offset, p, _rcvpkt_len[i], &_rcvpkt_addr[i], _rcvpkt_link[i]);
+
 			TCP_DEBUG(handled == 0, "error packet drop: %s\n",
 					inet_ntoa(((struct sockaddr_in *)(&saaddr))->sin_addr));
 			p += _rcvpkt_len[i];
@@ -448,7 +455,7 @@ extern "C" void tcp_backwork(struct tcpip_info *info)
 	return;
 }
 
-static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
+static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name, u_short link)
 {
 	int fd;
 	int error;
@@ -476,19 +483,24 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 		fd = _tcp_out_fd;
 	}
 #endif
+	u_short psuedo_header[2];
+	psuedo_header[0] = htons(0xfe80);
+	psuedo_header[1] = link;
 
 #ifndef WIN32
 	struct iovec  iovecs[10];
 	iovecs[0].iov_len = sizeof(dns_filling_byte);
 	iovecs[0].iov_base = dns_filling_byte;
-	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
-	packet_encrypt_iovec(iovecs, count + 1, hold_buffer);
+	iovecs[1].iov_len  = sizeof(psuedo_header);
+	iovecs[1].iov_base = psuedo_header;
+	memcpy(iovecs + 2, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs + 2, count, hold_buffer);
 
 	struct msghdr msg0;
 	msg0.msg_name = (void *)name->name;
 	msg0.msg_namelen = name->namlen;
 	msg0.msg_iov  = (struct iovec*)iovecs;
-	msg0.msg_iovlen = count + 1;
+	msg0.msg_iovlen = count + 2;
 
 	msg0.msg_control = NULL;
 	msg0.msg_controllen = 0;
@@ -499,11 +511,13 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	WSABUF  iovecs[10];
 	iovecs[0].len = sizeof(dns_filling_byte);
 	iovecs[0].buf = (char *)dns_filling_byte;
-	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
-	packet_encrypt_iovec(iovecs, count + 1, hold_buffer);
+	iovecs[1].len = sizeof(psuedo_header);
+	iovecs[1].buf = psuedo_header;
+	memcpy(iovecs + 2, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs + 2, count, hold_buffer);
 
 	transfer = 1;
-	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,
+	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 2, &transfer, 0,
 			(const sockaddr *)name->name, name->namlen, NULL, NULL);
 	error = ((error == 0 || WSAGetLastError() == WSA_IO_PENDING)? transfer: -1);
 	{
@@ -537,7 +551,7 @@ void tcpup_device::holdon(void)
 
 		iov.iov_len = sizeof(_reg_net);
 		iov.iov_base = _reg_net;
-		_utxpl_output(0, &iov, 1, &name);
+		_utxpl_output(0, &iov, 1, &name, 0);
 	}
 
 	return;

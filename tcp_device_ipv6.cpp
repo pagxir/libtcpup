@@ -302,6 +302,7 @@ static void listen_statecb(void *context)
 #define RCVPKT_MAXSIZ 1492
 
 static u_short _rcvpkt_len[RCVPKT_MAXCNT];
+static u_short _rcvpkt_link[RCVPKT_MAXCNT];
 static tcpup_addr _rcvpkt_addr[RCVPKT_MAXCNT];
 static char  _rcvpkt_buf[RCVPKT_MAXSIZ * RCVPKT_MAXCNT];
 
@@ -337,12 +338,13 @@ void tcpup_device_ipv6::incoming(void)
 			if (len == -1) break;
 
 			int offset = sizeof(dns_filling_byte);
+			u_short psuedo_header[2];
 
-			if (len >= offset + TCPUP_HDRLEN) {
+			if (len >= offset + TCPUP_HDRLEN + sizeof(psuedo_header)) {
 				struct tcpup_addr from;
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is ipv6 overflow %d\n", salen);
 				// memcpy(&key, packet + 14, sizeof(key));
-				packet_decrypt(htons(key), p, packet + offset, len - offset);
+				packet_decrypt(htons(key), p, packet + offset + sizeof(psuedo_header), len - offset - sizeof(psuedo_header));
 
 				if (_filter_hook != NULL) {
 					memcpy(from.name, &saaddr, salen);
@@ -353,10 +355,14 @@ void tcpup_device_ipv6::incoming(void)
 					}
 				}
 
-				memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
-				_rcvpkt_addr[pktcnt].namlen = salen;
-				_rcvpkt_len[pktcnt++] = (len - offset);
-				p += (len - offset);
+				memcpy(psuedo_header, packet + offset, sizeof(psuedo_header));
+				if (psuedo_header[0] == htons(0xfe80)) {
+					memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
+					_rcvpkt_addr[pktcnt].namlen = salen;
+					_rcvpkt_link[pktcnt]  = psuedo_header[1];
+					_rcvpkt_len[pktcnt++] = (len - offset - sizeof(psuedo_header));
+					p += (len - offset - sizeof(psuedo_header));
+				}
 			}
 
 			this->_t_rcvtime = time(NULL);
@@ -366,7 +372,8 @@ void tcpup_device_ipv6::incoming(void)
 		p = _rcvpkt_buf;
 		for (int i = 0; i < pktcnt; i++) {
 			char inbuf[128];
-			handled = tcpup_do_packet(_offset, p, _rcvpkt_len[i], &_rcvpkt_addr[i]);
+			handled = tcpup_do_packet(_offset, p, _rcvpkt_len[i], &_rcvpkt_addr[i], _rcvpkt_link[i]);
+
 			TCP_DEBUG(handled == 0, "error packet drop: %s\n", inet_ntop(AF_INET6, &saaddr.sin6_addr, inbuf, sizeof(inbuf)));
 			p += _rcvpkt_len[i];
 		}
@@ -412,7 +419,7 @@ static u_short get_addr_port(struct tcpup_addr const *name)
 	return saip->sin6_port;
 }
 
-static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
+static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name, u_short link)
 {
 	int fd;
 	int error;
@@ -431,18 +438,26 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	fd = _paging_devices[offset]->_file;
 	_paging_devices[offset]->_t_sndtime = time(NULL);
 
+	u_short psuedo_header[2];
+	psuedo_header[0] = htons(0xfe80);
+	psuedo_header[1] = link;
+
 #ifndef WIN32
 	struct iovec  iovecs[10];
 	iovecs[0].iov_len = sizeof(dns_filling_byte);
 	iovecs[0].iov_base = dns_filling_byte;
-	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
-	packet_encrypt_iovec(iovecs, count + 1, hold_buffer);
+
+	iovecs[1].iov_len  = sizeof(psuedo_header);
+	iovecs[1].iov_base = psuedo_header;
+
+	memcpy(iovecs + 2, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs + 2, count, hold_buffer);
 
 	struct msghdr msg0;
 	msg0.msg_name = (void *)name->name;
 	msg0.msg_namelen = name->namlen;
 	msg0.msg_iov  = (struct iovec*)iovecs;
-	msg0.msg_iovlen = count + 1;
+	msg0.msg_iovlen = count + 2;
 
 	msg0.msg_control = NULL;
 	msg0.msg_controllen = 0;
@@ -454,10 +469,14 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	WSABUF  iovecs[10];
 	iovecs[0].len = sizeof(dns_filling_byte);
 	iovecs[0].buf = (char *)dns_filling_byte;
-	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
-	packet_encrypt_iovec(iovecs, count + 1, hold_buffer);
 
-	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,
+	iovecs[1].len = sizeof(psuedo_header);
+	iovecs[1].buf = psuedo_header;
+
+	memcpy(iovecs + 2, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs + 2, count, hold_buffer);
+
+	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 2, &transfer, 0,
 			(const sockaddr *)name->name, name->namlen, NULL, NULL);
 	error = (error == 0? transfer: -1);
 	{

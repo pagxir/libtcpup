@@ -233,7 +233,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 						(char *)&to->to_mss, sizeof(to->to_mss));
 				to->to_mss = ntohs(to->to_mss);
 				break;
-#if 0
+
 			case TCPOPT_WINDOW:
 				if (optlen != TCPOLEN_WINDOW)
 					continue;
@@ -242,7 +242,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 				to->to_flags |= TOF_SCALE;
 				to->to_wscale = min(cp[2], TCP_MAX_WINSHIFT);
 				break;
-#endif
+
 			case TCPOPT_TIMESTAMP:
 				if (optlen != TCPOLEN_TIMESTAMP)
 					continue;
@@ -254,7 +254,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 						(char *)&to->to_tsecr, sizeof(to->to_tsecr));
 				to->to_tsecr = ntohl(to->to_tsecr);
 				break;
-#if 1
+
 			case TCPOPT_SACK_PERMITTED:
 				if (optlen != TCPOLEN_SACK_PERMITTED)
 					continue;
@@ -262,7 +262,6 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 					continue;
 				to->to_flags |= TOF_SACKPERM;
 				break;
-#endif
 #if 0
             case TCPOPT_DESTINATION:
                 if (optlen <= 2 || (optlen - 2) < 4)
@@ -284,6 +283,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 				to->to_sacks = cp + 2;
 				TCPSTAT_INC(tcps_sack_rcv_blocks);
 				break;
+
 			default:
 				continue;
 		}
@@ -336,7 +336,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 		if (tp->t_flags & TF_REC_ADDR) {
 			tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));
 		} else if (tp->snd_max == tp->snd_una &&
-				(len > sizeof(*th) + (th->th_opten << 2))) {
+				(len > (th->th_opten << 2))) {
 			tcp_timer_activate(tp, TT_KEEP, TP_KEEPINTVL(tp));
 		} else {
 			tcp_timer_activate(tp, TT_KEEP, TP_KEEPIDLE(tp));
@@ -349,11 +349,11 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 	 */
 	tiwin = th->th_win << WINDOW_SCALE; /* tp->snd_scale; */
 	TCP_TRACE_CHECK(tp, tiwin < 2 * tp->t_maxseg, "small window  %ld\n", tiwin);
-	TCP_TRACE_CHECK(tp, (tp->t_state > TCPS_ESTABLISHED), "after fin: %x %x %x\n", th->th_seq, th->th_ack, tp->snd_max);
 
 	/*
 	 * Parse options on any incoming segment.
 	 */
+	assert(th->th_opten >= 5);
 	int hdrlen = tcp_dooptions(&to, (u_char *)(buf + sizeof(mth)),
 			(th->th_opten << 2) - sizeof(*th), (thflags & TH_SYN) ? TO_SYN : 0);
 	if (len < hdrlen) {
@@ -364,6 +364,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 	dat  = buf + hdrlen;
 
 	orig_len = tlen;
+	TCP_TRACE_CHECK(tp, (tp->t_state > TCPS_ESTABLISHED), "%p after fin: %x %x %x tlen=%d len=%d\n", tp, th->th_seq, th->th_ack, tp->snd_max, tlen, len, hdrlen);
 	/*
 	 * If echoed timestamp is later than the current time,
 	 * fall back to non RFC1323 RTT calculation.  Normalize
@@ -523,7 +524,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 			TCPSTAT_ADD(tcps_rcvbyte, tlen);
 			rgn_put(tp->rgn_rcv, dat, tlen);
 
-                        if (to.to_tsecr) {
+			if (to.to_tsecr) {
 				const int oldsz = rgn_size(tp->rgn_rcv);
 				if (TSTMP_GT(to.to_tsecr, tp->rfbuf_ts) &&
 						to.to_tsecr - tp->rfbuf_ts < hz) {
@@ -537,7 +538,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 					tp->rfbuf_cnt = 0;
 				} else
 					tp->rfbuf_cnt += tlen;  /* add up */
-                        }
+			}
 
 			sorwakeup(tp);
 			if (DELAY_ACK(tp) && tp->t_maxseg/2 <= len) {
@@ -589,7 +590,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 			tp->irs = th->th_seq;
 			tp->t_flags |= TF_ACKNOW;
 			tp->t_state = TCPS_SYN_RECEIVED;
-			TCP_TRACE_START(tp, "TCPS_LISTEN -> TCPS_SYN_RECEIVED\n");
+			TCP_TRACE_START(tp, "%p, TCPS_LISTEN -> TCPS_SYN_RECEIVED\n", tp);
 			soisconnected(so); // tcp fast open feature
 
 			if ((to.to_flags & TOF_MSS) &&
@@ -717,12 +718,12 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 				}
 
 				if (tp->t_flags & TF_NEEDFIN) {
-					TCP_TRACE_START(tp, "TCPS_SYN_SENT -> TCPS_FIN_WAIT_1\n");
+					TCP_TRACE_START(tp, "%p TCPS_SYN_SENT -> TCPS_FIN_WAIT_1\n", tp);
 					tcp_state_change(tp, TCPS_FIN_WAIT_1);
 					tp->t_flags &= ~TF_NEEDFIN;
 					thflags &= ~TH_SYN;
 				} else {
-					TCP_TRACE_START(tp, "TCPS_SYN_SENT -> TCPS_ESTABLISHED\n");
+					TCP_TRACE_START(tp, "%p TCPS_SYN_SENT -> TCPS_ESTABLISHED\n", tp);
 					tcp_state_change(tp, TCPS_ESTABLISHED);
 
 					cc_conn_init(tp);
@@ -1137,7 +1138,7 @@ close:
 				tcp_timer_activate(tp, TT_REXMT, 0);
 			sowwakeup(tp);
 			/* FALLTHROUGH */
-			TCP_TRACE_START(tp, "TCPS_SYN_RECEIVED -> TCPS_ESTABLISHED\n");
+			TCP_TRACE_START(tp, "%p TCPS_SYN_RECEIVED -> TCPS_ESTABLISHED\n", tp);
 		case TCPS_ESTABLISHED:
 		case TCPS_FIN_WAIT_1:
 		case TCPS_FIN_WAIT_2:
@@ -1350,7 +1351,7 @@ process_ACK:
 					if (ourfinisacked) {
 						tcp_timer_activate(tp, TT_2MSL, TP_KEEPCNT(tp) * TP_KEEPINTVL(tp));
 						tp->t_state = TCPS_FIN_WAIT_2;
-						TCP_TRACE_AWAYS(tp, "TCPS_FIN_WAIT_1 -> TCPS_FIN_WAIT_2\n");
+						TCP_TRACE_AWAYS(tp, "%p TCPS_FIN_WAIT_1 -> TCPS_FIN_WAIT_2\n", tp);
 						soisdisconnected(so);
 					}
 					break;
@@ -1358,7 +1359,7 @@ process_ACK:
 				case TCPS_CLOSING:
 					if (ourfinisacked) {
 						tp->t_state = TCPS_TIME_WAIT;
-						TCP_TRACE_AWAYS(tp, "TCPS_CLOSING -> TCPS_TIME_WAIT\n");
+						TCP_TRACE_AWAYS(tp, "%p TCPS_CLOSING -> TCPS_TIME_WAIT\n", tp);
 						tcp_canceltimers(tp);
 						tcp_timer_activate(tp, TT_2MSL, 2 * TCPTV_MSL);
 					}
@@ -1366,7 +1367,7 @@ process_ACK:
 
 				case TCPS_LAST_ACK:
 					if (ourfinisacked) {
-						TCP_TRACE_AWAYS(tp, "TCPS_LAST_ACK -> TCPS_CLOSED\n");
+						TCP_TRACE_AWAYS(tp, "%p TCPS_LAST_ACK -> TCPS_CLOSED\n", tp);
 						tp->t_state = TCPS_CLOSED;
 						tcp_close(tp);
 						tp = NULL;
@@ -1470,19 +1471,19 @@ dodata:
 			case TCPS_SYN_RECEIVED:
 				tp->t_starttime = ticks;
 			case TCPS_ESTABLISHED:
-				TCP_TRACE_AWAYS(tp, "TCPS_ESTABLISHED -> TCPS_CLOSE_WAIT\n");
+				TCP_TRACE_AWAYS(tp, "%p TCPS_ESTABLISHED -> TCPS_CLOSE_WAIT\n", tp);
 				tp->t_state = TCPS_CLOSE_WAIT;
 				sorwakeup(tp);
 				break;
 
 			case TCPS_FIN_WAIT_1:
-				TCP_TRACE_AWAYS(tp, "TCPS_FIN_WAIT_1 -> TCPS_CLOSING\n");
+				TCP_TRACE_AWAYS(tp, "%p TCPS_FIN_WAIT_1 -> TCPS_CLOSING\n", tp);
 				tp->t_state = TCPS_CLOSING;
 				sorwakeup(tp);
 				break;
 
 			case TCPS_FIN_WAIT_2:
-				TCP_TRACE_AWAYS(tp, "TCPS_FIN_WAIT_2 -> TCPS_TIME_WAIT\n");
+				TCP_TRACE_AWAYS(tp, "%p TCPS_FIN_WAIT_2 -> TCPS_TIME_WAIT\n", tp);
 				tp->t_state = TCPS_TIME_WAIT;
 				tcp_canceltimers(tp);
 				tcp_timer_activate(tp, TT_2MSL, 2 * TCPTV_MSL);

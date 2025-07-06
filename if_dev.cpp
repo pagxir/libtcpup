@@ -48,9 +48,9 @@ void __utxpl_assert(const char *expr, const char *path, size_t line)
 	return;
 }
 
-int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
+int utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name, u_short link)
 {
-	return (*_if_dev_db->output)(offset, iov, count, name);
+	return (*_if_dev_db->output)(offset, iov, count, name, link);
 }
 
 int get_device_mtu()

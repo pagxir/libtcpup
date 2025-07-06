@@ -134,8 +134,8 @@ struct tcphdr {
 #define    TCPOLEN_DESTINATION          2
 
 /* Miscellaneous constants */
-#define MAX_SACK_BLKS   9       /* Max # SACK blocks stored at receiver side */
-#define TCP_MAX_SACK    7       /* MAX # SACKs sent in any segment */
+#define MAX_SACK_BLKS   6       /* Max # SACK blocks stored at receiver side */
+#define TCP_MAX_SACK    4       /* MAX # SACKs sent in any segment */
 
 
 /*
@@ -179,10 +179,10 @@ struct tcphdr {
 #define TCP_MAXBURST            4       /* maximum segments in a burst */
 
 #define TCP_MAXHLEN     (0xf<<2)        /* max length of header in bytes */
-/*
- * #define TCP_MAXOLEN     (TCP_MAXHLEN - sizeof(struct tcphdr))
- */
-#define TCP_MAXOLEN     (TCP_MAXHLEN)
+
+#define TCP_MAXOLEN     (TCP_MAXHLEN - sizeof(struct tcphdr))
+
+// #define TCP_MAXOLEN     (TCP_MAXHLEN)
                                         /* max space left for options */
 
 /*

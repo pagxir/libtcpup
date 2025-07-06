@@ -616,9 +616,9 @@ void tcp_usrclosed(struct tcpcb *tp)
 	}
 }
 
-u_short update_checksum(const void *buf, size_t count);
+u_short update_checksum(const void *buf, size_t count, u_short link);
 
-int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_addr *from)
+int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_addr *from, u_short link)
 {
 	int handled = 0;
 	struct tcpcb *tp;
@@ -632,7 +632,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 		return -1;
 	}
 
-	u_short cksum = update_checksum(buf, len);
+	u_short cksum = update_checksum(buf, len, link);
 	if (cksum != 0) {
 		TCP_DEBUG(1, "BAD TCPUP CHECKSUM: %x\n", cksum);
 		assert(cksum != 0xffff);
@@ -647,7 +647,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 
 #define TH_CONNECT (TH_SYN | TH_ACK | TH_RST)
 	if (handled == 0 && (th->th_flags & TH_CONNECT) == TH_SYN) {
-		sockcb_t sonew = sonewconn(dst, th->th_conv);
+		sockcb_t sonew = sonewconn(dst, th->th_conv, link);
 		if (sonew != NULL) {
 			tp = sonew->so_pcb;
 			tp->t_state = TCPS_LISTEN;

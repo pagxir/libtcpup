@@ -283,7 +283,7 @@ int pacing_adjust(struct tcpcb *tp, u_int64_t *pacing, size_t datalen)
     return 0;
 }
 
-uint16_t update_ckpass(const rgn_iovec iov[], size_t count);
+uint16_t update_ckpass(const rgn_iovec iov[], size_t count, uint16_t pseudo);
 
 static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 {
@@ -381,7 +381,7 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	th->th_win   = htons((tp->rcv_adv - tp->rcv_nxt) >> WINDOW_SCALE);
 	th->th_sum	= 0;
 	th->th_urp	= 0;
-	th->th_sum  = update_ckpass(iobuf, 3);
+	th->th_sum  = update_ckpass(iobuf, 3, tp->tp_socket->so_link);
 
 #if 0
 	if (tp->t_rtttime == txsi->tx_ts &&
@@ -400,7 +400,7 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	}
 
 	assert(len + optlen <= tp->t_max_payload);
-	utxpl_output(tp->tp_socket->so_iface, iobuf, 3, &tp->dst_addr);
+	utxpl_output(tp->tp_socket->so_iface, iobuf, 3, &tp->dst_addr, tp->tp_socket->so_link);
 	pacing_adjust(tp, &tp->t_pacing, len + optlen);
 	total++;
 

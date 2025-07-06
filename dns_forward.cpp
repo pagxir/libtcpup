@@ -235,7 +235,7 @@ static void on_udp6_receive(void *upp)
 			dns_pkt[1].iov_base = udp_packet;
 			dns_pkt[1].iov_len  = len + sizeof(*up);
 
-			utxpl_output(0, dns_pkt, 2, &ctx->uf_from);
+			utxpl_output(0, dns_pkt, 2, &ctx->uf_from, 0);
 		}
 	}
 
@@ -290,7 +290,7 @@ static void on_udp_receive(void *upp)
 			dns_pkt[1].iov_base = udp_packet;
 			dns_pkt[1].iov_len  = len + sizeof(*up4);
 
-			utxpl_output(0, dns_pkt, 2, &ctx->uf_from);
+			utxpl_output(0, dns_pkt, 2, &ctx->uf_from, 0);
 		}
 	}
 

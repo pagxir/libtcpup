@@ -330,6 +330,7 @@ static void listen_statecb(void *context)
 #define RCVPKT_MAXSIZ 1492
 
 static u_short _rcvpkt_len[RCVPKT_MAXCNT];
+static u_short _rcvpkt_link[RCVPKT_MAXCNT];
 static tcpup_addr _rcvpkt_addr[RCVPKT_MAXCNT];
 static char  _rcvpkt_buf[RCVPKT_MAXSIZ * RCVPKT_MAXCNT];
 static void icmp_update_checksum(unsigned char *st, LPIOVEC vecs, size_t count);
@@ -373,12 +374,13 @@ void TCPUP_DEVICE_ICMP_CLASS::incoming(void)
 
 			int offset = IPHDR_SKIP_LEN + sizeof(icmp_hdr_fill);
 			icmphdr = (struct icmphdr *)(packet + IPHDR_SKIP_LEN);
+			u_short psuedo_header[2];
 
-			if (len >= offset + TCPUP_HDRLEN) {
+			if (len >= offset + TCPUP_HDRLEN + sizeof(psuedo_header)) {
 				struct tcpup_addr from;
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
 				memcpy(&key, packet + 14 + IPHDR_SKIP_LEN, sizeof(key));
-				packet_decrypt(htons(key), p, packet + offset, len - offset);
+				packet_decrypt(htons(key), p, packet + offset + sizeof(psuedo_header), len - offset - sizeof(psuedo_header));
 
 				if (_filter_hook != NULL) {
 					memcpy(from.name, &saaddr, salen);
@@ -394,14 +396,17 @@ void TCPUP_DEVICE_ICMP_CLASS::incoming(void)
 				/* 0x08, _icmp_is_reply == 0, 0xec, reversed */
 				if ((icmphdr->type == 0x08 && icmphdr->reserved[0] == 0xecececec && _icmp_is_reply) ||
 						(_icmp_is_reply == 0 && icmphdr->type == 0x00 && icmphdr->reserved[0] == 0xcececece)) {
-					if (tphdr->th_x2 == 0) {
+
+					memcpy(psuedo_header, packet + offset, sizeof(psuedo_header));
+					if (psuedo_header[0] == htons(0xfe80) && tphdr->th_x2 == 0 && tphdr->th_urp == 0) {
 						this->_t_rcvtime = time(NULL);
 						(*(struct sockaddr_in *)&saaddr).sin_port = icmphdr->u0.seqno;
 						memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
 						_rcvpkt_addr[pktcnt].xdat = icmphdr->u0.pair;
 						_rcvpkt_addr[pktcnt].namlen = salen;
-						_rcvpkt_len[pktcnt++] = (len - offset);
-						p += (len - offset);
+						_rcvpkt_link[pktcnt]  = psuedo_header[1];
+						_rcvpkt_len[pktcnt++] = (len - offset - sizeof(psuedo_header));
+						p += (len - offset - sizeof(psuedo_header));
 						continue;
 					}
 				}
@@ -423,8 +428,10 @@ void TCPUP_DEVICE_ICMP_CLASS::incoming(void)
 		int handled;
 		p = _rcvpkt_buf;
 		for (int i = 0; i < pktcnt; i++) {
-			handled = tcpup_do_packet(_offset, p, _rcvpkt_len[i], &_rcvpkt_addr[i]);
-			TCP_DEBUG(handled == 0, "error packet drop: %s\n", inet_ntoa(((struct sockaddr_in *)(&saaddr))->sin_addr));
+			handled = tcpup_do_packet(_offset, p, _rcvpkt_len[i], &_rcvpkt_addr[i], _rcvpkt_link[i]);
+
+			TCP_DEBUG(handled == 0, "error packet drop: %s\n",
+					inet_ntoa(((struct sockaddr_in *)(&saaddr))->sin_addr));
 			p += _rcvpkt_len[i];
 		}
 	}
@@ -499,7 +506,7 @@ static u_short get_addr_port(struct tcpup_addr const *name)
 	return saip->sin_port;
 }
 
-static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name)
+static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name, u_short link)
 {
 	int fd;
 	int error;
@@ -539,12 +546,18 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 		memset(icmp_hdr_fill[0].reserved, ICMP_SERVER_FILL, sizeof(icmp_hdr_fill[0].reserved));
 	}
 
+	u_short psuedo_header[2];
+	psuedo_header[0] = htons(0xfe80);
+	psuedo_header[1] = link;
+
 #ifndef WIN32
 	struct iovec  iovecs[10];
 	iovecs[0].iov_len = sizeof(icmp_hdr_fill);
 	iovecs[0].iov_base = icmp_hdr_fill;
-	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
-	packet_encrypt_iovec(iovecs + 1, count, hold_buffer);
+	iovecs[1].iov_len  = sizeof(psuedo_header);
+	iovecs[1].iov_base = psuedo_header;
+	memcpy(iovecs + 2, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs + 2, count, hold_buffer);
 
 	struct msghdr msg0;
 
@@ -561,7 +574,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 		msg0.msg_namelen = sizeof(daddr);
 	}
 	msg0.msg_iov  = (struct iovec*)iovecs;
-	msg0.msg_iovlen = count + 1;
+	msg0.msg_iovlen = count + 2;
 
 	msg0.msg_control = NULL;
 	msg0.msg_controllen = 0;
@@ -575,12 +588,14 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	WSABUF  iovecs[10];
 	iovecs[0].len = sizeof(icmp_hdr_fill);
 	iovecs[0].buf = (char *)icmp_hdr_fill;
-	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
-	packet_encrypt_iovec(iovecs, count, hold_buffer);
+	iovecs[1].len = sizeof(psuedo_header);
+	iovecs[1].buf = psuedo_header;
+	memcpy(iovecs + 2, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs + 2, count, hold_buffer);
 
 	icmp_hdr_fill[0].u0.pair = name->xdat;
 	icmp_update_checksum((unsigned char *)&icmp_hdr_fill[0].checksum, iovecs, count + 1);
-	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,
+	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 2, &transfer, 0,
 			(const sockaddr *)name->name, name->namlen, NULL, NULL);
 	error = (error == 0? transfer: -1);
 #endif

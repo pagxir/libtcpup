@@ -41,29 +41,32 @@ void tcp_setpersist(struct tcpcb *tp)
 	return;
 }
 
-u_short update_checksum(const void *buf, size_t count)
+u_short update_checksum(const void *buf, size_t count, u_short link)
 {
 	uint32_t cksum = htons(count + IPPROTO_TCP);
 	const uint16_t *base = (const uint16_t *)buf;
 	size_t len = count;
 
-	while (len >= 2)
+	while (len >= 2) {
 		cksum += *base++;
+		len -= 2;
+	}
 
 	if (len > 0)
 		cksum += *base & htons(0xff00);
 
+	cksum += link;
 	while (cksum >> 16)
 		cksum = (cksum >> 16) + (uint16_t)cksum;
 
 	return (uint16_t)~cksum;
 }
 
-uint16_t update_ckpass(const rgn_iovec iov[], size_t num)
+uint16_t update_ckpass(const rgn_iovec iov[], size_t num, unsigned short pseudo)
 {
 	int i, j;
 	size_t total = 0;
-	uint32_t cksum = 0;
+	uint32_t cksum = pseudo;
 
 	for (i = 0; i < num; i++) {
 		size_t len = iov[i].iov_len;
@@ -90,26 +93,11 @@ uint16_t update_ckpass(const rgn_iovec iov[], size_t num)
 	}
 
 	cksum += htons(IPPROTO_TCP + total);
-	// cksum += htons(total);
 
 	while (cksum >> 16)
 		cksum = (cksum >> 16) + (uint16_t)cksum;
 
-	return cksum;
-
-#if 0
-	union {
-		struct {
-			u_short len;
-			u_short sum;
-		} ck;
-		tcp_seq val;
-	} ckpass;
-
-	ckpass.ck.len = htons(total);
-	ckpass.ck.sum = ~cksum;
-	return ckpass.val;
-#endif
+	return (uint16_t)~cksum;
 }
 
 static int inline      hhook_run_tcp_est_out(struct tcpcb *tp,
@@ -478,10 +466,16 @@ send_label:
 		to.to_dslen = tp->relay_len;
 	}
 
-	if (tp->rcv_numsacks > 0) {
-		to.to_flags |= TOF_SACK;
-		to.to_nsacks = tp->rcv_numsacks;
-		to.to_sacks = (u_char *)tp->sackblks;
+	if (tp->t_flags & TF_SACK_PERMIT) {
+		if (flags & TH_SYN)
+			to.to_flags |= TOF_SACKPERM;
+		else if (TCPS_HAVEESTABLISHED(tp->t_state) &&
+				(tp->t_flags & TF_SACK_PERMIT) &&
+				tp->rcv_numsacks > 0) {
+			to.to_flags |= TOF_SACK;
+			to.to_nsacks = tp->rcv_numsacks;
+			to.to_sacks = (u_char *)tp->sackblks;
+		}
 	}
 
 	if (tp->rfbuf_ts == 0)
@@ -562,11 +556,11 @@ send_label:
 	th->th_win = htons((u_short)(recwin >> WINDOW_SCALE));
 
 
-	th->th_sum = update_ckpass(iobuf, 3);
+	th->th_sum = update_ckpass(iobuf, 3, tp->tp_socket->so_link);
 	/* Run HHOOK_TCP_ESTABLISHED_OUT helper hooks. */
 
 	if (len == 0)
-	    error = utxpl_output(tp->tp_socket->so_iface, iobuf, 3, &tp->dst_addr);
+	    error = utxpl_output(tp->tp_socket->so_iface, iobuf, 3, &tp->dst_addr, tp->tp_socket->so_link);
 	else
 	    error = hhook_run_tcp_est_out(tp, th, &to, len, sack_rxmit);
 
@@ -663,11 +657,12 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 	struct tcphdr *th = &tcpup_th0;
 
 	th->th_x2 = 0;
-	th->th_opten = 0;
+	th->th_opten = 5;
 	th->th_ack = htonl(ack);
 	th->th_seq = htonl(seq);
 	th->th_flags = flags;
 	th->th_win   = 0;
+	th->th_urp   = 0;
 
 	if (orig != NULL) {
 		th->th_conv = (orig->th_conv);
@@ -694,8 +689,8 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 	TCP_TRACE_AWAYS(tp, "tcp_respond: %x flags %x seq %x  ack %x ts %x %x\n",
 			th->th_conv, flags, seq, ack, 0, 0);
 
-	th->th_sum = update_ckpass(&iov0, 1);
-	error = utxpl_output(tp->tp_socket->so_iface, &iov0, 1, &tp->dst_addr);
+	th->th_sum = update_ckpass(&iov0, 1, tp->tp_socket->so_link);
+	error = utxpl_output(tp->tp_socket->so_iface, &iov0, 1, &tp->dst_addr, tp->tp_socket->so_link);
 	VAR_UNUSED(error);
 	return;
 }
@@ -818,7 +813,20 @@ int tcp_addoptions(struct tcpopt *to, u_char *optp)
 				break;
 
 			case TOF_SACKPERM:
+				while (optlen % 2) {
+					optlen += TCPOLEN_NOP;
+					*optp++ = TCPOPT_NOP;
+				}
+				if (TCP_MAXOLEN - optlen < TCPOLEN_SACK_PERMITTED)
+					continue;
+				optlen += TCPOLEN_SACK_PERMITTED;
+				*optp++ = TCPOPT_SACK_PERMITTED;
+				*optp++ = TCPOLEN_SACK_PERMITTED;
 				break;
+
+			case TOF_DESTINATION:
+				break;
+
 			default:
 				TX_PANIC(0, "unknown TCP option type");
 				break;
