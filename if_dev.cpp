@@ -25,6 +25,12 @@
 
 int ticks = 0;
 
+void ifdev_phony_reply_mode(int mode) {}
+void ifdev_phony_address(struct tcpip_info *info) {}
+void ifdev_phony_dev_busy(struct tcpcb *tp, tx_task_t *task) {}
+int ifdev_phony_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name, u_short link) {}
+int ifdev_phony_set_filter(FILTER_HOOK *hook) {}
+sockcb_t ifdev_phony_socreate(so_conv_t conv) {}
 
 extern struct module_stub  tcp_device_udp_mod;
 extern struct module_stub  tcp_device_icmp_mod;
@@ -66,7 +72,8 @@ int get_device_mtu()
 
 int set_filter_hook(FILTER_HOOK *hook)
 {
-	(*_if_dev_db->set_filter)(hook);
+	if (_if_dev_db->set_filter)
+		(*_if_dev_db->set_filter)(hook);
 	return 0;
 }
 

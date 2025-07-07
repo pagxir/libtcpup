@@ -27,6 +27,12 @@ struct if_dev_cb {
     void (* outter_address)(struct tcpip_info *info);
     void (* keepalive_address)(struct tcpip_info *info);
 };
+
+void ifdev_phony_reply_mode(int mode);
+void ifdev_phony_address(struct tcpip_info *info);
+void ifdev_phony_dev_busy(struct tcpcb *tp, tx_task_t *task);
+int ifdev_phony_set_filter(FILTER_HOOK *hook);
+sockcb_t ifdev_phony_socreate(so_conv_t conv);
 #endif
 
 #endif
