@@ -246,6 +246,7 @@ int main(int argc, char *argv[])
 	set_filter_hook(filter_hook_dns_forward);
 	tx_loop_main(loop);
 
+	LOG_INFO("QUITING");
 	cleanup_modules(modules_list);
 #ifdef WIN32
 	WSACleanup();

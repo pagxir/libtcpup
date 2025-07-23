@@ -419,7 +419,7 @@ static u_short get_addr_port(struct tcpup_addr const *name)
 	return saip->sin6_port;
 }
 
-static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name, u_short link)
+static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name, uint32_t link)
 {
 	int fd;
 	int error;

@@ -25,231 +25,231 @@ void tcp_sack_mark_loss(struct tcpcb *tp, tcp_seq seq, size_t len);
 
 int is_sacked(struct tcpcb *tp, tcp_seq seq, size_t len)
 {
-    int j;
-    struct sackblk sack1;
+	int j;
+	struct sackblk sack1;
 
-    for (j = 0; j < tp->filter_nboard; j++) {
-	sack1 = tp->filter_board[j];
-	if (SEQ_GEQ(seq, sack1.start) &&
-		SEQ_GEQ(sack1.end, seq + len)) {
-	    return 1;
+	for (j = 0; j < tp->filter_nboard; j++) {
+		sack1 = tp->filter_board[j];
+		if (SEQ_GEQ(seq, sack1.start) &&
+				SEQ_GEQ(sack1.end, seq + len)) {
+			return 1;
+		}
 	}
-    }
-	
-    return 0;
+
+	return 0;
 }
 
 int get_filter_win(struct tcpcb *tp)
 {
-    if (tp->pacing_rate == 0) {
-	return 0;
-    }
-
-    if (!IN_FASTRECOVERY(tp->t_flags) &&
-	    TAILQ_EMPTY(&tp->snd_holes) &&
-	    SEQ_GEQ(tp->snd_recover, tp->snd_una) &&
-	    SEQ_LT(tp->snd_nxt, tp->snd_recover)) {
-	return 0;
-    }
-
-    long rto = TCP_REXMTVAL(tp);
-    unsigned ticks = tx_getticks();
-    unsigned pacing = (tp->t_pacing >> PACING_SHIFT);
-
-    if (TSTMP_GT(ticks, pacing)) {
-	uint64_t cw = ticks;
-	uint64_t maxcw = rto * tp->pacing_rate * 2 / 1000;
-	uint64_t pipefly = (tp->txsegi_length * tp->t_maxseg) << PACING_SHIFT;
-
-	cw = ((cw << PACING_SHIFT) - tp->t_pacing) * tp->pacing_rate / 1000;
-	if (cw > pipefly) cw -= pipefly;
-	cw = ((cw >> PACING_SHIFT) / tp->t_maxseg);
-
-	if (tp->snd_cwnd + cw > maxcw) {
-		return max(maxcw, tp->snd_cwnd) - tp->snd_cwnd;
+	if (tp->pacing_rate == 0) {
+		return 0;
 	}
 
-	return tp->t_maxseg * cw;
-    }
+	if (!IN_FASTRECOVERY(tp->t_flags) &&
+			TAILQ_EMPTY(&tp->snd_holes) &&
+			SEQ_GEQ(tp->snd_recover, tp->snd_una) &&
+			SEQ_LT(tp->snd_nxt, tp->snd_recover)) {
+		return 0;
+	}
 
-    return 0;
+	long rto = TCP_REXMTVAL(tp);
+	unsigned ticks = tx_getticks();
+	unsigned pacing = (tp->t_pacing >> PACING_SHIFT);
+
+	if (TSTMP_GT(ticks, pacing)) {
+		uint64_t cw = ticks;
+		uint64_t maxcw = rto * tp->pacing_rate * 2 / 1000;
+		uint64_t pipefly = (tp->txsegi_length * tp->t_maxseg) << PACING_SHIFT;
+
+		cw = ((cw << PACING_SHIFT) - tp->t_pacing) * tp->pacing_rate / 1000;
+		if (cw > pipefly) cw -= pipefly;
+		cw = ((cw >> PACING_SHIFT) / tp->t_maxseg);
+
+		if (tp->snd_cwnd + cw > maxcw) {
+			return max(maxcw, tp->snd_cwnd) - tp->snd_cwnd;
+		}
+
+		return tp->t_maxseg * cw;
+	}
+
+	return 0;
 }
 
 int tcp_filter_out(struct tcp_hhook_data *ctx_data)
 {
-    struct tcpcb *tp;
-    struct tcphdr *th;
-    struct tcpopt *to;
-    struct txseginfo *txsi;
-    struct tcp_hhook_data *thdp;
-    long len;
-    int tso;
+	struct tcpcb *tp;
+	struct tcphdr *th;
+	struct tcpopt *to;
+	struct txseginfo *txsi;
+	struct tcp_hhook_data *thdp;
+	long len;
+	int tso;
 
-    thdp = ctx_data;
-    tp = thdp->tp;
-    th = thdp->th;
-    to = thdp->to;
-    len = thdp->len;
-    tso = thdp->tso;
+	thdp = ctx_data;
+	tp = thdp->tp;
+	th = thdp->th;
+	to = thdp->to;
+	len = thdp->len;
+	tso = thdp->tso;
 
-    if (len == 0) {
-	return 0;
-    }
+	if (len == 0) {
+		return 0;
+	}
 
-    if (is_sacked(tp, ntohl(th->th_seq), len)) {
-	assert(tso || SEQ_LT(ntohl(th->th_seq), tp->snd_recover));
-	return 0;
-    }
+	if (is_sacked(tp, ntohl(th->th_seq), len)) {
+		assert(tso || SEQ_LT(ntohl(th->th_seq), tp->snd_recover));
+		return 0;
+	}
 
-    txsi = (struct txseginfo *)malloc(sizeof(*txsi));
-    if (txsi == NULL) {
-	assert(0);
-	return 0;
-    }
+	txsi = (struct txseginfo *)malloc(sizeof(*txsi));
+	if (txsi == NULL) {
+		assert(0);
+		return 0;
+	}
 
-    /* Construct txsi setting the necessary flags. */
-    txsi->flags = 0; /* Needs to be initialised. */
-    txsi->seq = ntohl(th->th_seq);
-    txsi->len = len;
-    txsi->tsloss = 0;
-    txsi->sacked = 0;
+	/* Construct txsi setting the necessary flags. */
+	txsi->flags = 0; /* Needs to be initialised. */
+	txsi->seq = ntohl(th->th_seq);
+	txsi->len = len;
+	txsi->tsloss = 0;
+	txsi->sacked = 0;
 
-    txsi->tx_ts = (to->to_tsval) - tp->ts_offset;
-    txsi->rx_ts = (to->to_tsecr);
+	txsi->tx_ts = (to->to_tsval) - tp->ts_offset;
+	txsi->rx_ts = (to->to_tsecr);
 
-    if (tso || SEQ_LT(txsi->seq, tp->snd_recover)) 
-	TAILQ_INSERT_TAIL(&tp->txsegi_rexmt_q, txsi, txsegi_lnk);
-    else
-	TAILQ_INSERT_TAIL(&tp->txsegi_xmt_q, txsi, txsegi_lnk);
+	if (tso || SEQ_LT(txsi->seq, tp->snd_recover)) 
+		TAILQ_INSERT_TAIL(&tp->txsegi_rexmt_q, txsi, txsegi_lnk);
+	else
+		TAILQ_INSERT_TAIL(&tp->txsegi_xmt_q, txsi, txsegi_lnk);
 
-    tp->txsegi_length ++;
-    if (tp->t_flags & TF_DEVBUSY) {
+	tp->txsegi_length ++;
+	if (tp->t_flags & TF_DEVBUSY) {
+		return 1;
+	}
+
+	if (tp->pacing_rate > tp->t_maxseg) {
+		tx_task_active(&tp->t_event_devbusy, "sch_next");
+		return 1;
+	}
+
+	tcp_filter_xmit(tp);
 	return 1;
-    }
-
-    if (tp->pacing_rate > tp->t_maxseg) {
-	tx_task_active(&tp->t_event_devbusy, "sch_next");
-	return 1;
-    }
-
-    tcp_filter_xmit(tp);
-    return 1;
 }
 
 int tcp_filter_in(struct tcp_hhook_data *ctx_data)
 {
-    struct tcpcb *tp;
-    struct tcphdr *th;
-    struct tcpopt *to;
-    struct txseginfo *txsi, *n_txsi;
-    struct tcp_hhook_data *thdp;
-    struct sackblk sack;
-    long len;
-    int tso;
-    int i, j;
+	struct tcpcb *tp;
+	struct tcphdr *th;
+	struct tcpopt *to;
+	struct txseginfo *txsi, *n_txsi;
+	struct tcp_hhook_data *thdp;
+	struct sackblk sack;
+	long len;
+	int tso;
+	int i, j;
 
-    thdp = ctx_data;
-    tp = thdp->tp;
-    th = thdp->th;
-    to = thdp->to;
-    len = thdp->len;
-    tso = thdp->tso;
+	thdp = ctx_data;
+	tp = thdp->tp;
+	th = thdp->th;
+	to = thdp->to;
+	len = thdp->len;
+	tso = thdp->tso;
 
-    tp->last_sacked = 0;
-    if (tp->snd_max == th->th_ack) {
-	tp->filter_nboard = 0;
-	tcp_filter_free(tp);
-	return 0;
-    }
-
-    if (tp->pacing_rate == 0) {
-	return 0;
-    }
-
-    if (to->to_flags & TOF_SACK) {
-	int old_sacked = 0, new_sacked = 0;
-	struct sackblk sack0, sack1;
-
-	for (j = 0; j < tp->filter_nboard; j++) {
-	    sack1 = tp->filter_board[j];
-	    old_sacked += (sack1.end - sack1.start);
+	tp->last_sacked = 0;
+	if (tp->snd_max == th->th_ack) {
+		tp->filter_nboard = 0;
+		tcp_filter_free(tp);
+		return 0;
 	}
 
-	for (i = 0; i < to->to_nsacks; i++) {
-	    bcopy((to->to_sacks + i * TCPOLEN_SACK),
-		    &sack, sizeof(sack));
-	    sack.start = ntohl(sack.start);
-	    sack.end = ntohl(sack.end);
+	if (tp->pacing_rate == 0) {
+		return 0;
+	}
 
-	    txsi = TAILQ_FIRST(&tp->txsegi_rexmt_q);
-	    while (txsi != NULL) {
-		if (SEQ_GEQ(txsi->seq, sack.start) &&
-			SEQ_GEQ(sack.end, txsi->seq + txsi->len) && !(txsi->flags & TXSI_SACKED)) {
+	if (to->to_flags & TOF_SACK) {
+		int old_sacked = 0, new_sacked = 0;
+		struct sackblk sack0, sack1;
+
+		for (j = 0; j < tp->filter_nboard; j++) {
+			sack1 = tp->filter_board[j];
+			old_sacked += (sack1.end - sack1.start);
+		}
+
+		for (i = 0; i < to->to_nsacks; i++) {
+			bcopy((to->to_sacks + i * TCPOLEN_SACK),
+					&sack, sizeof(sack));
+			sack.start = ntohl(sack.start);
+			sack.end = ntohl(sack.end);
+
+			txsi = TAILQ_FIRST(&tp->txsegi_rexmt_q);
+			while (txsi != NULL) {
+				if (SEQ_GEQ(txsi->seq, sack.start) &&
+						SEQ_GEQ(sack.end, txsi->seq + txsi->len) && !(txsi->flags & TXSI_SACKED)) {
 #if 0
-		    if (tp->sackhint.sack_bytes_rexmit > txsi->len)
-			tp->sackhint.sack_bytes_rexmit -= txsi->len;
+					if (tp->sackhint.sack_bytes_rexmit > txsi->len)
+						tp->sackhint.sack_bytes_rexmit -= txsi->len;
 #endif
-		    txsi->flags |= TXSI_SACKED;
+					txsi->flags |= TXSI_SACKED;
+				}
+				txsi = TAILQ_NEXT(txsi, txsegi_lnk);
+			}
+
+			int num = 0;
+			sack0 = sack;
+
+			for (j = 0; j < tp->filter_nboard; j++) {
+				sack1 = tp->filter_board[j];
+				if (SEQ_GEQ(th->th_ack, sack1.start)) {
+					continue;
+				}
+
+				if (SEQ_LT(sack0.end, sack1.start)) {
+					tp->filter_board[num++] = sack1;
+					continue;
+				}
+
+				if (SEQ_LT(sack1.end, sack0.start)) {
+					tp->filter_board[num++] = sack1;
+					continue;
+				}
+
+				if (SEQ_LT(sack1.start, sack0.start)) {
+					sack0.start = sack1.start;
+				}
+
+				if (SEQ_LT(sack0.end, sack1.end)) {
+					sack0.end = sack1.start;
+				}
+			}
+
+			tp->filter_nboard = num;
+			if (SEQ_LT(th->th_ack, sack0.start)) {
+				assert(num < 1024);
+				tp->filter_board[num++] = sack0;
+				tp->filter_nboard = num;
+			}
 		}
-		txsi = TAILQ_NEXT(txsi, txsegi_lnk);
-	    }
 
-	    int num = 0;
-	    sack0 = sack;
-
-	    for (j = 0; j < tp->filter_nboard; j++) {
-		sack1 = tp->filter_board[j];
-		if (SEQ_GEQ(th->th_ack, sack1.start)) {
-		    continue;
+		for (j = 0; j < tp->filter_nboard; j++) {
+			sack1 = tp->filter_board[j];
+			new_sacked += (sack1.end - sack1.start);
 		}
 
-		if (SEQ_LT(sack0.end, sack1.start)) {
-		    tp->filter_board[num++] = sack1;
-		    continue;
+		if (new_sacked > old_sacked) {
+			tp->last_sacked = (new_sacked - old_sacked);
 		}
-
-		if (SEQ_LT(sack1.end, sack0.start)) {
-		    tp->filter_board[num++] = sack1;
-		    continue;
-		}
-
-		if (SEQ_LT(sack1.start, sack0.start)) {
-		    sack0.start = sack1.start;
-		}
-
-		if (SEQ_LT(sack0.end, sack1.end)) {
-		    sack0.end = sack1.start;
-		}
-	    }
-
-	    tp->filter_nboard = num;
-	    if (SEQ_LT(th->th_ack, sack0.start)) {
-		assert(num < 1024);
-		tp->filter_board[num++] = sack0;
-		tp->filter_nboard = num;
-	    }
 	}
 
-	for (j = 0; j < tp->filter_nboard; j++) {
-	    sack1 = tp->filter_board[j];
-	    new_sacked += (sack1.end - sack1.start);
-	}
-
-	if (new_sacked > old_sacked) {
-	    tp->last_sacked = (new_sacked - old_sacked);
-	}
-    }
-
-    return 0;
+	return 0;
 }
 
 int total = 0;
 
 int pacing_check(struct tcpcb *tp, u_int64_t pacing)
 {
-    if (tp->pacing_rate == 0) {
-	return 0;
-    }
+	if (tp->pacing_rate == 0) {
+		return 0;
+	}
 
     unsigned ticks = tx_getticks();
     unsigned mypace = (pacing >> PACING_SHIFT);
@@ -259,31 +259,31 @@ int pacing_check(struct tcpcb *tp, u_int64_t pacing)
 
 int pacing_adjust(struct tcpcb *tp, u_int64_t *pacing, size_t datalen)
 {
-    if (tp->pacing_rate == 0) {
+	if (tp->pacing_rate == 0) {
+		return 0;
+	}
+
+	tx_loop_t *loop = tx_loop_default();
+	static unsigned _last_mstamp = 0;
+	static unsigned _next_mstamp = 0;
+	static unsigned _last_upcount = 0;
+
+	*pacing += (((datalen * 1000ull) << PACING_SHIFT) / tp->pacing_rate);
+	if (_last_mstamp != 0 && TSTMP_GT(_last_mstamp - 1, (unsigned)(*pacing >> PACING_SHIFT))) {
+		*pacing = _last_mstamp;
+		*pacing <<= PACING_SHIFT;
+	}
+
+	if (loop->tx_upcount != _last_upcount) {
+		_last_upcount = loop->tx_upcount;
+		_last_mstamp = _next_mstamp;
+		_next_mstamp = ticks;
+	}
+
 	return 0;
-    }
-
-    tx_loop_t *loop = tx_loop_default();
-    static unsigned _last_mstamp = 0;
-    static unsigned _next_mstamp = 0;
-    static unsigned _last_upcount = 0;
-
-    *pacing += (((datalen * 1000ull) << PACING_SHIFT) / tp->pacing_rate);
-    if (_last_mstamp != 0 && TSTMP_GT(_last_mstamp - 1, (unsigned)(*pacing >> PACING_SHIFT))) {
-	*pacing = _last_mstamp;
-	*pacing <<= PACING_SHIFT;
-    }
-
-    if (loop->tx_upcount != _last_upcount) {
-	_last_upcount = loop->tx_upcount;
-	_last_mstamp = _next_mstamp;
-	_next_mstamp = ticks;
-    }
-
-    return 0;
 }
 
-uint16_t update_ckpass(const rgn_iovec iov[], size_t count, uint16_t pseudo);
+uint16_t update_ckpass(const rgn_iovec iov[], size_t count, unsigned pseudo);
 
 static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 {
@@ -303,48 +303,50 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 	off = txsi->seq - tp->snd_una;
 
 	if ((txsi->flags & TXSI_SACKED)
-		|| SEQ_GEQ(tp->snd_una, seq + len)) {
-	
-	    return;
+			|| SEQ_GEQ(tp->snd_una, seq + len)) {
+
+		return;
 	}
 
 	if (SEQ_LT(seq, tp->snd_una)) {
-	    len = (txsi->seq + txsi->len - tp->snd_una);
-	    seq = tp->snd_una;
-	    assert(len > 0);
-	    off = 0;
+		len = (txsi->seq + txsi->len - tp->snd_una);
+		seq = tp->snd_una;
+		assert(len > 0);
+		off = 0;
 	}
 
 	int flags = tcp_outflags[tp->t_state];
 
 	if ((flags & TH_SYN) && SEQ_GT(tp->snd_nxt, tp->snd_una)) {
-	    if (tp->t_state != TCPS_SYN_RECEIVED)
-		flags &= ~TH_SYN;
-	    off--;
+		if (tp->t_state != TCPS_SYN_RECEIVED)
+			flags &= ~TH_SYN;
+		off--;
 	}
 
 	to.to_flags = 0;
 	/* Maximum segment size. */
 	if (flags & TH_SYN) {
-	    to.to_mss = tp->t_max_payload;
-	    to.to_flags |= TOF_MSS;
+		to.to_mss = tp->t_max_payload;
+		to.to_flags |= TOF_MSS;
 	}
 
+#if 0
 	if ((flags & TH_SYN) && tp->relay_len > 0) {
-	    to.to_flags |= TOF_DESTINATION;
-	    to.to_dsaddr = tp->relay_target;
-	    to.to_dslen = tp->relay_len;
+		to.to_flags |= TOF_DESTINATION;
+		to.to_dsaddr = tp->relay_target;
+		to.to_dslen = tp->relay_len;
 	}
+#endif
 
 	if (tp->rcv_numsacks > 0) {
-	    to.to_flags |= TOF_SACK;
-	    to.to_nsacks = tp->rcv_numsacks;
-	    to.to_sacks = (u_char *)tp->sackblks;
+		to.to_flags |= TOF_SACK;
+		to.to_nsacks = tp->rcv_numsacks;
+		to.to_sacks = (u_char *)tp->sackblks;
 	}
 
 	if (SEQ_LT(seq + len,
-		    tp->snd_una + rgn_len(tp->rgn_snd))) {
-	    flags &= ~TH_FIN;
+				tp->snd_una + rgn_len(tp->rgn_snd))) {
+		flags &= ~TH_FIN;
 	}
 
 	if ((tp->snd_rto || txsi->seq == tp->snd_rto)
@@ -361,11 +363,11 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 
 	optlen = tcp_addoptions(&to, (u_char *)(th + 1));
 	if (len + optlen > tp->t_max_payload) {
-	    assert(to.to_nsacks > 0);
-	    to.to_flags &= ~TOF_SACK; 
-	    to.to_tsval = (tcp_snd_getticks);
-	    to.to_tsecr = (tp->ts_recent);
-	    optlen = tcp_addoptions(&to, (u_char *)(th + 1));
+		assert(to.to_nsacks > 0);
+		to.to_flags &= ~TOF_SACK; 
+		to.to_tsval = (tcp_snd_getticks);
+		to.to_tsecr = (tp->ts_recent);
+		optlen = tcp_addoptions(&to, (u_char *)(th + 1));
 	}
 
 	iobuf[0].iov_base = (char *)th;
@@ -385,18 +387,18 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 
 #if 0
 	if (tp->t_rtttime == txsi->tx_ts &&
-		tp->t_rtseq == txsi->seq) {
-	    tp->t_rtttime = ticks;
+			tp->t_rtseq == txsi->seq) {
+		tp->t_rtttime = ticks;
 	}
 #endif
 	if (SEQ_GT(seq + len, tp->snd_max_out)) {
-	    tp->snd_max_out = seq + len;
+		tp->snd_max_out = seq + len;
 
-	    if (tp->t_rtttime == 0) {
-		TCPSTAT_INC(tcps_segstimed);
-		tp->t_rtttime = ticks;
-		tp->t_rtseq = seq;
-	    }
+		if (tp->t_rtttime == 0) {
+			TCPSTAT_INC(tcps_segstimed);
+			tp->t_rtttime = ticks;
+			tp->t_rtseq = seq;
+		}
 	}
 
 	assert(len + optlen <= tp->t_max_payload);
@@ -409,70 +411,71 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 
 int tcp_filter_xmit(struct tcpcb *tp)
 {
-    struct txseginfo *txsi;
+	struct txseginfo *txsi;
 
-    while (!pacing_check(tp, tp->t_pacing)) {
+	while (!pacing_check(tp, tp->t_pacing)) {
 
-	txsi = TAILQ_FIRST(&tp->txsegi_rexmt_q);
-	if (txsi != NULL) {
-	    TAILQ_REMOVE(&tp->txsegi_rexmt_q, txsi, txsegi_lnk);
-	    tcp_filter_output(tp, txsi);
-	    tp->txsegi_length --;
-	    free(txsi);
-	    continue;
-	}
+		txsi = TAILQ_FIRST(&tp->txsegi_rexmt_q);
+		if (txsi != NULL) {
+			TAILQ_REMOVE(&tp->txsegi_rexmt_q, txsi, txsegi_lnk);
+			tcp_filter_output(tp, txsi);
+			tp->txsegi_length --;
+			free(txsi);
+			continue;
+		}
 
-	txsi = TAILQ_FIRST(&tp->txsegi_xmt_q);
-	if (txsi != NULL) {
-	    TAILQ_REMOVE(&tp->txsegi_xmt_q, txsi, txsegi_lnk);
-	    tcp_filter_output(tp, txsi);
-	    tp->txsegi_length --;
-	    free(txsi);
-	    continue;
-	}
+		txsi = TAILQ_FIRST(&tp->txsegi_xmt_q);
+		if (txsi != NULL) {
+			TAILQ_REMOVE(&tp->txsegi_xmt_q, txsi, txsegi_lnk);
+			tcp_filter_output(tp, txsi);
+			tp->txsegi_length --;
+			free(txsi);
+			continue;
+		}
 
-	assert (TAILQ_EMPTY(&tp->txsegi_xmt_q));
-	assert (TAILQ_EMPTY(&tp->txsegi_rexmt_q));
+		assert (TAILQ_EMPTY(&tp->txsegi_xmt_q));
+		assert (TAILQ_EMPTY(&tp->txsegi_rexmt_q));
 
 #if 0
-	TCP_DEBUG(1, "NO MORE DATA: %d %d %d %x",
-		tp->t_dupacks, tp->snd_cwnd, tp->t_rxtcur, IN_FASTRECOVERY(tp->t_flags));
+		TCP_DEBUG(1, "NO MORE DATA: %d %d %d %x",
+				tp->t_dupacks, tp->snd_cwnd, tp->t_rxtcur, IN_FASTRECOVERY(tp->t_flags));
 #endif
-	tcp_cancel_devbusy(tp);
-	return 0;
-    }
+		tcp_cancel_devbusy(tp);
+		if (tp->pacing_rate > tp->t_maxseg) tcp_output(tp);
+		return 0;
+	}
 
-    tcp_devbusy(tp, &tp->t_event_devbusy);
-    return 0;
+	tcp_devbusy(tp, &tp->t_event_devbusy);
+	return 0;
 }
 
 int tcp_filter_free(struct tcpcb *tp)
 {
-    struct txseginfo *txsi;
+	struct txseginfo *txsi;
 
-    txsi = TAILQ_FIRST(&tp->txsegi_rexmt_q);
-    while (txsi != NULL) {
-	TAILQ_REMOVE(&tp->txsegi_rexmt_q, txsi, txsegi_lnk);
-	free(txsi);
 	txsi = TAILQ_FIRST(&tp->txsegi_rexmt_q);
-    }
+	while (txsi != NULL) {
+		TAILQ_REMOVE(&tp->txsegi_rexmt_q, txsi, txsegi_lnk);
+		free(txsi);
+		txsi = TAILQ_FIRST(&tp->txsegi_rexmt_q);
+	}
 
-    txsi = TAILQ_FIRST(&tp->txsegi_xmt_q);
-    while (txsi != NULL) {
-	TAILQ_REMOVE(&tp->txsegi_xmt_q, txsi, txsegi_lnk);
-	free(txsi);
 	txsi = TAILQ_FIRST(&tp->txsegi_xmt_q);
-    }
+	while (txsi != NULL) {
+		TAILQ_REMOVE(&tp->txsegi_xmt_q, txsi, txsegi_lnk);
+		free(txsi);
+		txsi = TAILQ_FIRST(&tp->txsegi_xmt_q);
+	}
 
-    tp->txsegi_length = 0;
-    tcp_cancel_devbusy(tp);
-    return 0;
+	tp->txsegi_length = 0;
+	tcp_cancel_devbusy(tp);
+	return 0;
 }
 
 int tcp_filter_lost(struct tcpcb *tp, int *retp)
 {
-    int count = 0, retrans = 0;
-    struct txseginfo *txsi, *n_txsi;
+	int count = 0, retrans = 0;
+	struct txseginfo *txsi, *n_txsi;
 
 #if 0
     txsi = TAILQ_FIRST(&tp->txsegi_q);

@@ -57,6 +57,7 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 	tp->t_rttvar = ((TCPTV_RTOBASE - TCPTV_SRTTBASE) << TCP_RTTVAR_SHIFT) / 4;
 	tp->t_flags = 0;
 	tp->t_flags |= TF_SACK_PERMIT;
+	tp->t_flags |= TF_REQ_SCALE;
 	tp->t_maxseg = TCP_MSS;
 	tp->t_maxseg = get_device_mtu() - sizeof(struct tcphdr);
 	tp->t_max_payload = tp->t_maxseg + 10;

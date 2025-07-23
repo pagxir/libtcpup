@@ -338,6 +338,7 @@ reread:
 		m_roff = m_rlen = 0;
 		if ((m_flags & test_flags) == TF_EOF1) {
 			test_flags |= TF_SHUT1;
+			fprintf(stderr, "tcp_shutdown\n");
 			tcp_shutdown(m_peer);
 		} else {
 			if (waitcb_completed(&m_rwait))

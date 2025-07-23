@@ -613,13 +613,8 @@ static void do_peer_connect(void *upp, tx_task_stack_t *sta)
 	pstcp_channel *up = (pstcp_channel *)upp;
 	struct sockaddr_storage sa_store = {};
 
-#if 0
 	len = sooptget_target(up->m_peer, relay, sizeof(relay));
 	assert (len > 4 && len < sizeof(relay));
-#endif
-	uint8_t builtin_target[] = {AFTYP_INET, 0, 0, 22, 127, 0, 0, 1};
-	len = sizeof(builtin_target);
-	memcpy(relay, builtin_target, len);
 
 	up->reset_keepalive();
 	up->m_flags |= FLAG_CONNECTED;
@@ -661,9 +656,11 @@ static int fill_data(struct relay_data *d, tx_aiocb *f)
 		change |= (len > 0);
 		if (len > 0)
 			d->len += len;
-		else if (len == 0)
+		else if (len == 0) {
+			fprintf(stderr, "read eof stream of aiocb TODO:XXX\n");
+			assert(d->len < sizeof(d->buf));
 			d->flag |= RDF_EOF;
-		else if (tx_readable(f)) // socket meet error condiction
+		} else if (tx_readable(f)) // socket meet error condiction
 			d->flag |= RDF_BROKEN;
 	}
 
@@ -685,9 +682,11 @@ static int fill_data(struct relay_data *d, sockcb_t f)
 		change |= (len > 0);
 		if (len > 0)
 			d->len += len;
-		else if (len == 0)
+		else if (len == 0) {
+			assert(d->len < sizeof(d->buf));
+			fprintf(stderr, "read eof stream of sockcb TODO:XXX\n");
 			d->flag |= RDF_EOF;
-		else if (soreadable(f)) // socket meet error condiction
+		} else if (soreadable(f)) // socket meet error condiction
 			d->flag |= RDF_BROKEN;
 	}
 
@@ -789,6 +788,7 @@ static int try_shutdown(struct relay_data *d, sockcb_t f)
 	}
 
 	if (change == 0) {
+		fprintf(stderr, "START shutdown now: %x %d %d\n", d->flag, d->off, d->len);
 		d->flag |= RDF_FIN;
 		soshutdown(f);
 	}

@@ -308,7 +308,7 @@ static void listen_statecb(void *context)
 }
 
 #define RCVPKT_MAXCNT 256
-#define RCVPKT_MAXSIZ 1500
+#define RCVPKT_MAXSIZ 1600
 
 static u_short _rcvpkt_len[RCVPKT_MAXCNT];
 static u_short _rcvpkt_link[RCVPKT_MAXCNT];
@@ -354,6 +354,7 @@ void tcpup_device::incoming(void)
 				memcpy(&key, packet + 14, 2);
 				packet_decrypt(htons(key), p, packet + offset + sizeof(psuedo_header), len - offset - sizeof(psuedo_header));
 
+#if 0
 				if (_filter_hook != NULL) {
 					memcpy(from.name, &saaddr, salen);
 					from.namlen = salen;
@@ -362,6 +363,7 @@ void tcpup_device::incoming(void)
 						continue;
 					}
 				}
+#endif
 
 #ifdef _FEATRUE_INOUT_TWO_INTERFACE_
 				if (_dobind > 0 && (packet[7] || packet[6])) {
@@ -455,7 +457,7 @@ extern "C" void tcp_backwork(struct tcpip_info *info)
 	return;
 }
 
-static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name, u_short link)
+static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name, uint32_t link)
 {
 	int fd;
 	int error;
@@ -534,6 +536,7 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 
 void tcpup_device::holdon(void)
 {
+#if 0
 	struct sockaddr_in6 addr_in1;
 	addr_in1.sin6_family = AF_INET6;
 	addr_in1.sin6_port   = _tcp_keep_addr.sin6_port;
@@ -553,6 +556,7 @@ void tcpup_device::holdon(void)
 		iov.iov_base = _reg_net;
 		_utxpl_output(0, &iov, 1, &name, 0);
 	}
+#endif
 
 	return;
 }

@@ -94,6 +94,7 @@ int client_track_fetch(uint32_t conv, void *target, size_t len, uint32_t live)
 	client_track_t *item = lookup(client);
 
 	LOG_INFO("client_track_fetch: %x %x %x\n", client, conv, live);
+#if 0
 	if (item != NULL && (int)(item->tsecr - live) > 0) {
 		assert(len == sizeof(item->peer));
 		stat = memcmp(&item->peer, target, sizeof(item->peer));
@@ -101,6 +102,7 @@ int client_track_fetch(uint32_t conv, void *target, size_t len, uint32_t live)
 		struct sockaddr_in6 *in = (struct sockaddr_in6 *)item->peer.name;
 		LOG_INFO("client_track_fetch return: %x %x %d %s\n", item->owner, item->tsval, htons(in->sin6_port), inet_ntop(AF_INET6, &in->sin6_addr, buf, sizeof(buf)));
 	}
+#endif
 
 	return stat;
 }

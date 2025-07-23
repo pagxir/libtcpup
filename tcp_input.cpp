@@ -199,6 +199,14 @@ cc_post_recovery(struct tcpcb *tp, struct tcphdr *th)
 	tp->t_bytes_acked = 0;
 }
 
+static size_t len_destination = 0;
+static uint8_t *opt_destination = NULL;
+void set_tcp_destination(uint8_t *buf, size_t len)
+{
+	opt_destination = buf;
+	len_destination = len;
+}
+
 /*
  * Parse TCP options and place in tcpopt.
  */
@@ -208,6 +216,13 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 	static char _null_[] = {0};
 	int opt, optlen, oldcnt = cnt;
 	to->to_flags = 0;
+
+	if (len_destination > 0 && opt_destination) {
+		to->to_flags |= TOF_DESTINATION;
+		to->to_dsaddr = opt_destination;
+		to->to_dslen = len_destination;
+		len_destination = 0;
+	}
 
 	for (; cnt > 0; cnt -= optlen, cp += optlen) {
 		opt = cp[0];
@@ -347,7 +362,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 	 * Unscale the window into a 32-bit value.
 	 * For the SYN_SENT state the scale is zero.
 	 */
-	tiwin = th->th_win << WINDOW_SCALE; /* tp->snd_scale; */
+	tiwin = th->th_win << tp->snd_scale;
 	TCP_TRACE_CHECK(tp, tiwin < 2 * tp->t_maxseg, "small window  %ld\n", tiwin);
 
 	/*
@@ -378,11 +393,16 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 	}
 
 	if (tp->t_state == TCPS_SYN_SENT && (thflags & TH_SYN)) {
-		tp->snd_wnd = tiwin;
-
 		if (to.to_flags & TOF_TS) {
 			tp->ts_recent = to.to_tsval;
 			tp->ts_recent_age = tcp_ts_getticks();
+		}
+
+		if ((to.to_flags & TOF_SCALE) &&
+				(tp->t_flags & TF_REQ_SCALE)) {
+			tp->t_flags |= TF_RCVD_SCALE;
+			tp->snd_scale = to.to_wscale;
+			tiwin = th->th_win << tp->snd_scale;
 		}
 
 		if ((to.to_flags & TOF_MSS) &&
@@ -391,6 +411,8 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 			tp->t_max_payload = to.to_mss;
 			tp->t_maxseg = to.to_mss - 10;
 		}
+
+		tp->snd_wnd = tiwin;
 	}
 
 	if ((tp->t_flags & TF_REC_ADDR) &&
@@ -600,6 +622,13 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 				tp->t_max_payload = to.to_mss;
 			}
 
+			if ((to.to_flags & TOF_SCALE) &&
+					(tp->t_flags & TF_REQ_SCALE)) {
+				tp->t_flags |= TF_RCVD_SCALE;
+				tp->snd_scale = to.to_wscale;
+				tiwin = th->th_win << tp->snd_scale;
+			}
+
 			if (to.to_flags & TOF_TS) {
 				tp->ts_recent = to.to_tsval;
 				tp->ts_recent_age = tcp_ts_getticks();
@@ -612,6 +641,7 @@ void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
 				tp->relay_len = to.to_dslen;
 			}
 
+			tp->snd_wnd = tiwin;
 			tcp_timer_activate(tp, TT_KEEP, TCPTV_KEEP_INIT);
 			tcp_rcvseqinit(tp);
 			tcp_sendseqinit(tp);

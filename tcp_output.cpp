@@ -41,7 +41,7 @@ void tcp_setpersist(struct tcpcb *tp)
 	return;
 }
 
-u_short update_checksum(const void *buf, size_t count, u_short link)
+u_short update_checksum(const void *buf, size_t count, uint32_t link)
 {
 	uint32_t cksum = htons(count + IPPROTO_TCP);
 	const uint16_t *base = (const uint16_t *)buf;
@@ -55,18 +55,19 @@ u_short update_checksum(const void *buf, size_t count, u_short link)
 	if (len > 0)
 		cksum += *base & htons(0xff00);
 
-	cksum += link;
+	cksum += (link >> 16);
+	cksum += (link & 0xffff);
 	while (cksum >> 16)
 		cksum = (cksum >> 16) + (uint16_t)cksum;
 
 	return (uint16_t)~cksum;
 }
 
-uint16_t update_ckpass(const rgn_iovec iov[], size_t num, unsigned short pseudo)
+uint16_t update_ckpass(const rgn_iovec iov[], size_t num, unsigned pseudo)
 {
 	int i, j;
 	size_t total = 0;
-	uint32_t cksum = pseudo;
+	uint32_t cksum = (pseudo >> 16) + (0xffff & pseudo);
 
 	for (i = 0; i < num; i++) {
 		size_t len = iov[i].iov_len;
@@ -135,6 +136,34 @@ cc_after_idle(struct tcpcb *tp)
         tp->dst_addr.xdat ^= 0x5a5a;
     }
 }
+
+#if 0
+static int verify_checksum(rgn_iovec iov[], size_t count, uint32_t link)
+{
+	uint32_t check = 0;
+	uint32_t total = 0;
+
+	for (int i = 0; i < count; i++) {
+		size_t len = iov[i].iov_len;
+		const uint16_t *base = (const uint16_t *)iov[i].iov_base;
+
+		TCP_DEBUG(1, "%d %x", i, len);
+		assert(~len & 1);
+		total += len;
+		while (len > 0) {
+			check += *base++;
+			len -= 2;
+		}
+	}
+
+	check += htons(IPPROTO_TCP + total);
+	check += (link & 0xffff) + (link >> 16);
+	while (check >> 16) check = (check & 0xffff) + (check >> 16);
+
+	TCP_DEBUG(1, "check=%x %x %x", check, ~check, link);
+	return check;
+}
+#endif
 
 int tcp_output(struct tcpcb *tp)
 {
@@ -466,6 +495,13 @@ send_label:
 		to.to_dslen = tp->relay_len;
 	}
 
+	/* Window scaling. */
+	assert(tp->t_flags & TF_REQ_SCALE);
+	if ((flags & TH_SYN) && (tp->t_flags & TF_REQ_SCALE)) {
+		to.to_wscale = WINDOW_SCALE;
+		to.to_flags |= TOF_SCALE;
+	}
+
 	if (tp->t_flags & TF_SACK_PERMIT) {
 		if (flags & TH_SYN)
 			to.to_flags |= TOF_SACKPERM;
@@ -557,6 +593,7 @@ send_label:
 
 
 	th->th_sum = update_ckpass(iobuf, 3, tp->tp_socket->so_link);
+    // verify_checksum(iobuf, 3, tp->tp_socket->so_link);
 	/* Run HHOOK_TCP_ESTABLISHED_OUT helper hooks. */
 
 	if (len == 0)

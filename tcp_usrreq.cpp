@@ -201,6 +201,7 @@ struct tcpcb *tcp_drop(struct tcpcb *tp, int why)
 	sockcb_t so = tp->tp_socket;
 
 	if (TCPS_HAVERCVDSYN(tp->t_state)) {
+		TCP_TRACE_AWAYS(tp, "%p %d -> TCPS_CLOSED\n", tp->t_state, tp);
 		tcp_state_change(tp, TCPS_CLOSED);
 		(void) tcp_output(tp);
 	}
@@ -280,6 +281,7 @@ int tcp_read(struct tcpcb *tp, void *buf, size_t count)
 			return -1;
 		}
 
+		TCP_TRACE_AWAYS(tp, "tcp_read return zero\n", tp);
 		return 0;
 	}
 
@@ -411,11 +413,17 @@ int tcp_relayto(struct tcpcb *tp, void *buf, size_t len)
 	return -1;
 }
 
+#define AFTYP_INET   1
 int tcp_relayget(struct tcpcb *tp, void *buf, int len)
 {
 	int cplen;
+	uint8_t builtin_target[] = {AFTYP_INET, 0, 0, 22, 127, 0, 0, 1};
 
-	if (len >= tp->relay_len) {
+	if (tp->relay_len == 0 && len > sizeof(builtin_target)) {
+		len = sizeof(builtin_target);
+		memcpy(buf, builtin_target, len);
+		return len;
+	} else if (len >= tp->relay_len) {
 		cplen = tp->relay_len;
 		memcpy(buf, tp->relay_target, cplen);
 		return cplen;
@@ -481,7 +489,7 @@ int tcp_poll(struct tcpcb *tp, int typ, struct tx_task_t *task)
 				break;
 			}
 
-			TCP_TRACE_CHECK(tp, tp->t_state != TCPS_ESTABLISHED, "not TCPS_ESTABLISHED %d\n", tp->tp_socket->so_conv);
+			TCP_TRACE_CHECK(tp, tp->t_state != TCPS_ESTABLISHED, "%p not TCPS_ESTABLISHED %d state %d\n", tp, tp->tp_socket->so_conv, tp->t_state);
 			assert(task == tp->r_event || tp->r_event == NULL);
 		   	tp->r_event = task;
 			error = 1;
@@ -553,7 +561,7 @@ int tcp_connect(struct tcpcb *tp,
 		memcpy(tp->dst_addr.name, name, len);
 		tp->dst_addr.namlen = len;
 		tp->dst_addr.xdat = tp->tp_socket->so_conv;
-		TCP_TRACE_AWAYS(tp, "TCPS_CLOSED -> TCPS_SYN_SENT\n");
+		TCP_TRACE_AWAYS(tp, "%p TCPS_CLOSED -> TCPS_SYN_SENT\n", tp);
 		return 0;
 	}
 
@@ -565,7 +573,7 @@ int tcp_listen(struct tcpcb *tp)
 {
 	if (tp->t_state == TCPS_CLOSED) {
 		tp->t_state = TCPS_LISTEN;
-		TCP_TRACE_AWAYS(tp, "TCPS_CLOSED -> TCPS_LISTEN\n");
+		TCP_TRACE_AWAYS(tp, "%p TCPS_CLOSED -> TCPS_LISTEN\n", tp);
 		return 1;
 	}
 
@@ -575,6 +583,7 @@ int tcp_listen(struct tcpcb *tp)
 
 void tcp_usrclosed(struct tcpcb *tp)
 {
+	TCP_TRACE_AWAYS(tp, "%p tcp_usrclosed: %x\n", tp, tp->tp_socket->so_conv);
 	switch (tp->t_state) {
 		case TCPS_LISTEN:
 			/* FALLTHROUGH */
@@ -592,10 +601,12 @@ void tcp_usrclosed(struct tcpcb *tp)
 			break;
 
 		case TCPS_ESTABLISHED:
+		    TCP_TRACE_AWAYS(tp, "%p TCPS_ESTABLISHED -> TCPS_FIN_WAIT_1: %x\n", tp, tp->tp_socket->so_conv);
 			tcp_state_change(tp, TCPS_FIN_WAIT_1);
 			break;
 
 		case TCPS_CLOSE_WAIT:
+		    TCP_TRACE_AWAYS(tp, "%p TCPS_CLOSE_WAIT -> TCPS_LAST_ACK\n", tp);
 			tcp_state_change(tp, TCPS_LAST_ACK);
 			break;
 	}
@@ -616,9 +627,9 @@ void tcp_usrclosed(struct tcpcb *tp)
 	}
 }
 
-u_short update_checksum(const void *buf, size_t count, u_short link);
+u_short update_checksum(const void *buf, size_t count, uint32_t link);
 
-int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_addr *from, u_short link)
+int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_addr *from, unsigned link)
 {
 	int handled = 0;
 	struct tcpcb *tp;
@@ -634,8 +645,9 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 
 	u_short cksum = update_checksum(buf, len, link);
 	if (cksum != 0) {
-		TCP_DEBUG(1, "BAD TCPUP CHECKSUM: %x\n", cksum);
+		TCP_DEBUG(1, "BAD TCPUP CHECKSUM: %x %x\n", cksum, link);
 		assert(cksum != 0xffff);
+		assert(0);
 		return -1;
 	}
 
@@ -657,7 +669,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 			handled = 1;
 		}
 	} else if (handled == 0 && (th->th_flags & TH_CONNECT) == TH_ACK) {
-		if (th->th_x2 == 0) {
+		if (th->th_x2 == 0 && th->th_urp == 0) {
 			struct tcpcb tcb = {0};
 			struct sockcb sob = {0};
 			tcb.dst_addr = *from;

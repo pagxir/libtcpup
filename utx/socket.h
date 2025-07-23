@@ -10,7 +10,7 @@ typedef struct sockcb *sockcb_t;
 typedef struct tx_task_t tx_task_t;
 
 sockcb_t solookup(so_conv_t conv);
-sockcb_t sonewconn(int iface, so_conv_t conv, unsigned short link);
+sockcb_t sonewconn(int iface, so_conv_t conv, unsigned link);
 
 sockcb_t socreate(so_conv_t conv);
 sockcb_t socreate(int file, so_conv_t conv);
@@ -60,7 +60,7 @@ struct sockcb {
 	int so_state;
 	int so_count;
 	int so_iface;
-	unsigned short so_link;
+	unsigned  so_link;
 	so_conv_t so_conv;
 	struct so_usrreqs *usrreqs;
 	LIST_ENTRY(sockcb) entries;

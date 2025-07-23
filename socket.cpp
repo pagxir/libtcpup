@@ -26,7 +26,7 @@ sockcb_t mksockcb()
 	so->so_tag = 0xBEAF;
 	so->so_count = 1;
 	so->so_state = 0;
-	so->so_link = random();
+	so->so_link = (random() & 0xffff);
 
 	LIST_INSERT_HEAD(&so_list_head, so, entries);
 	_total_socket++;
@@ -62,7 +62,7 @@ sockcb_t solookup(so_conv_t conv)
 	return so;
 }
 
-sockcb_t sonewconn(int iface, so_conv_t conv,  uint16_t link)
+sockcb_t sonewconn(int iface, so_conv_t conv,  unsigned link)
 {
 	sockcb_t so = mksockcb();
 	so->so_conv = conv;
