@@ -36,7 +36,9 @@ struct context {
 };
 
 #define AFTYP_INET   1
+#define AFTYP_INET6  4
 uint8_t builtin_target[] = {AFTYP_INET, 0, 0, 22, 127, 0, 0, 1};
+uint8_t builtin_target6[] = {AFTYP_INET6, 0, 0, 22, 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 void set_tcp_destination(uint8_t *buf, size_t len);
 
 extern struct if_dev_cb _stdio_if_dev_cb;
@@ -93,24 +95,57 @@ static void netif_receive(void *upp)
 		tx_aincb_update(&up->netin, count);
 
 		if (count >= 40) {
-			uint32_t check = 0;
-			u_short *link = (u_short *)(buf + 12);
-			check = link[0] + link[2] + link[3];
+			u_short *link, port;
+			uint32_t check = 0, verify = 0;
+			int offset = 0, modidx = 0;
 
-			uint32_t verify = csum_fold(link[0] + link[1] + link[2] + link[3]);
+			switch (buf[0] >> 4) {
+				case 0x4:
+					link = (u_short *)(buf + 12);
+					check = link[0] + link[2] + link[3];
+					verify = csum_fold(link[0] + link[1] + link[2] + link[3]);
 
-			memcpy(builtin_target + 2, buf + 22, 2);
-			memcpy(builtin_target + 4, buf + 16, 4);
-			set_tcp_destination(builtin_target, 8);
+					memcpy(builtin_target + 2, buf + 22, 2);
+					memcpy(builtin_target + 4, buf + 16, 4);
+					set_tcp_destination(builtin_target, 8);
 
-			check = csum_fold(check);
+					check = csum_fold(check);
 
-			uint16_t port = link[5];
-			link[5] = link[4];
-			link[4] = port;
+					port = link[4];
+					link[4] = link[5];
+					link[5] = port;
+					offset = 20;
+					modidx = 1;
+					break;
 
-			if (0 == update_checksum(buf + 20, count - 20, verify))
-				tcpup_do_packet(0, buf + 20, count - 20, &from, (check << 16) + link[1]);
+				case 0x6:
+					check = 0;
+					link = (u_short *)(buf + 8);
+					for (int i = 0; i < 16; i++) check += link[i];
+					verify = csum_fold(check);
+					check -= link[7];
+
+					memcpy(builtin_target6 + 2, buf + 42, 2);
+					memcpy(builtin_target6 + 4, buf + 24, 16);
+					set_tcp_destination(builtin_target6, sizeof(builtin_target6));
+
+					check = csum_fold(check);
+
+					port = link[16];
+					link[16] = link[17];
+					link[17] = port;
+					offset = 40;
+					modidx = 7;
+					break;
+
+				default:
+					continue;
+			}
+
+#if 0
+			if (0 == update_checksum(buf + offset, count - offset, verify))
+#endif
+				tcpup_do_packet(0, buf + offset, count - offset, &from, (check << 16) + link[modidx]);
 		}
 	}
 	
