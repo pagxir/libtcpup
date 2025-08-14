@@ -37,8 +37,8 @@ struct context {
 
 #define AFTYP_INET   1
 #define AFTYP_INET6  4
-uint8_t builtin_target[] = {AFTYP_INET, 0, 0, 22, 127, 0, 0, 1};
-uint8_t builtin_target6[] = {AFTYP_INET6, 0, 0, 22, 127, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint8_t builtin_target[] = {AFTYP_INET, 0, 0, 22, 127, 0, 0, 1};
+static uint8_t builtin_target6[] = {AFTYP_INET6, 0, 0, 22, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
 void set_tcp_destination(uint8_t *buf, size_t len);
 
 extern struct if_dev_cb _stdio_if_dev_cb;
@@ -139,6 +139,7 @@ static void netif_receive(void *upp)
 					break;
 
 				default:
+					fprintf(stderr, "ip version: %d %d\n", buf[0], buf[0] >> 4);
 					continue;
 			}
 
