@@ -10,7 +10,7 @@ RANLIB := $(TARGET)-ranlib
 endif
 
 LOCAL_TARGETS := txcat libtx.a
-LOCAL_CXXFLAGS := -I$(THIS_PATH)/libtx/include -I$(THIS_PATH) 
+LOCAL_CXXFLAGS := -I$(THIS_PATH)/libtx/include -I$(THIS_PATH) -g
 LOCAL_CFLAGS := $(LOCAL_CXXFLAGS)
 LOCAL_LDLIBS := -static-libgcc -static-libstdc++
 
@@ -25,7 +25,7 @@ endif
 LOCAL_CFLAGS += -g -Wall -Wno-sign-compare -I. -fno-rtti -fno-exceptions
 LOCAL_CXXFLAGS += -g -Wall -Wno-sign-compare -I. -fno-rtti -fno-exceptions
 
-VPATH := $(THIS_PATH)/libtx:$(THIS_PATH)
+VPATH := $(THIS_PATH)/libtx:$(THIS_PATH):$(THIS_PATH)/fou_gue_slirp
 
 TARGETS = server.udp client.udp
 
@@ -53,7 +53,7 @@ CC_OBJS =  cc_hybla.o cc_newreno.o cc_cubic.o cc.o cc_htcp.o cc_rateq.o
 LOCAL_OBJECTS := libtx.a socket.o rgnbuf.o tcp_debug.o \
 		  tcp_input.o tcp_output.o tcp_timer.o tcp_subr.o tcp_filter.o \
 		  tcp_usrreq.o tcp_sack.o $(CC_OBJS) tcp_crypt.o client_track.o router.o tcp_device.o \
-		  tcp_device_icmp.o tcp_device_ipv6.o tcp_device_icmp_user.o ifdev_stdio.o if_dev.o
+		  tcp_device_icmp.o tcp_device_ipv6.o tcp_device_icmp_user.o tcp_device_stdio.o if_dev.o
 
 $(TARGETS): OBJECTS:=$(LOCAL_OBJECTS)
 
@@ -66,6 +66,10 @@ LDFLAGS  := $(LOCAL_LDFLAGS) $(LDFLAGS)
 server.udp: $(SRV_OBJ) $(LOCAL_OBJECTS) 
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 	echo $^|xargs -n 1|cpio -o -H newc |gzip > $@.cpio.gz
+
+FOU_OBJ = fou_gue_server.o tcp_session.o udp_session.o tcptun.o slirp.o pstcp_channel.o pstcp_listen.o dns_txasync.o dns_forward.o tcpup.o
+server.fou: $(FOU_OBJ) $(LOCAL_OBJECTS) 
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 server.http: $(USRV_OBJ) $(LOCAL_OBJECTS)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@

@@ -166,10 +166,9 @@ static int worker_receive(struct session_worker *worker, fd_set *readfds, int tu
 				memcpy(flags, limited - sizeof(flags), sizeof(flags));
 				size_t plen = flags[1];
 
-				uint32_t check = checksum(packet + sizeof(ident), htons(plen));
+				struct ip6_hdr *ip6 = (struct ip6_hdr *)(packet + sizeof(ident)); ip6--;
+				uint32_t check = ip6->ip6_next == IPPROTO_ICMPV6? checksum(packet + sizeof(ident), htons(plen)): 0;
 
-				struct ip6_hdr *ip6 = (struct ip6_hdr *)(packet + sizeof(ident));
-				ip6--;
 				ip6->ip6_ver  = htonl(0x60000000);
 				ip6->ip6_plen = plen;
 				ip6->ip6_limit = 0xff;
@@ -194,6 +193,7 @@ static int worker_receive(struct session_worker *worker, fd_set *readfds, int tu
 	return tunnelfd;
 }
 
+static struct session_worker *last_worker = NULL;
 static int worker_dispatch(struct session_worker *worker, const void *buf, size_t len, struct sockaddr *target, size_t tolen)
 {
 	int dispatched = 0;
@@ -229,6 +229,7 @@ static int worker_dispatch(struct session_worker *worker, const void *buf, size_
 			int err = sendto(worker->sockfd, data, len - 40 + 24, 0, target, tolen);
 			if (g_trace_enable) LOG_VERBOSE("send data to peer: err = %d fd = %d\n", err, worker->sockfd);
 			worker->last_active = time(NULL);
+			last_worker = worker;
 			dispatched = 1;
 		}
 	}
@@ -241,7 +242,7 @@ static int update_bufsize(int sockfd)
 	int ret;
 	int bufsize = 0;
 	int optlen = sizeof(bufsize);
-#define BUFSIZE (655360 * 2)
+#define BUFSIZE (655360)
 
 	ret = getsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &bufsize, &optlen);
 	if (ret == 0 && bufsize < BUFSIZE) {
@@ -390,70 +391,74 @@ int main(int argc, char *argv[])
 				to = (struct sockaddr *)&target_udp;
 				tolen = sizeof(target_udp);
 				skip = 20;
-				receive = recvfrom(tunnelfd, buffer, sizeof(buffer), 0, (struct sockaddr *)&target_tunnel, &fromlen);
+				receive = recvfrom(tunnelfd, buffer, sizeof(buffer), MSG_DONTWAIT, (struct sockaddr *)&target_tunnel, &fromlen);
+				if (receive == -1) FD_CLR(tunnelfd, &readfds);
 				// *(uint32_t *)(buffer + skip) = random();
 
 				memcpy(&addr, &target_tunnel, sizeof(addr));
-			}
 
-			if (receive > skip) {
-				// fprintf(stderr, "recieve=%d from tunnelfd=%d\n", receive, tunnelfd);
-				// inet_ntop(AF_INET, &addr.sin_addr, abuf, sizeof(abuf));
+				if (receive > skip) {
+					// fprintf(stderr, "recieve=%d from tunnelfd=%d\n", receive, tunnelfd);
+					// inet_ntop(AF_INET, &addr.sin_addr, abuf, sizeof(abuf));
 
-				int dispatched = 0;
-				int proto = buffer[skip + 6] & 0xff;
-				int index = map2proto[proto];
-					
-				if (0xff == index) {
-					target_next = (target_next < target_count? target_next: 0);
-					index = target_next++;
-					map2proto[proto] = index;
-				}
+					int dispatched = 0;
+					int proto = buffer[skip + 6] & 0xff;
+					int index = map2proto[proto];
 
-				to = (struct sockaddr *)&target_udps[index];
+					if (0xff == index) {
+						target_next = (target_next < target_count? target_next: 0);
+						index = target_next++;
+						map2proto[proto] = index;
+					}
 
-				for (int i = 0; i < ARRAY_SIZE(_worker_list) && !dispatched; i++)
-					dispatched = worker_dispatch(_worker_list[i], buffer + skip, receive - skip, to, tolen);
-
-				if (!dispatched) {
-					struct session_worker *worker = NULL;
-
-					for (int i = 0; i < ARRAY_SIZE(_worker_list); i++) {
-						worker = _worker_list[i];
-						if (worker == NULL) {
-							worker = (struct session_worker *)calloc(1, sizeof(*worker));
-							_worker_list[i] = worker;
-							worker->sockfd = -1;
-							worker_assign(worker, buffer + skip);
-							dispatched = 1;
-							break;
-						}
+					to = (struct sockaddr *)&target_udps[index];
+					if (last_worker && worker_dispatch(last_worker, buffer + skip, receive - skip, to, tolen)) {
+						dispatched = 1;
+					} else {
+						for (int i = 0; i < ARRAY_SIZE(_worker_list) && !dispatched; i++)
+							dispatched = worker_dispatch(_worker_list[i], buffer + skip, receive - skip, to, tolen);
 					}
 
 					if (!dispatched) {
-						int last_select = -1;
-						int last_inactive = time(NULL);
+						struct session_worker *worker = NULL;
 
 						for (int i = 0; i < ARRAY_SIZE(_worker_list); i++) {
 							worker = _worker_list[i];
-							assert(worker != NULL);
-
-							if (worker->last_active < last_inactive) {
-								last_inactive = worker->last_active;
-								last_select = i;
+							if (worker == NULL) {
+								worker = (struct session_worker *)calloc(1, sizeof(*worker));
+								_worker_list[i] = worker;
+								worker->sockfd = -1;
+								worker_assign(worker, buffer + skip);
+								dispatched = 1;
+								break;
 							}
 						}
 
-						worker = NULL;
-						if (last_select >= 0) {
-							worker = _worker_list[last_select];
-							worker_assign(worker, buffer + skip);
-							dispatched = 1;
-						}
-					}
+						if (!dispatched) {
+							int last_select = -1;
+							int last_inactive = time(NULL);
 
-					dispatched = worker_dispatch(worker, buffer + skip, receive - skip, to, tolen);
-					if (g_trace_enable || !dispatched) LOG_VERBOSE("final dispatched=%d\n", dispatched);
+							for (int i = 0; i < ARRAY_SIZE(_worker_list); i++) {
+								worker = _worker_list[i];
+								assert(worker != NULL);
+
+								if (worker->last_active < last_inactive) {
+									last_inactive = worker->last_active;
+									last_select = i;
+								}
+							}
+
+							worker = NULL;
+							if (last_select >= 0) {
+								worker = _worker_list[last_select];
+								worker_assign(worker, buffer + skip);
+								dispatched = 1;
+							}
+						}
+
+						dispatched = worker_dispatch(worker, buffer + skip, receive - skip, to, tolen);
+						if (g_trace_enable || !dispatched) LOG_VERBOSE("final dispatched=%d\n", dispatched);
+					}
 				}
 			}
 		} else if (nready == 0) {

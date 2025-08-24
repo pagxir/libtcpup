@@ -59,8 +59,8 @@ struct tcpcb * tcp_newtcpcb(sockcb_t so)
 	tp->t_flags |= TF_SACK_PERMIT;
 	tp->t_flags |= TF_REQ_SCALE;
 	tp->t_maxseg = TCP_MSS;
-	tp->t_maxseg = get_device_mtu() - sizeof(struct tcphdr);
-	tp->t_max_payload = tp->t_maxseg + 10;
+	tp->t_max_payload = get_device_mtu() - sizeof(struct tcphdr);
+	tp->t_maxseg = tp->t_max_payload - 12;
 
 	TCP_DEBUG(1, "tp->t_maxseg = %u\n", tp->t_maxseg);
 	tp->snd_max_space = (8 * 1024 * 1024);

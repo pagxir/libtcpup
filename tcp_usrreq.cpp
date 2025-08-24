@@ -419,6 +419,7 @@ int tcp_relayget(struct tcpcb *tp, void *buf, int len)
 	int cplen;
 	uint8_t builtin_target[] = {AFTYP_INET, 0, 0, 22, 127, 0, 0, 1};
 
+	TCP_DEBUG(1, "tcp_relayget: %d\n", tp->relay_len);
 	if (tp->relay_len == 0 && len > sizeof(builtin_target)) {
 		len = sizeof(builtin_target);
 		memcpy(buf, builtin_target, len);
@@ -643,6 +644,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 		return -1;
 	}
 
+#if 0
 	u_short cksum = update_checksum(buf, len, link);
 	if (cksum != 0) {
 		TCP_DEBUG(1, "BAD TCPUP CHECKSUM: %x %x\n", cksum, link);
@@ -650,6 +652,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 		assert(0);
 		return -1;
 	}
+#endif
 
 	sockcb_t so = solookup(th->th_conv);
 	if (so != NULL) {

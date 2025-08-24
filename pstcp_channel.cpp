@@ -566,6 +566,7 @@ static int peer_info_expend(const char *relay, size_t len, char *domain, size_t 
 			in6p->sin6_port   = val_short;
 			inet_4to6(&in6p->sin6_addr, p);
 			NAT64_UPDATE(&in6p->sin6_addr, isinteractive);
+			LOG_DEBUG("TARGET4: %s %d %p", inet_ntop(AF_INET6, &in6p->sin6_addr, _source, sizeof(_source)), htons(val_short), isinteractive);
 
 			val_port = htons(val_short);
 			if (val_port == 5228) *isinteractive |= EXTRA_FLAGS_INTERACTIVE;

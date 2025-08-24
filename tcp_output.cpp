@@ -601,11 +601,6 @@ send_label:
 	else
 	    error = hhook_run_tcp_est_out(tp, th, &to, len, sack_rxmit);
 
-	if (sack_rxmit && error == -1) {
-	    tp->sackhint.sack_bytes_rexmit -= len;
-	    p->rxmit -= len;
-	}
-
 	if ((tp->t_flags & TF_FORCEDATA) == 0 || !tcp_timer_active(tp, TT_PERSIST)) {
 		tcp_seq startseq = tp->snd_nxt;
 
@@ -628,7 +623,8 @@ send_label:
 				tp->snd_max_out = tp->snd_nxt;
 			}
 
-			if (tp->t_rtttime == 0) {
+			TCP_DEBUG(error == -1, "error on sent rttime %d", tp->t_rtttime);
+			if (tp->t_rtttime == 0 && error > 0) {
 				assert(error > 0);
 				tp->t_rtttime = ticks; // NEED TO FIXME
 				tp->t_rtseq = startseq;
@@ -646,8 +642,11 @@ timer:
 			}
 
 			assert (tp->snd_max != tp->snd_una);
-			assert(error > 0);
-			tp->snd_rto = htonl(th->th_seq);
+			if (error > 0) {
+				assert(error > 0);
+				tp->snd_rto = htonl(th->th_seq);
+			}
+			TCP_DEBUG(error == -1, "error on sent");
 			tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur * 2);
 		}
 	} else {
@@ -662,6 +661,28 @@ timer:
 			tp->snd_max = tp->snd_nxt + len;
 			assert (tp->snd_max != tp->snd_una);
 		}
+	}
+
+	if (error == -1) {
+		if (((tp->t_flags & TF_FORCEDATA) == 0 ||
+					!tcp_timer_active(tp, TT_PERSIST)) &&
+				((flags & TH_SYN) == 0)) {
+			if (sack_rxmit) {
+				p->rxmit -= len;
+				tp->sackhint.sack_bytes_rexmit -= len;
+				KASSERT(tp->sackhint.sack_bytes_rexmit >= 0,
+						("sackhint bytes rtx >= 0"));
+			} else
+				tp->snd_nxt -= len;
+		}
+
+		if (!tcp_timer_active(tp, TT_REXMT) &&
+				!tcp_timer_active(tp, TT_PERSIST))
+			tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
+		tp->snd_cwnd = tp->t_maxseg;
+
+		tcp_devbusy(tp, &tp->t_event_devbusy);
+		return (0);
 	}
 
 	TCPSTAT_INC(tcps_sndtotal);

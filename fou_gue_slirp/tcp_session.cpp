@@ -358,9 +358,9 @@ void tcp_session_forward(void *session, struct in6_addr *src, struct in6_addr *d
 		ip6.ip6_dst  = *dst;
 
 		uint16_t *potp = (uint16_t*)&ip6.ip6_src;
-		uint32_t check = potp[6] + potp[7] + (uint16_t)~htons(up->sockfd);
-		potp[6] = csum_fold(check);
-		potp[7] = htons(up->sockfd);
+		uint32_t check = potp[7] + tcp->sport + (uint16_t)~up->sockfd;
+		potp[7] = csum_fold(check);
+		tcp->sport = up->sockfd;
 		
 #if 0
 		uint32_t check = PICK_UINT16(head, 0) + csum_fold(sum) + (uint16_t)~csum_fold(ip.src);
@@ -387,14 +387,14 @@ void tcp_session_forward(void *session, struct in6_addr *src, struct in6_addr *d
 
 	inet_pton(AF_INET, "10.0.0.0", &ip.src);
 	assert (up->sockfd < 63336);
-	ip.src = ip.src | htonl(up->sockfd);
 
 	uint32_t sum = 0;
 	uint16_t *shortp = (uint16_t*)src;
 	for (int i = 0; i < 8; i++) sum  += shortp[i];
 
-	uint32_t check = PICK_UINT16(head, 0) + csum_fold(sum) + (uint16_t)~csum_fold(ip.src);
-	PUT_UINT16(head, 0, csum_fold(check));
+	uint32_t check = tcp->sport + csum_fold(sum) + (uint16_t)~csum_fold(ip.src) + (uint16_t)~up->sockfd;
+	PUT_UINT16(&ip.src, 2, csum_fold(check));
+	tcp->sport = up->sockfd;
 
 #if 0
 	uint16_t *pv4a = (uint16_t *)&ip.src;
@@ -407,8 +407,8 @@ void tcp_session_forward(void *session, struct in6_addr *src, struct in6_addr *d
 	for (int i = 0; i < 10; i++) sum += shortp[i];
 	ip.head_check = (uint16_t)~csum_fold(sum);
 
-	LOG_VERBOSE("TCP check=%x\n", 
-			csum_fold(checksum(head, len) + htons(IPPROTO_TCP) + htons(len) + csum_fold(ip.src) + csum_fold(ip.dst)));
+	LOG_VERBOSE("TCP check=%x %d\n", 
+			csum_fold(checksum(head, len) + htons(IPPROTO_TCP) + htons(len) + csum_fold(ip.src) + csum_fold(ip.dst)), up->sockfd);
 	tcp_engine_write(&ip, sizeof(ip), head, len);
 }
 
@@ -422,7 +422,7 @@ void tcp_packet_receive(void *frame, size_t len, void *buf)
 	struct ip_hdr * ip = (struct ip_hdr *)packet;
 	struct tcp_hdr * tcp = (struct tcp_hdr *)(ip + 1);
 	LOG_VERBOSE("mainfd = %x\n", htonl(ip->dst));
-	nat_conntrack_t * up = lookup_session_by_id(htonl(ip->dst) & 0xffff);
+	nat_conntrack_t * up = lookup_session_by_id(tcp->sport);
 
 	LOG_VERBOSE("TCP receive check=%x %d\n", 
 			csum_fold(checksum(tcp, len - 20) + htons(IPPROTO_TCP) + htons(len - 20) + csum_fold(ip->src) + csum_fold(ip->dst)), len);
@@ -437,17 +437,17 @@ void tcp_packet_receive(void *frame, size_t len, void *buf)
 	return;
 }
 
-void tcp_packet_receive_by_stream(int id, void *frame, size_t len, void *buf)
+int tcp_packet_receive_by_stream(int id, void *frame, size_t len, void *buf)
 {
 	struct tcp_hdr * tcp = (struct tcp_hdr *)frame;
-	nat_conntrack_t * up = lookup_session_by_id(htons(id));
+	nat_conntrack_t * up = lookup_session_by_id(id);
 
 	if (up != NULL) {
 		tcp->dport = up->name.sin6_port;
 		// LOG_VERBOSE("tcp ipv4 data: \n%s\n", xxdump(frame, len));
-		send_via_link(up->mainfd, (struct sockaddr *)&up->link, sizeof(up->link),
+		return send_via_link(up->mainfd, (struct sockaddr *)&up->link, sizeof(up->link),
 			&up->peer.sin6_addr, &up->name.sin6_addr, tcp, len, buf, IPPROTO_TCP); 
 	}
 
-	return;
+	return -1;
 }

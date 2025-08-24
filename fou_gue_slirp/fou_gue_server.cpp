@@ -220,6 +220,7 @@ size_t send_via_link(int fd, struct sockaddr *via, size_t vialen, struct in6_add
 		for (int i = 0; i < len + 24; i++)
 			header[i - 4] ^= RESLINK_XOR;
 
+	assert (len > 0);
 	int error = sendto(fd, header - 4, len + 24, 0, via, vialen);
 
 	char abuf[56];
@@ -302,6 +303,13 @@ static void do_udp_exchange_recv(void *upp)
 	struct sockaddr * inaddr = (struct sockaddr *)&in6addr;
 	udp_exchange_context *up = (udp_exchange_context *)upp;
 
+	void *last_tcp_session = NULL;
+	uint8_t tcp_fragments[81920];
+	uint8_t *tcp_data = tcp_fragments;
+	struct in6_addr tcp_src, tcp_dst;
+	int tcp_plen[41];
+	int tcp_count = 0;
+
 	while (tx_readable(&up->file)) {
 		in_len = sizeof(in6addr);
 		count = recvfrom(up->sockfd, buf + HEADROOM, sizeof(buf) - HEADROOM, MSG_DONTWAIT, inaddr, &in_len);
@@ -328,7 +336,7 @@ static void do_udp_exchange_recv(void *upp)
 		uint16_t *packet_flags = (uint16_t *)(buf + HEADROOM + count - 4);
 		struct ip6_hdr *ip6 = (struct ip6_hdr *)(buf + HEADROOM - 40 + 4);
 
-		if ((htons(packet_flags[0]) >> 8) == 0x60) {
+		if ((*packet_flags & htons(0xff00)) == htons(0x6000)) {
 			memcpy(&ip6->ip6_dst, buf + HEADROOM + count - 4 - 16, 16);
 			inet_pton(AF_INET6, "fe80::5efe:0:0", &ip6->ip6_src);
 			if (memcmp(&ip6->ip6_dst, &ip6->ip6_src, 12) != 0)
@@ -342,9 +350,12 @@ static void do_udp_exchange_recv(void *upp)
 			ip6->ip6_hlim = 0xff;
 			plen = count - 24;
 			
-		} else if ((htons(packet_flags[0]) >> 8) == 0x40) {
+		} else if ((*packet_flags & htons(0xff00)) == htons(0x4000)) {
 			// struct ip4_hdr *ip6 = (struct ip4_hdr *)(buf + HEADROOM - 40 + 4);
 
+			continue;
+		} else {
+			continue;
 		}
 #else
 		invert(buf + HEADROOM, count, XORVAL);
@@ -407,13 +418,54 @@ static void do_udp_exchange_recv(void *upp)
 		} else if (ip6->ip6_nxt == IPPROTO_TCP) {
 			if (memcmp(nat64_prefix, &dst, 12) == 0) memcpy(&dst, v4map_prefix, 12);
 			void * session = tcp_lookup_create_session(up->sockfd, &in6addr, &src, &dst, (ip6 + 1));
-			tcp_session_forward(session, &src, &dst, ip6 + 1, plen);
+			// tcp_session_forward(session, &src, &dst, ip6 + 1, plen);
+
+			if (last_tcp_session != session || tcp_count >= 40 || plen > 64) {
+				tcp_data = tcp_fragments;
+				for (int i = 0; i < tcp_count; i++) {
+					int len = tcp_plen[i];
+					tcp_session_forward(last_tcp_session, &tcp_src, &tcp_dst, tcp_data, len);
+					tcp_data += len;
+				}
+				last_tcp_session = NULL;
+				tcp_data = tcp_fragments;
+				tcp_count = 0;
+			}
+
+			if (plen > 64) {
+				tcp_session_forward(session, &src, &dst, ip6 + 1, plen);
+				last_tcp_session = session;
+				tcp_src = src;
+				tcp_dst = dst;
+				assert (tcp_count == 0);
+				continue;
+			} else if (last_tcp_session == NULL) {
+				last_tcp_session = session;
+				tcp_src = src;
+				tcp_dst = dst;
+				assert (tcp_count == 0);
+			}
+
+			int index = tcp_count++;
+			assert(index < 40);
+			tcp_plen[index] = plen;
+			memcpy(tcp_data, ip6 + 1, plen);
+			tcp_data += plen;
 		} else if (ip6->ip6_nxt == IPPROTO_UDP) {
 			if (memcmp(nat64_prefix, &dst, 12) == 0) memcpy(&dst, v4map_prefix, 12);
 			void * session = udp_lookup_create_session(up->sockfd, &in6addr, &src, &dst, (ip6 + 1));
 			udp_session_forward(session, &src, &dst, ip6 + 1, plen);
 		}
 	}
+
+	tcp_data = tcp_fragments;
+	for (int i = 0; i < tcp_count; i++) {
+		int plen = tcp_plen[i];
+		tcp_session_forward(last_tcp_session, &tcp_src, &tcp_dst, tcp_data, plen);
+		tcp_data += plen;
+	}
+	last_tcp_session = NULL;
+	tcp_count = 0;
 
 	tx_aincb_active(&up->file, &up->task);
 	return;
@@ -430,11 +482,13 @@ static void * udp_exchange_create(int port, int dport)
 	TX_CHECK(sockfd != -1, "create udp socket failure");
 
 	tx_setblockopt(sockfd, 0);
-	int rcvbufsiz = 655360;
+#if 1
+	int rcvbufsiz = 655360 * 1;
 	setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbufsiz, sizeof(rcvbufsiz));
 
-	int sndbufsiz = 1638400;
+	int sndbufsiz = 655360 * 1;
 	setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &sndbufsiz, sizeof(sndbufsiz));
+#endif
 
 	int optval = 0;
 	setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&optval, sizeof(optval));
@@ -500,11 +554,14 @@ int main(int argc, char *argv[])
 			tcpup_init(loop, tcp_packet_receive);
 		} else if (0 == strcmp(argv[i], "-tcptun"))  {
 			tcptun_init(loop, tcp_packet_receive);
+		} else if (0 == strcmp(argv[i], "-cc.algo"))  {
+			void set_cc_algo(const char *name);
+			if (i < argc) set_cc_algo(argv[++i]);
+			continue;
 		} else if ((match = sscanf(argv[i], "%d", &port)) == 1) {
 			assert (port >  0 && port < 65536);
 			udp_exchange_create(port, port);
 		}
-
 	}
 
 	tx_loop_main(loop);
