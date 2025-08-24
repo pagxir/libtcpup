@@ -679,7 +679,7 @@ timer:
 		if (!tcp_timer_active(tp, TT_REXMT) &&
 				!tcp_timer_active(tp, TT_PERSIST))
 			tcp_timer_activate(tp, TT_REXMT, tp->t_rxtcur);
-		tp->snd_cwnd = tp->t_maxseg;
+		// tp->snd_cwnd = tp->t_maxseg;
 
 		tcp_devbusy(tp, &tp->t_event_devbusy);
 		return (0);

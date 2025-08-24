@@ -90,6 +90,7 @@ static void netif_receive(void *upp)
 	struct tcpup_addr from = {};
 	char buf[8192];
 
+	ticks = tx_getticks();
 	while (tx_readable(&up->netin)) {
 		int count = read(up->sockfd, buf, sizeof(buf));
 		tx_aincb_update(&up->netin, count);

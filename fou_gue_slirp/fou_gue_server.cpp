@@ -421,6 +421,7 @@ static void do_udp_exchange_recv(void *upp)
 			// tcp_session_forward(session, &src, &dst, ip6 + 1, plen);
 
 			if (last_tcp_session != session || tcp_count >= 40 || plen > 64) {
+				ticks = tx_getticks();
 				tcp_data = tcp_fragments;
 				for (int i = 0; i < tcp_count; i++) {
 					int len = tcp_plen[i];
@@ -433,6 +434,7 @@ static void do_udp_exchange_recv(void *upp)
 			}
 
 			if (plen > 64) {
+				ticks = tx_getticks();
 				tcp_session_forward(session, &src, &dst, ip6 + 1, plen);
 				last_tcp_session = session;
 				tcp_src = src;
@@ -458,11 +460,12 @@ static void do_udp_exchange_recv(void *upp)
 		}
 	}
 
+	ticks = tx_getticks();
 	tcp_data = tcp_fragments;
 	for (int i = 0; i < tcp_count; i++) {
-		int plen = tcp_plen[i];
-		tcp_session_forward(last_tcp_session, &tcp_src, &tcp_dst, tcp_data, plen);
-		tcp_data += plen;
+		int len = tcp_plen[i];
+		tcp_session_forward(last_tcp_session, &tcp_src, &tcp_dst, tcp_data, len);
+		tcp_data += len;
 	}
 	last_tcp_session = NULL;
 	tcp_count = 0;
