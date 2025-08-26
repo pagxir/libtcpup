@@ -644,15 +644,13 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 		return -1;
 	}
 
-#if 0
-	u_short cksum = update_checksum(buf, len, link);
-	if (cksum != 0) {
+	if ((th->th_flags & (TH_SYN| TH_RST| TH_FIN)) && update_checksum(buf, len, link)) {
+		u_short cksum = update_checksum(buf, len, link);
 		TCP_DEBUG(1, "BAD TCPUP CHECKSUM: %x %x\n", cksum, link);
 		assert(cksum != 0xffff);
 		assert(0);
 		return -1;
 	}
-#endif
 
 	sockcb_t so = solookup(th->th_conv);
 	if (so != NULL) {

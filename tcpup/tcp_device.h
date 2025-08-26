@@ -24,6 +24,9 @@ inline static uint16_t csum_fold(uint32_t val)
 	return val;
 }
 
+size_t set_tcp_link_target(const void *optval, size_t count);
+size_t get_tcp_link_target(void *optval, size_t count);
+
 struct if_dev_cb {
     int head_size;
     int (* output)(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name, uint32_t link);

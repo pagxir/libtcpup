@@ -25,6 +25,12 @@
 #include "tcp_channel.h"
 #define MAX_DEV_CNT 8
 
+#define AFTYP_INET   1
+#define AFTYP_INET6  4
+static uint8_t builtin_target[] = {AFTYP_INET, 0, 0, 22, 127, 0, 0, 1};
+static uint8_t builtin_target6[] = {AFTYP_INET6, 0, 0, 22, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+void set_tcp_destination(uint8_t *buf, size_t len);
+
 static FILTER_HOOK *_filter_hook;
 static int _set_filter_hook(FILTER_HOOK *hook)
 {
@@ -201,6 +207,18 @@ static unsigned char dns_filling_byte[] = {
 
 #endif
 
+static uint8_t dns_filling_ipv4[] = {
+	0xf1, 0xb0, 0x01, 0x20, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x01, 0x00,
+	0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00
+};
+
+static uint8_t dns_filling_ipv6[] = {
+	0xf1, 0xb0, 0x01, 0x20, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x1c, 0x00,
+	0x01, 0x00, 0x00, 0x1c, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+
 void tcpup_device_ipv6::init(int dobind)
 {
 	int error;
@@ -321,6 +339,7 @@ static void listen_callback(void *context)
 	return;
 }
 
+void set_tcp_destination(uint8_t *buf, size_t len);
 void tcpup_device_ipv6::incoming(void)
 {
 	int len;
@@ -350,7 +369,6 @@ void tcpup_device_ipv6::incoming(void)
 				struct link_header *link = (struct link_header *)packet;
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is ipv6 overflow %d\n", salen);
 				// memcpy(&key, packet + 14, sizeof(key));
-				packet_decrypt(htons(key), p, packet + offset, len - offset);
 
 				if (_filter_hook != NULL) {
 					memcpy(from.name, &saaddr, salen);
@@ -361,7 +379,43 @@ void tcpup_device_ipv6::incoming(void)
 					}
 				}
 
-				if (link->content == htonl(0x2636e00)) {
+				uint32_t link_magic = 0x2636e00;
+				if (link->yn == htons(1)) {
+					switch(packet[14]) {
+						case 0x1c:
+							offset = sizeof(dns_filling_ipv6);
+							memcpy(builtin_target6 + 2, packet + 0x18, 2);
+							memcpy(builtin_target6 + 4, packet + 0x1c, 16);
+							set_tcp_destination(builtin_target6, sizeof(builtin_target6));
+							TCP_DEBUG(1, "receive tcp ipv6");
+							link_magic = 0x1c00;
+							break;
+
+						case 0x1:
+							offset = sizeof(dns_filling_ipv4);
+							memcpy(builtin_target + 2, packet + 0x18, 2);
+							memcpy(builtin_target + 4, packet + 0x1c, 4);
+							set_tcp_destination(builtin_target, sizeof(builtin_target));
+							TCP_DEBUG(1, "receive tcp ipv4");
+							link_magic = 0x0100;
+							break;
+					}
+				}
+
+				memcpy(&key, packet + 14, 2);
+				packet_decrypt(htons(key), p, packet + offset, len - offset);
+
+				if (link->content == htonl(0x1c00)) {
+					static tcpup_addr addr[0];
+					memcpy(addr[0].name, &saaddr, salen);
+					addr[0].namlen = salen;
+					tcpup_do_packet(_offset, p, len - offset, addr, link->ident);
+				} else if (link->content == htonl(0x0100)) {
+					static tcpup_addr addr[0];
+					memcpy(addr[0].name, &saaddr, salen);
+					addr[0].namlen = salen;
+					tcpup_do_packet(_offset, p, len - offset, addr, link->ident);
+				} else if (link->content == htonl(link_magic)) {
 					memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
 					_rcvpkt_addr[pktcnt].namlen = salen;
 					_rcvpkt_link[pktcnt]  = link->ident;
@@ -443,14 +497,39 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	fd = _paging_devices[offset]->_file;
 	_paging_devices[offset]->_t_sndtime = time(NULL);
 
-	struct link_header *plink = (struct link_header *)dns_filling_byte;
+	size_t dns_filling_len = sizeof(dns_filling_byte);
+	uint8_t *dns_filling_buf = dns_filling_byte;
+
+	uint8_t link_optval[64];
+	uint32_t link_magic = 0x2636e00;
+	size_t link_optlen = get_tcp_link_target(link_optval, sizeof(link_optval));
+
+	if (link_optlen == 20) {
+		dns_filling_len = sizeof(dns_filling_ipv6);
+		dns_filling_buf = dns_filling_ipv6;
+
+		memcpy(dns_filling_ipv6 + 0x18, link_optval + 2, 2);
+		memcpy(dns_filling_ipv6 + 0x1c, link_optval + 4, 16);
+		TCP_DEBUG(1, "utxpl_output ipv6 tcp\n");
+		link_magic = 0x1c00;
+	} else if (link_optlen == 8) {
+		dns_filling_len = sizeof(dns_filling_ipv4);
+		dns_filling_buf = dns_filling_ipv4;
+
+		memcpy(dns_filling_ipv4 + 0x18, link_optval + 2, 2);
+		memcpy(dns_filling_ipv4 + 0x1c, link_optval + 4, 4);
+		TCP_DEBUG(1, "utxpl_output ipv4 tcp\n");
+		link_magic = 0x100;
+	}
+
+	struct link_header *plink = (struct link_header *)dns_filling_buf;
 	plink->ident = csum_fold(link);
-	plink->content = htonl(0x02636e00);
+	plink->content = htonl(link_magic);
 
 #ifndef WIN32
 	struct iovec  iovecs[10];
-	iovecs[0].iov_len = sizeof(dns_filling_byte);
-	iovecs[0].iov_base = dns_filling_byte;
+	iovecs[0].iov_len = dns_filling_len;
+	iovecs[0].iov_base = dns_filling_buf;
 
 	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
 	packet_encrypt_iovec(iovecs + 1, count, hold_buffer);
@@ -469,8 +548,8 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 #else
 	DWORD transfer = 0;
 	WSABUF  iovecs[10];
-	iovecs[0].len = sizeof(dns_filling_byte);
-	iovecs[0].buf = (char *)dns_filling_byte;
+	iovecs[0].len = dns_filling_len;
+	iovecs[0].buf = dns_filling_buf;
 
 	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
 	packet_encrypt_iovec(iovecs + 1, count, hold_buffer);

@@ -19,6 +19,8 @@
 #include "tcp_filter.h"
 
 struct tcpstat tcpstat;
+size_t set_tcp_link_target(const void *optval, size_t count);
+
 int tcp_backoff[TCP_MAXRXTSHIFT + 1] = {
 	1, 2, 4, 8, 16, 32, 64, 64, 64, 64, 64, 64, 64
 };
@@ -883,6 +885,7 @@ int tcp_addoptions(struct tcpopt *to, u_char *optp)
 				break;
 
 			case TOF_DESTINATION:
+				set_tcp_link_target(to->to_dsaddr, to->to_dslen);
 				break;
 
 			default:

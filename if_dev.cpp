@@ -262,6 +262,26 @@ static void module_clean(void)
 	_tcp_device_mod->clean();
 }
 
+static const void *tcp_link_opt = NULL;
+static size_t tcp_link_optlen = 0;
+
+size_t set_tcp_link_target(const void *optval, size_t count)
+{
+	size_t old = tcp_link_optlen;
+	tcp_link_optlen = count;
+	tcp_link_opt = optval;
+	return old;
+}
+
+size_t get_tcp_link_target(void *optval, size_t count)
+{
+	size_t old = tcp_link_optlen;
+	if (count > old) memcpy(optval, tcp_link_opt, old);
+	tcp_link_optlen = 0;
+	tcp_link_opt = NULL;
+	return old;
+}
+
 struct module_stub  tcp_device_mod = {
 	module_init, module_clean
 };

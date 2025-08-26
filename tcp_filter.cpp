@@ -330,13 +330,11 @@ static void tcp_filter_output(struct tcpcb *tp, struct txseginfo *txsi)
 		to.to_flags |= TOF_MSS;
 	}
 
-#if 0
 	if ((flags & TH_SYN) && tp->relay_len > 0) {
 		to.to_flags |= TOF_DESTINATION;
 		to.to_dsaddr = tp->relay_target;
 		to.to_dslen = tp->relay_len;
 	}
-#endif
 
 	if (tp->rcv_numsacks > 0) {
 		to.to_flags |= TOF_SACK;
