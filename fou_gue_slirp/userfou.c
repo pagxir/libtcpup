@@ -167,7 +167,7 @@ static int worker_receive(struct session_worker *worker, fd_set *readfds, int tu
 				size_t plen = flags[1];
 
 				struct ip6_hdr *ip6 = (struct ip6_hdr *)(packet + sizeof(ident)); ip6--;
-				uint32_t check = ip6->ip6_next == IPPROTO_ICMPV6? checksum(packet + sizeof(ident), htons(plen)): 0;
+				uint32_t check = (htons(flags[0]) & 0xff) == IPPROTO_ICMPV6? checksum(packet + sizeof(ident), htons(plen)): 0;
 
 				ip6->ip6_ver  = htonl(0x60000000);
 				ip6->ip6_plen = plen;

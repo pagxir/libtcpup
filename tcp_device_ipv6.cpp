@@ -176,6 +176,12 @@ static void _tcp_set_keepalive_address(struct tcpip_info *info)
 	// _tcp_keep_addr.sin_addr.s_addr   = (info->address);
 }
 
+struct link_header {
+	uint16_t ident, flags;
+	uint16_t qn, an, xn, yn;
+	uint32_t content;
+};
+
 #define _DNS_CLIENT_
 #ifdef _DNS_CLIENT_
 
@@ -338,13 +344,13 @@ void tcpup_device_ipv6::incoming(void)
 			if (len == -1) break;
 
 			int offset = sizeof(dns_filling_byte);
-			u_short psuedo_header[2];
 
-			if (len >= offset + TCPUP_HDRLEN + sizeof(psuedo_header)) {
+			if (len >= offset + TCPUP_HDRLEN) {
 				struct tcpup_addr from;
+				struct link_header *link = (struct link_header *)packet;
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is ipv6 overflow %d\n", salen);
 				// memcpy(&key, packet + 14, sizeof(key));
-				packet_decrypt(htons(key), p, packet + offset + sizeof(psuedo_header), len - offset - sizeof(psuedo_header));
+				packet_decrypt(htons(key), p, packet + offset, len - offset);
 
 				if (_filter_hook != NULL) {
 					memcpy(from.name, &saaddr, salen);
@@ -355,13 +361,12 @@ void tcpup_device_ipv6::incoming(void)
 					}
 				}
 
-				memcpy(psuedo_header, packet + offset, sizeof(psuedo_header));
-				if (psuedo_header[0] == htons(0xfe80)) {
+				if (link->content == htonl(0x2636e00)) {
 					memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
 					_rcvpkt_addr[pktcnt].namlen = salen;
-					_rcvpkt_link[pktcnt]  = psuedo_header[1];
-					_rcvpkt_len[pktcnt++] = (len - offset - sizeof(psuedo_header));
-					p += (len - offset - sizeof(psuedo_header));
+					_rcvpkt_link[pktcnt]  = link->ident;
+					_rcvpkt_len[pktcnt++] = (len - offset);
+					p += (len - offset);
 				}
 			}
 
@@ -438,26 +443,23 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	fd = _paging_devices[offset]->_file;
 	_paging_devices[offset]->_t_sndtime = time(NULL);
 
-	u_short psuedo_header[2];
-	psuedo_header[0] = htons(0xfe80);
-	psuedo_header[1] = link;
+	struct link_header *plink = (struct link_header *)dns_filling_byte;
+	plink->ident = csum_fold(link);
+	plink->content = htonl(0x02636e00);
 
 #ifndef WIN32
 	struct iovec  iovecs[10];
 	iovecs[0].iov_len = sizeof(dns_filling_byte);
 	iovecs[0].iov_base = dns_filling_byte;
 
-	iovecs[1].iov_len  = sizeof(psuedo_header);
-	iovecs[1].iov_base = psuedo_header;
-
-	memcpy(iovecs + 2, iov, count * sizeof(iovecs[0]));
-	packet_encrypt_iovec(iovecs + 2, count, hold_buffer);
+	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs + 1, count, hold_buffer);
 
 	struct msghdr msg0;
 	msg0.msg_name = (void *)name->name;
 	msg0.msg_namelen = name->namlen;
 	msg0.msg_iov  = (struct iovec*)iovecs;
-	msg0.msg_iovlen = count + 2;
+	msg0.msg_iovlen = count + 1;
 
 	msg0.msg_control = NULL;
 	msg0.msg_controllen = 0;
@@ -470,13 +472,10 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 	iovecs[0].len = sizeof(dns_filling_byte);
 	iovecs[0].buf = (char *)dns_filling_byte;
 
-	iovecs[1].len = sizeof(psuedo_header);
-	iovecs[1].buf = psuedo_header;
+	memcpy(iovecs + 1, iov, count * sizeof(iovecs[0]));
+	packet_encrypt_iovec(iovecs + 1, count, hold_buffer);
 
-	memcpy(iovecs + 2, iov, count * sizeof(iovecs[0]));
-	packet_encrypt_iovec(iovecs + 2, count, hold_buffer);
-
-	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 2, &transfer, 0,
+	error = WSASendTo(fd, (LPWSABUF)iovecs, count + 1, &transfer, 0,
 			(const sockaddr *)name->name, name->namlen, NULL, NULL);
 	error = (error == 0? transfer: -1);
 	{

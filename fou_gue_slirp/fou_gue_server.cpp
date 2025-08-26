@@ -489,7 +489,7 @@ static void * udp_exchange_create(int port, int dport)
 	int rcvbufsiz = 655360 * 1;
 	setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbufsiz, sizeof(rcvbufsiz));
 
-	int sndbufsiz = 655360 * 1;
+	int sndbufsiz = 655360 * 2;
 	setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &sndbufsiz, sizeof(sndbufsiz));
 #endif
 

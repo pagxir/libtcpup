@@ -134,8 +134,8 @@ struct tcphdr {
 #define    TCPOLEN_DESTINATION          2
 
 /* Miscellaneous constants */
-#define MAX_SACK_BLKS   9       /* Max # SACK blocks stored at receiver side */
-#define TCP_MAX_SACK    7       /* MAX # SACKs sent in any segment */
+#define MAX_SACK_BLKS   8       /* Max # SACK blocks stored at receiver side */
+#define TCP_MAX_SACK    4       /* MAX # SACKs sent in any segment */
 
 
 /*

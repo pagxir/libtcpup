@@ -16,6 +16,14 @@ void tcp_set_keepalive_address(struct tcpip_info *info);
 #endif
 
 #if IF_DEV 
+
+inline static uint16_t csum_fold(uint32_t val)
+{
+	while (val >> 16)
+		val = (val >> 16) + (val & 0xffff);
+	return val;
+}
+
 struct if_dev_cb {
     int head_size;
     int (* output)(int offset, rgn_iovec *iov, size_t count, struct tcpup_addr const *name, uint32_t link);

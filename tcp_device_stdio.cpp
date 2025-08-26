@@ -44,14 +44,6 @@ void set_tcp_destination(uint8_t *buf, size_t len);
 extern struct if_dev_cb _stdio_if_dev_cb;
 static struct context netif;
 
-static uint16_t csum_fold(uint32_t val)
-{
-	while (val >> 16)
-		val = (val >> 16) + (val & 0xffff);
-
-	return val;
-}
-
 struct ip_hdr {
 	uint16_t verflag;
 	uint16_t plen;
@@ -158,6 +150,7 @@ static void dev_idle_callback(void *uup)
 {
 	int error;
 
+	ticks = tx_getticks();
 	tx_task_wakeup(&netif.dev_busy, "idle");
 	netif.tcp_dev_busy = 0;
 
