@@ -401,15 +401,6 @@ void tcpup_device::incoming(void)
 				struct link_header *link = (struct link_header *) packet;
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is overflow\n");
 
-				if (_filter_hook != NULL) {
-					memcpy(from.name, &saaddr, salen);
-					from.namlen = salen;
-					if (_filter_hook(_file, p, len - offset, &from)) {
-						//TCP_DEBUG(0x1, "this packet is filter out by %p\n", _filter_hook);
-						continue;
-					}
-				}
-
 #ifdef _FEATRUE_INOUT_TWO_INTERFACE_
 				if (_dobind > 0 && (packet[7] || packet[6])) {
 					struct sockaddr_in *inp = (struct sockaddr_in *)&saaddr;
@@ -443,6 +434,15 @@ void tcpup_device::incoming(void)
 
 				memcpy(&key, packet + 14, 2);
 				packet_decrypt(htons(key), p, packet + offset, len - offset);
+
+				if (_filter_hook != NULL) {
+					memcpy(from.name, &saaddr, salen);
+					from.namlen = salen;
+					if (_filter_hook(_file, p, len - offset, &from)) {
+						//TCP_DEBUG(0x1, "this packet is filter out by %p\n", _filter_hook);
+						continue;
+					}
+				}
 
 				if (link->content == htonl(0x1c00)) {
 					static tcpup_addr addr[0];

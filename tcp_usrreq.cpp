@@ -648,7 +648,6 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 		u_short cksum = update_checksum(buf, len, link);
 		TCP_DEBUG(1, "BAD TCPUP CHECKSUM: %x %x\n", cksum, link);
 		assert(cksum != 0xffff);
-		assert(0);
 		return -1;
 	}
 

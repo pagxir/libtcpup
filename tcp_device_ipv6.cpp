@@ -370,15 +370,6 @@ void tcpup_device_ipv6::incoming(void)
 				TCP_DEBUG(salen > sizeof(_rcvpkt_addr[0].name), "buffer is ipv6 overflow %d\n", salen);
 				// memcpy(&key, packet + 14, sizeof(key));
 
-				if (_filter_hook != NULL) {
-					memcpy(from.name, &saaddr, salen);
-					from.namlen = salen;
-					if (_filter_hook(_file, p, len - offset, &from)) {
-						//TCP_DEBUG(0x1, "this packet is filter out by %p\n", _filter_hook);
-						continue;
-					}
-				}
-
 				uint32_t link_magic = 0x2636e00;
 				if (link->yn == htons(1)) {
 					switch(packet[14]) {
@@ -404,6 +395,15 @@ void tcpup_device_ipv6::incoming(void)
 
 				memcpy(&key, packet + 14, 2);
 				packet_decrypt(htons(key), p, packet + offset, len - offset);
+
+				if (_filter_hook != NULL) {
+					memcpy(from.name, &saaddr, salen);
+					from.namlen = salen;
+					if (_filter_hook(_file, p, len - offset, &from)) {
+						//TCP_DEBUG(0x1, "this packet is filter out by %p\n", _filter_hook);
+						continue;
+					}
+				}
 
 				if (link->content == htonl(0x1c00)) {
 					static tcpup_addr addr[0];

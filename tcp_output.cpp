@@ -201,7 +201,7 @@ int tcp_output(struct tcpcb *tp)
 	}
 
 	cwnd = tp->snd_cwnd + get_filter_win(tp);
-	if (cwnd < tp->t_maxseg) {
+	if (cwnd < tp->t_maxseg && tp->pacing_rate) {
 		TCP_DEBUG(1, "incorrent cwnd size: %d", tp->snd_cwnd);
 		cwnd = tp->t_maxseg;
 	}
