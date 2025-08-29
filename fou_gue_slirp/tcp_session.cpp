@@ -73,6 +73,8 @@ typedef struct _nat_conntrack_t {
 } nat_conntrack_t;
 
 static nat_conntrack_t *_session_last[HASH_MASK + 1] = {};
+static nat_conntrack_t *_session_lastid[HASH_MASK + 1] = {};
+
 static LIST_HEAD(nat_conntrack_q, _nat_conntrack_t) _session_header = LIST_HEAD_INITIALIZER(_session_header);
 
 static inline unsigned int get_connection_match_hash(const void *src, const void *dst, uint16_t sport, uint16_t dport)
@@ -115,6 +117,10 @@ static int conngc_session(time_t now, nat_conntrack_t *skip)
 					_session_last[hash_idx] = NULL;
 				}
 
+				if (item == _session_lastid[item->sockfd & HASH_MASK]) {
+					_session_lastid[item->sockfd & HASH_MASK] = NULL;
+				}
+
 				tx_aiocb_fini(&item->file);
 				tx_task_drop(&item->task);
 				close(item->sockfd);
@@ -131,10 +137,20 @@ static int conngc_session(time_t now, nat_conntrack_t *skip)
 static nat_conntrack_t * lookup_session_by_id(int id)
 {
 	nat_conntrack_t *item;
+	int index = (id & HASH_MASK);
+
+	item = _session_lastid[index];
+	if (item != NULL) {
+		if (item->sockfd == id) {
+			item->last_alive = time(NULL);
+			return item;
+		}
+	}
 
 	LIST_FOREACH(item, &_session_header, entry) {
 		if (item->sockfd == id) {
 			item->last_alive = time(NULL);
+			_session_lastid[id & HASH_MASK] = item;
 			return item;
 		}
 	}
@@ -280,6 +296,7 @@ static nat_conntrack_t * newconn_session(int mainfd, struct sockaddr_in6 *link, 
 		conn->hash_idx = get_connection_match_hash(&link->sin6_addr, ZEROS, sport, link->sin6_port);
 		LIST_INSERT_HEAD(&_session_header, conn, entry);
 		_session_last[conn->hash_idx] = conn;
+		_session_lastid[sockfd & HASH_MASK] = conn;
 	}
 
 	conngc_session(now, conn);
