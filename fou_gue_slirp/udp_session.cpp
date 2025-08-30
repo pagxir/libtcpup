@@ -237,7 +237,7 @@ static nat_conntrack_t * newconn_session(int mainfd, struct sockaddr_in6 *from, 
 		sockfd = socket(AF_INET6, SOCK_DGRAM, 0);
 		TX_CHECK(sockfd != -1, "create udp socket failure");
 
-		tx_setblockopt(sockfd, 0);
+		// tx_setblockopt(sockfd, 0);
 
 		int rcvbufsiz = 655360;
 		setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbufsiz, sizeof(rcvbufsiz));

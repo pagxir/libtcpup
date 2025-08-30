@@ -484,6 +484,7 @@ static void * udp_exchange_create(int port, int dport)
 	sockfd = socket(AF_INET6, SOCK_DGRAM, 0);
 	TX_CHECK(sockfd != -1, "create udp socket failure");
 
+	// tx_setblockopt(sockfd, 0);
 #if 1
 	int rcvbufsiz = 655360 * 1;
 	setsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, (char *)&rcvbufsiz, sizeof(rcvbufsiz));
