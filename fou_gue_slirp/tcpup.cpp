@@ -52,14 +52,6 @@ void set_tcp_destination(uint8_t *buf, size_t len);
 
 extern struct if_dev_cb _stdio_if_dev_cb;
 
-static uint16_t csum_fold(uint32_t val)
-{
-    while (val >> 16)
-        val = (val >> 16) + (val & 0xffff);
-
-    return val;
-}
-
 static void swap_uint16(void *p1, void *p2)
 {
 	uint16_t *d1 = (uint16_t *)p1;
