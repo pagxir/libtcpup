@@ -10,7 +10,7 @@ RANLIB := $(TARGET)-ranlib
 endif
 
 LOCAL_TARGETS := txcat libtx.a
-LOCAL_CXXFLAGS := -I$(THIS_PATH)/libtx/include -I$(THIS_PATH) -g
+LOCAL_CXXFLAGS := -I$(THIS_PATH)/libtx/include -I$(THIS_PATH)
 LOCAL_CFLAGS := $(LOCAL_CXXFLAGS)
 LOCAL_LDLIBS := -static-libgcc -static-libstdc++
 
@@ -22,8 +22,8 @@ ifeq ($(BUILD_TARGET), Linux)
 LOCAL_LDLIBS += -lrt
 endif
 
-LOCAL_CFLAGS += -g -Wall -Wno-sign-compare -I. -fno-rtti -fno-exceptions
-LOCAL_CXXFLAGS += -g -Wall -Wno-sign-compare -I. -fno-rtti -fno-exceptions
+LOCAL_CFLAGS += -g -Wall -Wno-sign-compare -I. -fno-rtti -fno-exceptions -O2
+LOCAL_CXXFLAGS += -g -Wall -Wno-sign-compare -I. -fno-rtti -fno-exceptions -O2
 
 VPATH := $(THIS_PATH)/libtx:$(THIS_PATH):$(THIS_PATH)/fou_gue_slirp
 
@@ -65,6 +65,7 @@ LDFLAGS  := $(LOCAL_LDFLAGS) $(LDFLAGS)
 
 server.udp: $(SRV_OBJ) $(LOCAL_OBJECTS) 
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@-static -static
 	echo $^|xargs -n 1|cpio -o -H newc |gzip > $@.cpio.gz
 
 FOU_OBJ = fou_gue_server.o tcp_session.o udp_session.o tcptun.o slirp.o pstcp_channel.o pstcp_listen.o dns_txasync.o dns_forward.o tcpup.o
@@ -84,6 +85,7 @@ punch_nat.exe: punch_nat.o
 
 client.udp: $(CLT_OBJ) $(LOCAL_OBJECTS)
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
+	$(CC) -static $(LDFLAGS) $^ $(LDLIBS) -o $@-static
 	echo $^|xargs -n 1|cpio -o -H newc |gzip > $@.cpio.gz
 
 server_srv.o: server.cpp

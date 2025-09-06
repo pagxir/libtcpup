@@ -47,6 +47,46 @@ struct ip6_hdr {
 	struct in6_addr ip6_dst;	/* destination address */
 } __packed;
 
+struct tcp_hdr {
+	uint16_t sport;
+	uint16_t dport;
+	uint32_t th_seq;
+	uint32_t th_ack;
+    uint8_t  th_hlen;
+    uint8_t  th_flags;
+    uint16_t th_win;
+    uint16_t th_sum;
+    uint16_t th_urp;
+} __packed;
+
+static int shadowcrypt(void *buf, const char *data, size_t len)
+{
+	uint32_t xoral = 0x55aa5aa5;
+	uint32_t *dst = (uint32_t *)buf, *src = (uint32_t *)data;
+
+	for (int i = 0; i < (len >> 2); i++) {
+		int32_t nxt = xoral | (*dst << (i&3));
+		*dst++ = *src++ ^ xoral;
+	}
+	*dst++ = *src++;
+
+	return 0;
+}
+
+static int shadowplay(void *buf, const char *data, size_t len)
+{
+	uint32_t xoral = 0x55aa5aa5;
+	uint32_t *dst = (uint32_t *)buf, *src = (uint32_t *)data;
+
+	for (int i = 0; i < (len >> 2); i++) {
+		int32_t old = *dst++ = *src++ ^ xoral;
+		xoral |= (old << (i&3));
+	}
+	*dst++ = *src++;
+
+	return 0;
+}
+
 // #define XORVAL 0x5a
 //  #define XORVAL 0
 static void invert(void *buf, size_t len, uint8_t key)
@@ -195,6 +235,36 @@ size_t send_via_link(int fd, struct sockaddr *via, size_t vialen, struct in6_add
 
 #else
 
+static inline int is_http_head(void *head)
+{
+#define HTTP_GET    0x47455420
+#define HTTP_PUT    0x50555420
+#define HTTP_POST   0x504f5354
+#define HTTP_HTTP   0x48545450
+#define HTTP_HEAD   0x48454144
+#define HTTP_OPTION 0x4f505449
+#define HTTP_DELETE 0x44454c45
+
+	struct tcp_hdr *tcp = (struct tcp_hdr *)head;
+	uint32_t *data = (uint32_t *)head;
+	uint32_t magic = htonl(data[tcp->th_hlen]);
+	return magic == HTTP_DELETE ||
+		magic == HTTP_GET ||
+		magic == HTTP_PUT ||
+		magic == HTTP_OPTION ||
+		magic == HTTP_HEAD ||
+		magic == HTTP_POST ||
+		magic == HTTP_HTTP;
+}
+
+static inline int is_https_head(void *head)
+{
+	struct tcp_hdr *tcp = (struct tcp_hdr *)head;
+	uint8_t *data = (uint8_t *)head;
+	data += (tcp->th_hlen << 2);
+	return (*data == 22) && (data[1] < 4) && (data[2] < 4);
+}
+
 size_t send_via_link(int fd, struct sockaddr *via, size_t vialen, struct in6_addr *src, struct in6_addr *dst,  void *payload, size_t len, void *buf, int proto)
 {
 	uint16_t flags[2];
@@ -212,9 +282,35 @@ size_t send_via_link(int fd, struct sockaddr *via, size_t vialen, struct in6_add
 	PUT_UINT32((header - 4), 0, identp[3]);
 	memcpy(header + len, src, 16);
 
-	flags[0] = htons(0x6800 | proto);
-	flags[1] = htons(len);
-	memcpy(header + len + 16, flags, sizeof(flags));
+	uint16_t *ports = (uint16_t *)payload;
+	uint8_t *fsrc = (uint8_t *)payload;
+	uint8_t *fdst = (uint8_t *)payload;
+
+	if (proto == IPPROTO_UDP && ports[0] == htons(53)) {
+		flags[0] = htons(0x9700 | proto);
+		flags[1] = htons(len);
+		memcpy(header + len + 16, flags, sizeof(flags));
+		for (int i = 0; i < len; i++) fdst[i] = fsrc[i] ^ 0x0f;
+	} else if (proto == IPPROTO_TCP && ports[0] == htons(443) && is_https_head(ports)) {
+		flags[0] = htons(0x9700 | proto);
+		flags[1] = htons(len);
+		memcpy(header + len + 16, flags, sizeof(flags));
+		for (int i = 0; i < len; i++) fdst[i] = fsrc[i] ^ 0x0f;
+	} else if (proto == IPPROTO_TCP && ports[0] == htons(80) && is_http_head(ports)) {
+		flags[0] = htons(0x9700 | proto);
+		flags[1] = htons(len);
+		memcpy(header + len + 16, flags, sizeof(flags));
+		for (int i = 0; i < len; i++) fdst[i] = fsrc[i] ^ 0x0f;
+	} else if (proto == IPPROTO_ICMPV6) {
+		flags[0] = htons(0x9700 | proto);
+		flags[1] = htons(len);
+		memcpy(header + len + 16, flags, sizeof(flags));
+		for (int i = 0; i < len; i++) fdst[i] = fsrc[i] ^ 0x0f;
+	} else {
+		flags[0] = htons(0x6800 | proto);
+		flags[1] = htons(len);
+		memcpy(header + len + 16, flags, sizeof(flags));
+	}
 
 	if (RESLINK_XOR != 0)
 		for (int i = 0; i < len + 24; i++)
@@ -338,8 +434,10 @@ static void do_udp_exchange_recv(void *upp)
 
 		if ((*packet_flags & htons(0xff00)) == htons(0x6000)) {
 			memcpy(&ip6->ip6_dst, buf + HEADROOM + count - 4 - 16, 16);
+#if 0
 			inet_pton(AF_INET6, "fe80::5efe:0:0", &ip6->ip6_src);
 			if (memcmp(&ip6->ip6_dst, &ip6->ip6_src, 12) != 0)
+#endif
 			    inet_pton(AF_INET6, "3402:52e2:76b5::5efe:0:0", &ip6->ip6_src);
 			PUT_UINT32(&ip6->ip6_src, 12, packet_ident);
 
@@ -349,6 +447,25 @@ static void do_udp_exchange_recv(void *upp)
 			ip6->ip6_plen = packet_flags[1];
 			ip6->ip6_hlim = 0xff;
 			plen = count - 24;
+		} else if ((*packet_flags & htons(0xff00)) == htons(0x9f00)) {
+			memcpy(&ip6->ip6_dst, buf + HEADROOM + count - 4 - 16, 16);
+#if 0
+			inet_pton(AF_INET6, "fe80::5efe:0:0", &ip6->ip6_src);
+			if (memcmp(&ip6->ip6_dst, &ip6->ip6_src, 12) != 0)
+#endif
+				inet_pton(AF_INET6, "3402:52e2:76b5::5efe:0:0", &ip6->ip6_src);
+			PUT_UINT32(&ip6->ip6_src, 12, packet_ident);
+
+			ip6->ip6_flow = htonl(0x60000000);
+			ip6->ip6_nxt  = htons(packet_flags[0]);
+			// ip6->ip6_plen = *(uint16_t *)(buf + HEADROOM + count - 2);
+			ip6->ip6_plen = packet_flags[1];
+			ip6->ip6_hlim = 0xff;
+			plen = count - 24;
+
+			uint8_t *fsrc = (uint8_t *)(ip6 + 1);
+			uint8_t *fdst = (uint8_t *)(ip6 + 1);
+			for (int i = 0; i < plen; i++) fdst[i] = fsrc[i] ^ 0x0f;
 			
 		} else if ((*packet_flags & htons(0xff00)) == htons(0x4000)) {
 			// struct ip4_hdr *ip6 = (struct ip4_hdr *)(buf + HEADROOM - 40 + 4);
@@ -372,7 +489,7 @@ static void do_udp_exchange_recv(void *upp)
 		struct in6_addr src = ip6->ip6_src;
 		struct in6_addr dst = ip6->ip6_dst;
 
-		LOG_VERBOSE("proto: %x %x\n", ip6->ip6_nxt, ip6->ip6_plen);
+		LOG_VERBOSE("proto: 0x%x len %d %x\n", ip6->ip6_nxt, htons(ip6->ip6_plen), htons(typecode[0]));
 
 		static uint32_t icmp_checksum = 0;
 		if (ip6->ip6_nxt == IPPROTO_ICMPV6 &&

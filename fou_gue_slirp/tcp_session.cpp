@@ -32,6 +32,13 @@
 struct tcp_hdr {
 	uint16_t sport;
 	uint16_t dport;
+	uint32_t th_seq;
+	uint32_t th_ack;
+    uint8_t  th_hlen;
+    uint8_t  th_flags;
+    uint16_t th_win;
+    uint16_t th_sum;
+    uint16_t th_urp;
 } __packed;
 
 #define ip6_vfc         ip6_ctlun.ip6_un2_vfc
@@ -69,6 +76,7 @@ typedef struct _nat_conntrack_t {
 	int port;
 	tx_aiocb file;
 	tx_task_t task;
+	struct tcp_hdr track;
 	LIST_ENTRY(_nat_conntrack_t) entry;
 } nat_conntrack_t;
 
@@ -96,10 +104,11 @@ static inline unsigned int get_connection_match_hash(const void *src, const void
 }
 
 static time_t _session_gc_time = 0;
+static int reset_tcp(nat_conntrack_t * up);
 static int conngc_session(time_t now, nat_conntrack_t *skip)
 {
-	int timeout = 30;
-	if (now < _session_gc_time || now > _session_gc_time + 30) {
+	int timeout = 130;
+	if (now < _session_gc_time || now > _session_gc_time + 130) {
 		nat_conntrack_t *item, *next;
 
 		_session_gc_time = now;
@@ -125,6 +134,7 @@ static int conngc_session(time_t now, nat_conntrack_t *skip)
 				tx_task_drop(&item->task);
 				close(item->sockfd);
 
+				reset_tcp(item);
 				LIST_REMOVE(item, entry);
 				free(item);
 			}
@@ -356,6 +366,32 @@ void set_tcp_send_handler(f_tcp_write *handler)
 	return;
 }
 
+static int reset_tcp(nat_conntrack_t * up)
+{
+
+	struct ip6_hdr ip6;
+	struct tcp_hdr tcphdr = up->track;
+	ip6.ip6_flow = htonl(0x60000000);
+	ip6.ip6_nxt  = IPPROTO_TCP;
+	ip6.ip6_plen = htons(sizeof(struct tcp_hdr));
+	ip6.ip6_hlim = 255;
+	ip6.ip6_src  = up->name.sin6_addr;
+	ip6.ip6_dst  = up->peer.sin6_addr;
+
+	uint16_t *potp = (uint16_t*)&ip6.ip6_src;
+	uint32_t check = potp[7] + tcphdr.sport + (uint16_t)~up->sockfd;
+	potp[7] = csum_fold(check);
+	tcphdr.sport = up->sockfd;
+#define TH_RST  0x04
+	tcphdr.th_hlen  = 5;
+	tcphdr.th_sum   = 0;
+	tcphdr.th_flags |= TH_RST;
+	tcphdr.th_sum = csum_fold(tcp_checksum(&tcphdr, sizeof(tcphdr), &ip6.ip6_src, &ip6.ip6_dst));
+
+	tcp_engine_write(&ip6, sizeof(ip6), &tcphdr, sizeof(tcphdr));
+	return 0;
+}
+
 #define PICK_UINT32(ptr, off)  (*(uint32_t *)(((char *)ptr) + off))
 #define PICK_UINT16(ptr, off)  (*(uint16_t *)(((char *)ptr) + off))
 #define PUT_UINT16(ptr, off, val) *(uint16_t*)(((char *)ptr) + off) = val
@@ -364,6 +400,10 @@ void tcp_session_forward(void *session, struct in6_addr *src, struct in6_addr *d
 {
 	struct tcp_hdr *tcp = (struct tcp_hdr *)head;
 	nat_conntrack_t * up = (nat_conntrack_t *)session;
+
+	struct tcp_hdr *track = &up->track;
+	if ((int)(htonl(tcp->th_ack) - htonl(track->th_ack)) > 0)
+		track[0] = tcp[0];
 
 	if (!IN6_IS_ADDR_V4MAPPED(dst)) {
 		struct ip6_hdr ip6;

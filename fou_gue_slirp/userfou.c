@@ -33,8 +33,10 @@ typedef struct inner_ident_s {
 
 struct session_worker {
 	int sockfd;
+	int offset;
 	uint32_t check;
 	time_t last_active;
+	struct sockaddr_in from;
 	inner_ident_t ident;
 };
 
@@ -46,6 +48,18 @@ struct ip6_hdr {
 	struct in6_addr ip6_src;
 	struct in6_addr ip6_dst;
 };
+
+struct tcp_hdr {
+	uint16_t sport;
+	uint16_t dport;
+	uint32_t th_seq;
+	uint32_t th_ack;
+    uint8_t  th_hlen;
+    uint8_t  th_flags;
+    uint16_t th_win;
+    uint16_t th_sum;
+    uint16_t th_urp;
+} __packed;
 
 struct session_worker *_worker_list[1000];
 
@@ -138,7 +152,7 @@ static int worker_receive(struct session_worker *worker, fd_set *readfds, int tu
 	struct sockaddr_in target;
 	socklen_t fromlen = sizeof(target);
 
-	struct sockaddr *to = (struct sockaddr *)&target;
+	struct sockaddr *to = (struct sockaddr *)&worker->from;
 	socklen_t tolen = sizeof(target);
 
 	if (worker && worker->sockfd >= 0
@@ -159,10 +173,11 @@ static int worker_receive(struct session_worker *worker, fd_set *readfds, int tu
 					for (int i = 0; i < receive; i++)
 						buffer[skip + i] ^= RESLINK_XOR;
 
+#if 0
 				target.sin_family = AF_INET;
 				memcpy(&target.sin_addr, packet, sizeof(target.sin_addr));
 				tolen = sizeof(target);
-
+#endif
 				memcpy(flags, limited - sizeof(flags), sizeof(flags));
 				size_t plen = flags[1];
 
@@ -180,8 +195,14 @@ static int worker_receive(struct session_worker *worker, fd_set *readfds, int tu
 						&& checksum_validate(ip6 + 1, htons(plen), &ip6->ip6_src, &ip6->ip6_dst, ip6->ip6_next))
 					xor_update(ip6 + 1, htons(plen), worker->check);
 
-				err = sendto(tunnelfd, ip6, receive + 40 - 24, 0, to, tolen);
-				if (g_trace_enable) LOG_VERBOSE("send data to isatap: err = %d fd = %d\n", err, tunnelfd);
+				if ((htons(flags[0]) & 0xff00) == 0x9700) {
+					int datalen = htons(plen);
+					uint8_t *datap = (uint8_t *)(ip6 + 1);
+					for (int i = 0; i < datalen; i++) datap[i] ^= 0xf;
+				}
+
+				err = sendto(tunnelfd, ip6, receive + 40 - 24, receive < 512? MSG_DONTWAIT: 0, to, tolen);
+				if (g_trace_enable) LOG_VERBOSE("send data to isatap: err = %d fd = %d flags=%x\n", err, tunnelfd, flags[0]);
 				assert (err > 0);
 
                 if (ip6->ip6_next ==  IPPROTO_ICMPV6) worker->check = check;
@@ -193,12 +214,77 @@ static int worker_receive(struct session_worker *worker, fd_set *readfds, int tu
 	return tunnelfd;
 }
 
-static struct session_worker *last_worker = NULL;
+static int last_id = 0;
+static struct session_worker *last_workers[512] = {};
+
+static inline int compute_hash(void *buf, size_t len)
+{
+	uint8_t *packet = (uint8_t *)buf;
+	const inner_ident_t *data = (const inner_ident_t *)(packet + 8);
+	uint16_t * hash_data = (uint16_t *)&data->src;
+	uint32_t   hash_check = hash_data[4] + hash_data[5] + hash_data[6] + hash_data[7] + data->port_src;
+	return (hash_check % 511);
+}
+
+#define csum_fold(x) ((x >> 16) + (uint16_t)x)
+
+static uint32_t compute_fake(uint32_t src0, uint32_t src1, uint32_t src2, uint32_t src3, int offset)
+{
+	uint32_t fake = csum_fold(src0);
+
+	fake += csum_fold(src1);
+	fake += csum_fold(src2);
+	fake += csum_fold(src3);
+
+	fake += (uint16_t)~htons(offset);
+	fake += (uint16_t)~htons(0x5c98);
+
+	fake = csum_fold(fake);
+	fake = csum_fold(fake);
+
+#if 0
+	inet_pton(AF_INET6, "fe80::5efe:0:0", &ip6->ip6_src);
+	inet_pton(AF_INET6, "3402:52e2:76b5::5efe:0:0", &ip6->ip6_src);
+#endif
+	
+	return htonl((offset << 16) + htons(fake));
+}
+
+static inline int ishttphead(void *head)
+{
+#define HTTP_GET    0x47455420
+#define HTTP_PUT    0x50555420
+#define HTTP_POST   0x504f5354
+#define HTTP_HTTP   0x48545450
+#define HTTP_HEAD   0x48454144
+#define HTTP_OPTION 0x4f505449
+#define HTTP_DELETE 0x44454c45
+
+	struct tcp_hdr *tcp = (struct tcp_hdr *)head;
+	uint32_t *data = (uint32_t *)head;
+	uint32_t magic = htonl(data[tcp->th_hlen]);
+	return magic == HTTP_DELETE ||
+		magic == HTTP_GET ||
+		magic == HTTP_PUT ||
+		magic == HTTP_OPTION ||
+		magic == HTTP_HEAD ||
+		magic == HTTP_POST ||
+		magic == HTTP_HTTP;
+}
+
+static inline int ishttpshead(void *head)
+{
+	struct tcp_hdr *tcp = (struct tcp_hdr *)head;
+	uint8_t *data = (uint8_t *)head;
+	data += (tcp->th_hlen << 2);
+	return (*data == 22) && (data[1] < 4) && (data[2] < 4);
+}
+
 static int worker_dispatch(struct session_worker *worker, const void *buf, size_t len, struct sockaddr *target, size_t tolen)
 {
 	int dispatched = 0;
 	uint8_t *packet = (uint8_t *)buf;
-	const inner_ident_t *data = (const inner_ident_t *)((uint8_t *)buf + 8);
+	const inner_ident_t *data = (const inner_ident_t *)(packet + 8);
 
 	if (worker && worker->sockfd >= 0) {
 		if (IN6_ARE_ADDR_EQUAL(&worker->ident.src, &data->src) && worker->ident.port_src == data->port_src) {
@@ -208,13 +294,30 @@ static int worker_dispatch(struct session_worker *worker, const void *buf, size_
 			memcpy(src, &ip6->ip6_src, sizeof(src));
 			memcpy(dst, &ip6->ip6_dst, sizeof(dst));
 
+			int do_xor = 0;
+			uint16_t *ports = (uint16_t *)(ip6 + 1);
+			if (ip6->ip6_next == IPPROTO_TCP && ports[1] == htons(80) && ishttphead(ports)) {
+				do_xor = 1;
+			} else if (ip6->ip6_next == IPPROTO_TCP && ports[1] == htons(443) && ishttpshead(ports)) {
+				do_xor = 1;
+			} else if (ip6->ip6_next == IPPROTO_UDP && ports[1] == htons(53)) {
+				do_xor = 1;
+			}
+
 			uint32_t *data = (uint32_t *)(ip6 + 1);
 			data--;
-			data[0] = src[3];
+			data[0] = compute_fake(src[0], src[1], src[2], src[3], worker->offset);
 
 			uint16_t flags[2];
-			flags[1] = ip6->ip6_plen;
-			flags[0] = htons(0x6000 | ip6->ip6_next);
+			if (do_xor) {
+				flags[0] = htons(0x9f00 | ip6->ip6_next);
+				flags[1] = ip6->ip6_plen;
+				uint8_t *datap = (uint8_t *)(ip6 + 1);
+				for (int i = 0; i < htons(ip6->ip6_plen); i++) datap[i] ^= 0xf;
+			} else {
+				flags[0] = htons(0x6000 | ip6->ip6_next);
+				flags[1] = ip6->ip6_plen;
+			}
 
 			memcpy(packet + len, dst, sizeof(dst));
 			memcpy(packet + len + sizeof(dst), flags, sizeof(flags));
@@ -226,10 +329,10 @@ static int worker_dispatch(struct session_worker *worker, const void *buf, size_
 				}
 			}
 
-			int err = sendto(worker->sockfd, data, len - 40 + 24, 0, target, tolen);
-			if (g_trace_enable) LOG_VERBOSE("send data to peer: err = %d fd = %d\n", err, worker->sockfd);
+			int err = sendto(worker->sockfd, data, len - 40 + 24, len < 512? MSG_DONTWAIT: 0, target, tolen);
+			if (g_trace_enable) LOG_VERBOSE("send data to peer: err = %d fd = %d value=%x\n", err, worker->sockfd, flags[0]);
 			worker->last_active = time(NULL);
-			last_worker = worker;
+			last_workers[last_id] = worker;
 			dispatched = 1;
 		}
 	}
@@ -242,7 +345,7 @@ static int update_bufsize(int sockfd)
 	int ret;
 	int bufsize = 0;
 	int optlen = sizeof(bufsize);
-#define BUFSIZE (655360)
+#define BUFSIZE (655360 * 3)
 
 	ret = getsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &bufsize, &optlen);
 	if (ret == 0 && bufsize < BUFSIZE) {
@@ -251,6 +354,7 @@ static int update_bufsize(int sockfd)
 		setsockopt(sockfd, SOL_SOCKET, SO_SNDBUF, &bufsize, sizeof(bufsize));
 	}
 
+	optlen = sizeof(bufsize);
 	ret = getsockopt(sockfd, SOL_SOCKET, SO_RCVBUF, &bufsize, &optlen);
 	if (ret == 0 && bufsize < BUFSIZE) {
 		printf("update receive buffer to %d %d\n", bufsize, BUFSIZE);
@@ -261,11 +365,13 @@ static int update_bufsize(int sockfd)
 	return ret;
 }
 
-static int worker_assign(struct session_worker *worker, const void *buf)
+static int worker_assign(struct session_worker *worker, const void *buf, struct sockaddr_in *from)
 {
 	const inner_ident_t *data = (const inner_ident_t *)((uint8_t *)buf + 8); // 40 - 32
 
 	assert(worker != NULL);
+	worker->from = from[0];
+
 	memcpy(&worker->ident, data, sizeof(worker->ident));
 	worker->last_active = time(NULL);
 
@@ -285,23 +391,12 @@ int main(int argc, char *argv[])
 	int tunnelfd, udpfd, maxfd, nready;
 
 	// IPPROTO_IPIP IPPROTO_GRE IPPROTO_ESP IPPROTO_AH
-	tunnelfd  = socket(AF_INET, SOCK_RAW, IPPROTO_IPV6);
-	update_bufsize(tunnelfd);
-
-	maxfd = MAX_INT(tunnelfd, udpfd);
-
-	addr.sin_family = AF_INET;
-	addr.sin_port   = 0;
-	addr.sin_addr.s_addr = INADDR_ANY;
-
-	err = bind(tunnelfd, (struct sockaddr *)&addr, sizeof(addr));
-	assert (err == 0);
-
 	struct sockaddr_in target_udp;
 	target_udp.sin_family = AF_INET;
 	target_udp.sin_port   = htons(7890);
 	inet_pton(AF_INET, "137.175.53.113", &target_udp.sin_addr);
 
+	int udp_mode = 0;
 	int target_count = 0;
 	struct sockaddr_in target_udps[10];
 
@@ -314,6 +409,9 @@ int main(int argc, char *argv[])
 			continue;
 		} else if (i + 1 < argc && strcmp(hostpair, "-xres") == 0) {
 			RESLINK_XOR = atoi(argv[++i]);
+			continue;
+		} else if (i + 1 < argc && strcmp(hostpair, "-udp") == 0) {
+			udp_mode = 1;
 			continue;
 		} else if (i + 1 < argc && strcmp(hostpair, "-trace") == 0
 				|| strcmp(hostpair, "-trace=1") == 0) {
@@ -349,6 +447,24 @@ int main(int argc, char *argv[])
 		LOG_VERBOSE("target %s:%d\n", abuf, htons(target_udp.sin_port));
 	}
 
+	int type = SOCK_RAW, proto = IPPROTO_IPV6;
+	if (udp_mode ) {
+		type = SOCK_DGRAM;
+		proto = 0;
+	}
+
+	tunnelfd  = socket(AF_INET, type, proto);
+	update_bufsize(tunnelfd);
+
+	maxfd = MAX_INT(tunnelfd, udpfd);
+
+	addr.sin_family = AF_INET;
+	addr.sin_port   = htons(35836);
+	addr.sin_addr.s_addr = INADDR_ANY;
+
+	err = bind(tunnelfd, (struct sockaddr *)&addr, sizeof(addr));
+	assert (err == 0);
+
 	int target_next = 0;
 	uint8_t map2proto[256];
 	memset(map2proto, 0xff, sizeof(map2proto));
@@ -368,7 +484,7 @@ int main(int argc, char *argv[])
 			maxfd = worker_update(_worker_list[i], &readfds, maxfd);
 
 		struct timeval timeout = {
-			.tv_sec = 10
+			.tv_sec = 130
 		};
 
 		nready = select(maxfd + 1, &readfds, NULL, NULL, &timeout);
@@ -390,7 +506,7 @@ int main(int argc, char *argv[])
 			if (FD_ISSET(tunnelfd, &readfds)) {
 				to = (struct sockaddr *)&target_udp;
 				tolen = sizeof(target_udp);
-				skip = 20;
+				skip = udp_mode? 0: 20;
 				receive = recvfrom(tunnelfd, buffer, sizeof(buffer), MSG_DONTWAIT, (struct sockaddr *)&target_tunnel, &fromlen);
 				if (receive == -1) FD_CLR(tunnelfd, &readfds);
 				// *(uint32_t *)(buffer + skip) = random();
@@ -412,6 +528,9 @@ int main(int argc, char *argv[])
 					}
 
 					to = (struct sockaddr *)&target_udps[index];
+					last_id = compute_hash(buffer + skip, receive - skip);
+					struct session_worker *last_worker = last_workers[last_id];
+
 					if (last_worker && worker_dispatch(last_worker, buffer + skip, receive - skip, to, tolen)) {
 						dispatched = 1;
 					} else {
@@ -427,8 +546,9 @@ int main(int argc, char *argv[])
 							if (worker == NULL) {
 								worker = (struct session_worker *)calloc(1, sizeof(*worker));
 								_worker_list[i] = worker;
+								_worker_list[i]->offset = i;
 								worker->sockfd = -1;
-								worker_assign(worker, buffer + skip);
+								worker_assign(worker, buffer + skip, &addr);
 								dispatched = 1;
 								break;
 							}
@@ -451,7 +571,7 @@ int main(int argc, char *argv[])
 							worker = NULL;
 							if (last_select >= 0) {
 								worker = _worker_list[last_select];
-								worker_assign(worker, buffer + skip);
+								worker_assign(worker, buffer + skip, &addr);
 								dispatched = 1;
 							}
 						}

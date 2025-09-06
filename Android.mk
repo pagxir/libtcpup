@@ -8,7 +8,7 @@ LOCAL_SRC_FILES += cc_newreno.cpp cc_cubic.cpp cc.cpp cc_htcp.cpp cc_hybla.cpp t
 LOCAL_SRC_FILES += libtx.a socket.cpp rgnbuf.cpp tcp_debug.cpp tcp_device_ipv6.cpp \
 		  tcp_input.cpp tcp_output.cpp tcp_timer.cpp tcp_subr.cpp \
 		  tcp_usrreq.cpp tcp_sack.cpp tcp_crypt.cpp client_track.cpp router.cpp tcp_device.cpp \
-		  tcp_device_icmp.cpp tcp_device_icmp_user.cpp  ifdev_stdio.cpp if_dev.cpp
+		  tcp_device_icmp.cpp tcp_device_icmp_user.cpp tcp_device_stdio.cpp if_dev.cpp
 
 LOCAL_CFLAGS += -I$(LOCAL_PATH)/libtx/include -fPIC
 LOCAL_LDFLAGS += 
@@ -23,9 +23,18 @@ LOCAL_SRC_FILES +=  cc_newreno.cpp cc_cubic.cpp cc.cpp cc_htcp.cpp cc_hybla.cpp 
 LOCAL_SRC_FILES += libtx.a socket.cpp rgnbuf.cpp tcp_debug.cpp \
 		  tcp_input.cpp tcp_output.cpp tcp_timer.cpp tcp_subr.cpp \
 		  tcp_usrreq.cpp tcp_sack.cpp tcp_crypt.cpp client_track.cpp router.cpp tcp_device.cpp \
-		  tcp_device_icmp.cpp tcp_device_ipv6.cpp tcp_device_icmp_user.cpp  ifdev_stdio.cpp if_dev.cpp
+		  tcp_device_icmp.cpp tcp_device_ipv6.cpp tcp_device_icmp_user.cpp  tcp_device_stdio.cpp if_dev.cpp
 
 LOCAL_CFLAGS += -I$(LOCAL_PATH)/libtx/include -fPIC
+LOCAL_LDFLAGS += 
+LOCAL_STATIC_LIBRARIES := libtx
+include $(BUILD_EXECUTABLE)
+
+include $(CLEAR_VARS)
+LOCAL_PRELINK_MODULE := false
+LOCAL_MODULE := sni_relay_proxy
+LOCAL_SRC_FILES := sni_relay_proxy.cpp
+LOCAL_CFLAGS += -fPIC -I$(LOCAL_PATH)/libtx/include 
 LOCAL_LDFLAGS += 
 LOCAL_STATIC_LIBRARIES := libtx
 include $(BUILD_EXECUTABLE)

@@ -445,12 +445,12 @@ void tcpup_device::incoming(void)
 				}
 
 				if (link->content == htonl(0x1c00)) {
-					static tcpup_addr addr[0];
+					static tcpup_addr addr[1];
 					memcpy(addr[0].name, &saaddr, salen);
 					addr[0].namlen = salen;
 					tcpup_do_packet(_offset, p, len - offset, addr, link->ident);
 				} else if (link->content == htonl(0x0100)) {
-					static tcpup_addr addr[0];
+					static tcpup_addr addr[1];
 					memcpy(addr[0].name, &saaddr, salen);
 					addr[0].namlen = salen;
 					tcpup_do_packet(_offset, p, len - offset, addr, link->ident);
