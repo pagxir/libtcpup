@@ -29,6 +29,7 @@
 #define ICMP_SERVER_FILL 0xCE
 #define ICMP_SEQNO_FIXED 0xfab5
 
+void set_tcp_destination(uint8_t *buf, size_t len);
 struct icmphdr {
 	unsigned char type;
 	unsigned char code;
@@ -374,7 +375,7 @@ void TCPUP_DEVICE_ICMP_CLASS::incoming(void)
 
 			int offset = IPHDR_SKIP_LEN + sizeof(icmp_hdr_fill);
 			icmphdr = (struct icmphdr *)(packet + IPHDR_SKIP_LEN);
-			u_short psuedo_header[2];
+			u_short psuedo_header[12];
 
 			if (len >= offset + TCPUP_HDRLEN + sizeof(psuedo_header)) {
 				struct tcpup_addr from;
@@ -400,13 +401,22 @@ void TCPUP_DEVICE_ICMP_CLASS::incoming(void)
 					memcpy(psuedo_header, packet + offset, sizeof(psuedo_header));
 					if (psuedo_header[0] == htons(0xfe80) && tphdr->th_x2 == 0 && tphdr->th_urp == 0) {
 						this->_t_rcvtime = time(NULL);
-						(*(struct sockaddr_in *)&saaddr).sin_port = icmphdr->u0.seqno;
-						memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
-						_rcvpkt_addr[pktcnt].xdat = icmphdr->u0.pair;
-						_rcvpkt_addr[pktcnt].namlen = salen;
-						_rcvpkt_link[pktcnt]  = psuedo_header[1];
-						_rcvpkt_len[pktcnt++] = (len - offset - sizeof(psuedo_header));
-						p += (len - offset - sizeof(psuedo_header));
+						if (tphdr->th_flags & TH_SYN) {
+							static tcpup_addr addr[1];
+							memcpy(addr[0].name, &saaddr, salen);
+							addr[0].xdat = icmphdr->u0.pair;
+							addr[0].namlen = salen;
+							set_tcp_destination((uint8_t*)(psuedo_header + 2), psuedo_header[2] == htons(0x400)? 20: 8);
+							tcpup_do_packet(_offset, p, len - offset - sizeof(psuedo_header), addr, psuedo_header[1]);
+						} else {
+							(*(struct sockaddr_in *)&saaddr).sin_port = icmphdr->u0.seqno;
+							memcpy(_rcvpkt_addr[pktcnt].name, &saaddr, salen);
+							_rcvpkt_addr[pktcnt].xdat = icmphdr->u0.pair;
+							_rcvpkt_addr[pktcnt].namlen = salen;
+							_rcvpkt_link[pktcnt]  = psuedo_header[1];
+							_rcvpkt_len[pktcnt++] = (len - offset - sizeof(psuedo_header));
+							p += (len - offset - sizeof(psuedo_header));
+						}
 						continue;
 					}
 				}
@@ -546,9 +556,10 @@ static int _utxpl_output(int offset, rgn_iovec *iov, size_t count, struct tcpup_
 		memset(icmp_hdr_fill[0].reserved, ICMP_SERVER_FILL, sizeof(icmp_hdr_fill[0].reserved));
 	}
 
-	u_short psuedo_header[2];
+	u_short psuedo_header[2 + 2 + 8];
 	psuedo_header[0] = htons(0xfe80);
 	psuedo_header[1] = link;
+	get_tcp_link_target(psuedo_header + 2, 20);
 
 #ifndef WIN32
 	struct iovec  iovecs[10];
