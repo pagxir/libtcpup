@@ -19,6 +19,7 @@
 #define csum_fold(x) ((x >> 16) + (uint16_t)x)
 
 #define MAX_INT(a, b) ((a) < (b)? (b): (a))
+
 static char buffer[65536];
 static int g_trace_enable = 0;
 
@@ -105,20 +106,24 @@ static int worker_receive(struct session_worker *worker, fd_set *readfds, int tu
 #endif
 				memcpy(&flags, limited - sizeof(flags), sizeof(flags));
 				size_t plen = htons(flags.plen);
-
 				struct ip6_hdr *ip6 = NULL;
-				if (flags.hver == 0x68) {
+				if (plen + 24 > receive) {
+					LOG_VERBOSE("receive unexpected data %d %d %x\n", receive, plen, flags.hver);
+					return 0;
+				} else if (flags.hver == 0x68) {
 					memcpy(&ident, limited - plen - 24, sizeof(ident));
-					ip6 = (struct ip6_hdr *)(limited - plen - 20);
-					ip6--;
+					ip6 = (struct ip6_hdr *)(limited - plen - 20 - sizeof(*ip6));
 				} else if (flags.hver == 0x97) {
 					memcpy(&ident, limited - plen - 24, sizeof(ident));
-					ip6 = (struct ip6_hdr *)(limited - plen - 20);
-					ip6--;
+					ip6 = (struct ip6_hdr *)(limited - plen - 20 - sizeof(*ip6));
 					uint8_t *datap = (uint8_t *)(ip6 + 1);
 					for (int i = 0; i < plen; i++) datap[i] ^= 0xf;
+				} else {
+					LOG_VERBOSE("receive unexpected data %d %x\n", receive, flags.hver);
+					return 0;
 				}
 
+				assert(ip6 != NULL);
 				ip6->ip6_ver  = htonl(0x60000000);
 				ip6->ip6_plen = flags.plen;
 				ip6->ip6_limit = 0xff;
@@ -240,7 +245,9 @@ static int worker_dispatch(struct session_worker *worker, const void *buf, size_
 
 			int do_xor = 0;
 			uint16_t *ports = (uint16_t *)(ip6 + 1);
-			if (ip6->ip6_next == IPPROTO_TCP && ports[1] == htons(80) && ishttphead(ports)) {
+			if ((ip6->ip6_ver & htonl(0xf0000000)) != htonl(0x60000000)) {
+				return 0;
+			} else if (ip6->ip6_next == IPPROTO_TCP && ports[1] == htons(80) && ishttphead(ports)) {
 				do_xor = 1;
 			} else if (ip6->ip6_next == IPPROTO_TCP && ports[1] == htons(443) && ishttpshead(ports)) {
 				do_xor = 1;
@@ -263,6 +270,7 @@ static int worker_dispatch(struct session_worker *worker, const void *buf, size_
 				flags[1] = ip6->ip6_plen;
 			}
 
+			assert(len < 1500);
 			memcpy(packet + len, dst, sizeof(dst));
 			memcpy(packet + len + sizeof(dst), flags, sizeof(flags));
 

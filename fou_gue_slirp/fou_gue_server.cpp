@@ -156,6 +156,7 @@ static inline int is_http_head(void *head)
 {
 	struct tcp_hdr *tcp = (struct tcp_hdr *)head;
 	uint32_t *data = (uint32_t *)head;
+#if 0
 	uint32_t magic = htonl(data[tcp->th_hlen]);
 	return magic == HTTP_DELETE ||
 		magic == HTTP_GET ||
@@ -164,6 +165,10 @@ static inline int is_http_head(void *head)
 		magic == HTTP_HEAD ||
 		magic == HTTP_POST ||
 		magic == HTTP_HTTP;
+#else
+	uint32_t magic = data[tcp->th_hlen];
+	return (magic & 0x80808080) == 0;
+#endif
 }
 
 static inline int is_https_head(void *head)
