@@ -9,6 +9,7 @@
 
 #include <netinet/in.h>
 #include <netinet/icmp6.h>
+#include <netinet/ip_icmp.h>
 #include <arpa/nameser.h>
 #include <resolv.h>
 
@@ -185,6 +186,44 @@ size_t send_via_link(int fd, struct sockaddr *via, size_t vialen, struct in6_add
 	char * packet = (char *)buf;
 	char * header = (char *)payload;
 
+	if (memcmp(v4map_prefix, dst, 12) == 0) {
+		struct in6_addr src0;
+		assert(packet + 8 < header);
+
+		uint32_t *identp = (uint32_t*)dst;
+		PUT_UINT32(header, -4, identp[3]);
+
+		identp = (uint32_t*)src;
+		PUT_UINT32(header, len, identp[3]);
+
+		int pad = 0;
+		uint16_t *ports = (uint16_t *)payload;
+
+		flags[1] = htons(len);
+		if (proto == IPPROTO_UDP && ports[0] == htons(53)) {
+			flags[0] = htons(0xb700 | proto);
+		} else if (proto == IPPROTO_TCP && ports[0] == htons(443) && is_https_head(ports)) {
+			flags[0] = htons(0xb700 | proto);
+		} else if (proto == IPPROTO_TCP && ports[0] == htons(80) && is_http_head(ports)) {
+			flags[0] = htons(0xb700 | proto);
+		} else if (proto == IPPROTO_ICMP) {
+			flags[0] = htons(0xb700 | proto); pad = 0;
+		} else {
+			flags[0] = htons(0x4800 | proto);
+		}
+
+		memcpy(header + len + 4, flags, sizeof(flags));
+		if ((flags[0] & htons(0xff00)) == htons(0xb700)) {
+			uint8_t *data = (uint8_t *)payload;
+			for (int i = 0; i < len; i++) *data++ ^= 0xf;
+		}
+
+		assert (len > 0);
+		int error = sendto(fd, header - 4 - pad, len + 12, 0, via, vialen);
+
+		return error;
+	}
+
 	struct in6_addr src0;
 	assert(packet + 8 < header);
 	if (memcmp(v4map_prefix, src, 12) == 0) {
@@ -308,13 +347,54 @@ static void do_udp_exchange_recv(void *upp)
 			for (int i = 0; i < plen; i++) *data++ ^= 0xf;
 			
 		} else if ((*packet_flags & htons(0xff00)) == htons(0x4000)) {
-			// struct ip4_hdr *ip6 = (struct ip4_hdr *)(buf + HEADROOM - 40 + 4);
+			uint32_t dest = 0;
+			plen = htons(packet_flags[1]);
+			assert(plen < count);
 
-			continue;
+			memcpy(&packet_ident, last - plen - 12, sizeof(packet_ident));
+			ip6  = (struct ip6_hdr *)(last - plen - 8 - sizeof(*ip6));
+
+			memcpy(&dest, last - 8, sizeof(dest));
+			inet_pton(AF_INET6, "::ffff:0:0", &ip6->ip6_dst);
+			PUT_UINT32(&ip6->ip6_dst, 12, dest);
+
+			inet_pton(AF_INET6, "::ffff:0:0", &ip6->ip6_src);
+			PUT_UINT32(&ip6->ip6_src, 12, packet_ident);
+
+			ip6->ip6_flow = htonl(0x60000000);
+			ip6->ip6_nxt  = htons(packet_flags[0]);
+			ip6->ip6_plen = packet_flags[1];
+			ip6->ip6_hlim = 0xff;
+
+		} else if ((*packet_flags & htons(0xff00)) == htons(0xbf00)) {
+			uint32_t dest = 0;
+			plen = htons(packet_flags[1]);
+			assert(plen < count);
+
+			memcpy(&packet_ident, last - plen - 12, sizeof(packet_ident));
+			ip6  = (struct ip6_hdr *)(last - plen - 8 - sizeof(*ip6));
+
+			memcpy(&dest, last - 8, sizeof(dest));
+			inet_pton(AF_INET6, "::ffff:0:0", &ip6->ip6_dst);
+			PUT_UINT32(&ip6->ip6_dst, 12, dest);
+
+			inet_pton(AF_INET6, "::ffff:0:0", &ip6->ip6_src);
+			PUT_UINT32(&ip6->ip6_src, 12, packet_ident);
+
+			ip6->ip6_flow = htonl(0x60000000);
+			ip6->ip6_nxt  = htons(packet_flags[0]);
+			ip6->ip6_plen = packet_flags[1];
+			ip6->ip6_hlim = 0xff;
+
+			uint8_t *data = (uint8_t *)(ip6 + 1);
+			for (int i = 0; i < plen; i++) *data++ ^= 0xf;
+
 		} else {
 			continue;
 		}
 
+#define ICMP_TYPE_CODE_PING (ICMP_ECHO << 8)
+#define ICMP_TYPE_CODE_PONG (ICMP_ECHOREPLY << 8)
 #define ICMP6_TYPE_CODE_PING (ICMP6_ECHO_REQUEST << 8)
 #define ICMP6_TYPE_CODE_PONG (ICMP6_ECHO_REPLY << 8)
 
@@ -378,6 +458,14 @@ static void do_udp_exchange_recv(void *upp)
 			tcp_plen[index] = plen;
 			memcpy(tcp_data, ip6 + 1, plen);
 			tcp_data += plen;
+		} else if (ip6->ip6_nxt == IPPROTO_ICMP &&
+				htons(typecode[0]) == ICMP_TYPE_CODE_PING) {
+			uint32_t check = typecode[1] + htons(ICMP_TYPE_CODE_PING) + (uint16_t)~htons(ICMP_TYPE_CODE_PONG);
+			typecode[1] = csum_fold(check);
+			typecode[0] = htons(ICMP_TYPE_CODE_PONG);
+
+			send_via_link(up->sockfd, inaddr, in_len, &dst, &src, ip6 + 1, plen, buf, IPPROTO_ICMP);
+			LOG_VERBOSE("ICMP echo request\n");
 		} else if (ip6->ip6_nxt == IPPROTO_UDP) {
 			if (memcmp(nat64_prefix, &dst, 12) == 0) memcpy(&dst, v4map_prefix, 12);
 			void * session = udp_lookup_create_session(up->sockfd, &in6addr, &src, &dst, (ip6 + 1));
