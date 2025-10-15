@@ -653,7 +653,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 
 	sockcb_t so = solookup(th->th_conv);
 	if (so != NULL) {
-		tcp_input(so, so->so_pcb, dst, buf, len, from);
+		tcp_input(so, so->so_pcb, dst, buf, len, from, link);
 		handled = 1;
 	}
 
@@ -665,7 +665,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 			tp->t_state = TCPS_LISTEN;
 			tp->dst_addr = *from;
 			tp->sav_addr = *from;
-			tcp_input(sonew, tp, dst, buf, len, from);
+			tcp_input(sonew, tp, dst, buf, len, from, link);
 			handled = 1;
 		}
 	} else if (handled == 0 && (th->th_flags & TH_CONNECT) == TH_ACK) {
@@ -678,7 +678,7 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 			sob.so_pcb = &tcb;
 			sob.so_iface = dst;
 			sob.so_conv  = th->th_conv;
-			tcp_respond(&tcb, th, 0, ntohl(th->th_ack), TH_RST);
+			tcp_respond(&tcb, th, 0, ntohl(th->th_ack), TH_RST, link);
 			handled = 1;
 		}
 	}
@@ -803,3 +803,4 @@ struct so_usrreqs tcp_usrreqs = {
 	tcp_usr_close
 #endif
 };
+

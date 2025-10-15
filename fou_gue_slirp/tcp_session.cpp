@@ -234,7 +234,7 @@ static uint32_t tcp_checksum(const void *buf, size_t len, struct in6_addr *src, 
 	}
 
 	if (len & 1) {
-		sum += *d & htons(0xff00);
+		sum += (*d & htons(0xff00));
 	}
 
 	sum += htons(len + IPPROTO_TCP);

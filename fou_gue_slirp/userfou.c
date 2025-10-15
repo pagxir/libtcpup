@@ -342,6 +342,7 @@ int main(int argc, char *argv[])
 	inet_pton(AF_INET, "137.175.53.113", &target_udp.sin_addr);
 
 	int udp_mode = 0;
+	int udp_port = 35836;
 	int target_count = 0;
 	struct sockaddr_in target_udps[10];
 
@@ -351,6 +352,10 @@ int main(int argc, char *argv[])
 
 		if (i + 1 < argc && strcmp(hostpair, "-udp") == 0) {
 			udp_mode = 1;
+			continue;
+		} else if (i + 1 < argc && strncmp(hostpair, "-udp=", 5) == 0) {
+			udp_mode = 1;
+			udp_port = atoi(hostpair + 5);
 			continue;
 		} else if (i + 1 < argc && strcmp(hostpair, "-trace") == 0
 				|| strcmp(hostpair, "-trace=1") == 0) {
@@ -398,7 +403,7 @@ int main(int argc, char *argv[])
 	maxfd = MAX_INT(tunnelfd, udpfd);
 
 	addr.sin_family = AF_INET;
-	addr.sin_port   = htons(35836);
+	addr.sin_port   = htons(udp_port);
 	addr.sin_addr.s_addr = INADDR_ANY;
 
 	err = bind(tunnelfd, (struct sockaddr *)&addr, sizeof(addr));

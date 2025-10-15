@@ -769,7 +769,7 @@ void     tcp_reass_destroy(void);
 #if 0
 void     tcp_input(struct mbuf *, int);
 #endif
-void tcp_input(sockcb_t so, struct tcpcb *tp, int dst, const char *buf, size_t len, const struct tcpup_addr *from);
+void tcp_input(sockcb_t so, struct tcpcb *tp, int dst, const char *buf, size_t len, const struct tcpup_addr *from, uint32_t link);
 u_long   tcp_maxmtu(struct in_conninfo *, struct tcp_ifcap *);
 u_long   tcp_maxmtu6(struct in_conninfo *, struct tcp_ifcap *);
 void     tcp_mss_update(struct tcpcb *, int, int, struct hc_metrics_lite *,
@@ -787,7 +787,7 @@ void     tcp_state_change(struct tcpcb *, int);
 void     tcp_respond(struct tcpcb *, void *,
             struct tcphdr *, struct mbuf *, tcp_seq, tcp_seq, int);
 #endif
-void	 tcp_respond(struct tcpcb *tp, struct tcphdr *hdr, tcp_seq ack, tcp_seq seq, int flags);
+void	 tcp_respond(struct tcpcb *tp, struct tcphdr *hdr, tcp_seq ack, tcp_seq seq, int flags, uint32_t link);
 void     tcp_tw_init(void);
 #ifdef VIMAGE
 void     tcp_tw_destroy(void);

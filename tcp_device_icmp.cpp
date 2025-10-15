@@ -422,8 +422,11 @@ void TCPUP_DEVICE_ICMP_CLASS::incoming(void)
 				}
 			}
 
-#if 1
-			if (icmphdr->type == 0x08) {
+			static int do_icmp_replay = 0;
+			if (do_icmp_replay == 0)
+				do_icmp_replay = 1 + !!getenv("ICMP_ECHO");
+
+			if (icmphdr->type == 0x08 && do_icmp_replay == 1) {
 				IOVEC iov0;
 				icmphdr->type = 0;
 
@@ -432,7 +435,6 @@ void TCPUP_DEVICE_ICMP_CLASS::incoming(void)
 				icmp_update_checksum((unsigned char *)&icmphdr->checksum, &iov0, 1);
 				sendto(_file, (char *)icmphdr, len - IPHDR_SKIP_LEN, 0, &saaddr, salen);
 			}
-#endif
 		}
 
 		int handled;

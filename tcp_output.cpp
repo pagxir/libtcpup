@@ -709,7 +709,7 @@ timer:
 	return 0;
 }
 
-void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq, int flags)
+void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq, int flags, uint32_t link)
 {
 	int error;
 	struct rgn_iovec iov0;
@@ -749,8 +749,8 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 	TCP_TRACE_AWAYS(tp, "tcp_respond: %x flags %x seq %x  ack %x ts %x %x\n",
 			th->th_conv, flags, seq, ack, 0, 0);
 
-	th->th_sum = update_ckpass(&iov0, 1, tp->tp_socket->so_link);
-	error = utxpl_output(tp->tp_socket->so_iface, &iov0, 1, &tp->dst_addr, tp->tp_socket->so_link);
+	th->th_sum = update_ckpass(&iov0, 1, link);
+	error = utxpl_output(tp->tp_socket->so_iface, &iov0, 1, &tp->dst_addr, link);
 	VAR_UNUSED(error);
 	return;
 }

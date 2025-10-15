@@ -308,7 +308,7 @@ tcp_dooptions(struct tcpopt *to, u_char *cp, int cnt, int flags)
 }
 
 void tcp_input(sockcb_t so, struct tcpcb *tp, int dst,
-		const char *buf, size_t len, const struct tcpup_addr *from)
+		const char *buf, size_t len, const struct tcpup_addr *from, uint32_t link)
 {
 	int tlen;
 	int thflags;
@@ -1566,10 +1566,10 @@ dropwithreset:
 
 	if (thflags & TH_ACK) {
 		TCP_TRACE_AWAYS(tp, "sentout RST without ACK\n");
-		tcp_respond(tp, th, (tcp_seq)0, th->th_ack, TH_RST);
+		tcp_respond(tp, th, (tcp_seq)0, th->th_ack, TH_RST, link);
 	} else {
 		if (thflags & TH_SYN) tlen++;
-		tcp_respond(tp, th, th->th_seq + tlen, (tcp_seq)0, TH_RST| TH_ACK);
+		tcp_respond(tp, th, th->th_seq + tlen, (tcp_seq)0, TH_RST| TH_ACK, link);
 		TCP_TRACE_AWAYS(tp, "sentout RST within ACK\n");
 	}
 	return;
