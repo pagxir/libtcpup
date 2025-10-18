@@ -630,6 +630,7 @@ void tcp_usrclosed(struct tcpcb *tp)
 
 u_short update_checksum(const void *buf, size_t count, uint32_t link);
 
+extern struct tcpcb bad_link;
 int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_addr *from, unsigned link)
 {
 	int handled = 0;
@@ -670,15 +671,14 @@ int tcpup_do_packet(int dst, const char *buf, size_t len, const struct tcpup_add
 		}
 	} else if (handled == 0 && (th->th_flags & TH_CONNECT) == TH_ACK) {
 		if (th->th_x2 == 0 && th->th_urp == 0) {
-			struct tcpcb tcb = {0};
 			struct sockcb sob = {0};
-			tcb.dst_addr = *from;
-			tcb.tp_socket = &sob;
+			bad_link.dst_addr = *from;
+			bad_link.tp_socket = &sob;
 
-			sob.so_pcb = &tcb;
+			sob.so_pcb = &bad_link;
 			sob.so_iface = dst;
 			sob.so_conv  = th->th_conv;
-			tcp_respond(&tcb, th, 0, ntohl(th->th_ack), TH_RST, link);
+			tcp_respond(&bad_link, th, 0, ntohl(th->th_ack), TH_RST, link);
 			handled = 1;
 		}
 	}

@@ -41,6 +41,7 @@ void sofree(sockcb_t so)
 		return;
 	}
 
+	TCP_DEBUG(1, "sofree conv=%x\n", so->so_conv);
 	(*so->usrreqs->so_detach)(so);
 	so->so_tag = 0xDEAD;
 	LIST_REMOVE(so, entries);
@@ -74,6 +75,7 @@ sockcb_t sonewconn(int iface, so_conv_t conv,  unsigned link)
 	so->so_count = 0;
 
 	(*so->usrreqs->so_attach)(so);
+		TCP_DEBUG(1, "sonewconn conv %x\n", so->so_conv);
 	return so;
 }
 

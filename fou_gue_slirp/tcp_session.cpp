@@ -103,11 +103,133 @@ static inline unsigned int get_connection_match_hash(const void *src, const void
 	return ((hash >> 16)^ hash) & HASH_MASK;
 }
 
+static uint16_t csum_fold(uint32_t sum)
+{
+	while (sum >> 16)
+		sum = (sum & 0xffff) + (sum >> 16);
+
+	return sum;
+}
+
+static uint32_t checksum(void *head, size_t len)
+{
+	uint32_t sum = 0;
+	uint16_t *shortp = (uint16_t *)head;
+
+	while (len > 1) {
+		sum += *shortp++;
+		len -= 2;
+	}
+
+	if (len > 0) {
+		sum += (*shortp & htons(0xff00));
+	}
+
+	return csum_fold(sum);
+}
+
+static int _nat_count = 0;
+static unsigned short _nat_port = 1024;
+static uint32_t _nat_port_bitmap[65536 / 32] = {0};
+
+static uint16_t use_nat_port(uint16_t port)
+{
+        int index = (port / 32);
+        int offset = (port % 32);
+
+        uint32_t old = _nat_port_bitmap[index];
+        _nat_port_bitmap[index] |= (1 << offset);
+        assert(old != _nat_port_bitmap[index]);
+        _nat_count++;
+
+        return htons(port + 1024);
+}
+
+#define USER_PORT_COUNT (65536 - 1024)
+
+static uint16_t alloc_nat_port()
+{
+        uint32_t bitmap;
+        int index, offset, bound;
+
+        if (_nat_count >= USER_PORT_COUNT) {
+                return 0;
+        }
+
+        _nat_port += (rand() % 17);
+        _nat_port %= USER_PORT_COUNT;
+
+        bound = (_nat_port >> 5);
+        bitmap = _nat_port_bitmap[bound];
+
+        for (offset = (_nat_port % 32); offset < 32; offset++) {
+                if (bitmap & (1 << offset)) {
+                        _nat_port++;
+                } else {
+                        return _nat_port;
+                }
+        }
+
+        for (index = bound + 1; index < (USER_PORT_COUNT / 32); index++) {
+                if (_nat_port_bitmap[index] != 0xffffffff) {
+                        bitmap = _nat_port_bitmap[index];
+                        offset = 0;
+                        goto found;
+                }
+        }
+
+        for (index = 0; index < bound; index++) {
+                if (_nat_port_bitmap[index] != 0xffffffff) {
+                        bitmap = _nat_port_bitmap[index];
+                        offset = 0;
+                        goto found;
+                }
+        }
+
+        _nat_port = bound * 32;
+        for (offset = 0; offset < (_nat_port % 32); offset++) {
+                if (bitmap & (1 << offset)) {
+                        _nat_port++;
+                } else {
+                        return _nat_port;
+                }
+        }
+
+        return 0;
+
+found:
+        _nat_port = index * 32;
+        for (offset = 0; offset < 32; offset++) {
+                if (bitmap & (1 << offset)) {
+                        _nat_port++;
+                } else {
+                        return _nat_port;
+                }
+        }
+
+        return _nat_port;
+}
+
+static uint16_t free_nat_port(uint16_t port)
+{
+        int index, offset;
+
+        port = htons(port) - 1024;
+        index = (port / 32);
+        offset = (port % 32);
+
+        _nat_port_bitmap[index] &= ~(1 << offset);
+        _nat_count--;
+
+        return 0;
+}
+
 static time_t _session_gc_time = 0;
 static int reset_tcp(nat_conntrack_t * up);
 static int conngc_session(time_t now, nat_conntrack_t *skip)
 {
 	int timeout = 130;
+
 	if (now < _session_gc_time || now > _session_gc_time + 130) {
 		nat_conntrack_t *item, *next;
 
@@ -130,9 +252,7 @@ static int conngc_session(time_t now, nat_conntrack_t *skip)
 					_session_lastid[item->sockfd & HASH_MASK] = NULL;
 				}
 
-				tx_aiocb_fini(&item->file);
-				tx_task_drop(&item->task);
-				close(item->sockfd);
+				free_nat_port(item->sockfd);
 
 				reset_tcp(item);
 				LIST_REMOVE(item, entry);
@@ -173,31 +293,34 @@ static nat_conntrack_t * lookup_session(int fd, struct sockaddr_in6 *link, struc
 	nat_conntrack_t *item;
 	static uint32_t ZEROS[4] = {};
 
+	int skip_link = csum_fold(checksum(&item->name.sin6_addr, 16));
 	int hash_idx0 = get_connection_match_hash(&link->sin6_addr, ZEROS, sport, link->sin6_port);
 
 	item = _session_last[hash_idx0];
 	if (item != NULL) {
-		if ((item->link.sin6_port == link->sin6_port) &&
+		if ((item->link.sin6_port == link->sin6_port || skip_link) &&
 				sport == item->name.sin6_port &&
 				dport == item->peer.sin6_port &&
 				item->mainfd == fd &&
 				IN6_ARE_ADDR_EQUAL(dst, &item->peer.sin6_addr) &&
 				IN6_ARE_ADDR_EQUAL(src, &item->name.sin6_addr) &&
-				IN6_ARE_ADDR_EQUAL(&item->link.sin6_addr, &link->sin6_addr)) {
+				(IN6_ARE_ADDR_EQUAL(&item->link.sin6_addr, &link->sin6_addr) || skip_link)) {
 			item->last_alive = time(NULL);
+			item->link = *link;
 			return item;
 		}
 	}
 
 	LIST_FOREACH(item, &_session_header, entry) {
-		if ((item->link.sin6_port == link->sin6_port) &&
+		if ((item->link.sin6_port == link->sin6_port || skip_link) &&
 				sport == item->name.sin6_port &&
 				dport == item->peer.sin6_port &&
 				item->mainfd == fd &&
 				IN6_ARE_ADDR_EQUAL(dst, &item->peer.sin6_addr) &&
 				IN6_ARE_ADDR_EQUAL(src, &item->name.sin6_addr) &&
-				IN6_ARE_ADDR_EQUAL(&item->link.sin6_addr, &link->sin6_addr)) {
+				(IN6_ARE_ADDR_EQUAL(&item->link.sin6_addr, &link->sin6_addr) || skip_link)) {
 			item->last_alive = time(NULL);
+			item->link = *link;
 			assert(hash_idx0 == item->hash_idx);
 			_session_last[hash_idx0] = item;
 			return item;
@@ -205,14 +328,6 @@ static nat_conntrack_t * lookup_session(int fd, struct sockaddr_in6 *link, struc
 	}
 
 	return NULL;
-}
-
-static uint16_t csum_fold(uint32_t sum)
-{
-	while (sum >> 16)
-		sum = (sum & 0xffff) + (sum >> 16);
-
-	return sum;
 }
 
 static uint32_t tcp_checksum(const void *buf, size_t len, struct in6_addr *src, struct in6_addr *dst)
@@ -291,22 +406,19 @@ static nat_conntrack_t * newconn_session(int mainfd, struct sockaddr_in6 *link, 
 		conn->mainfd = mainfd;
 		conn->port   = sport;
 
-		sockfd = socket(AF_INET6, SOCK_STREAM, 0);
+		sockfd = alloc_nat_port();
 		TX_CHECK(sockfd != -1, "create tcp socket failure");
-
-		tx_setblockopt(sockfd, 0);
 
 		conn->sockfd = sockfd;
 
-		tx_loop_t *loop = tx_loop_default();
-		tx_aiocb_init(&conn->file, loop, sockfd);
-		tx_task_init(&conn->task, loop, do_tcp_exchange_back, conn);
+		// tx_task_init(&conn->task, loop, do_tcp_exchange_back, conn);
 
 		static uint32_t ZEROS[4] = {};
 		conn->hash_idx = get_connection_match_hash(&link->sin6_addr, ZEROS, sport, link->sin6_port);
 		LIST_INSERT_HEAD(&_session_header, conn, entry);
 		_session_last[conn->hash_idx] = conn;
 		_session_lastid[sockfd & HASH_MASK] = conn;
+		LOG_INFO("newconn_session: %x\n", sockfd);
 	}
 
 	conngc_session(now, conn);
@@ -337,23 +449,6 @@ struct ip_hdr {
 	uint32_t src;
 	uint32_t dst;
 };
-
-static uint32_t checksum(void *head, size_t len)
-{
-	uint32_t sum = 0;
-	uint16_t *shortp = (uint16_t *)head;
-
-	while (len > 1) {
-		sum += *shortp++;
-		len -= 2;
-	}
-
-	if (len > 0) {
-		sum += (*shortp & htons(0xff00));
-	}
-
-	return csum_fold(sum);
-}
 
 typedef int f_tcp_write(void *head, size_t hlen, void *payload, size_t len);
 
@@ -388,6 +483,7 @@ static int reset_tcp(nat_conntrack_t * up)
 	tcphdr.th_flags |= TH_RST;
 	tcphdr.th_sum = csum_fold(tcp_checksum(&tcphdr, sizeof(tcphdr), &ip6.ip6_src, &ip6.ip6_dst));
 
+	LOG_INFO("reset_tcp: %p\n", up);
 	tcp_engine_write(&ip6, sizeof(ip6), &tcphdr, sizeof(tcphdr));
 	return 0;
 }

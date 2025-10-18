@@ -709,6 +709,7 @@ timer:
 	return 0;
 }
 
+struct tcpcb bad_link;
 void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq, int flags, uint32_t link)
 {
 	int error;
@@ -745,6 +746,8 @@ void tcp_respond(struct tcpcb *tp, struct tcphdr *orig, tcp_seq ack, tcp_seq seq
 
 	iov0.iov_len = sizeof(tcpup_th0);
 	iov0.iov_base = &tcpup_th0;
+
+	TCP_DEBUG(1, "tcp_respond %p %x conv %x %x", tp, th->th_flags, th->th_conv, 0);
 
 	TCP_TRACE_AWAYS(tp, "tcp_respond: %x flags %x seq %x  ack %x ts %x %x\n",
 			th->th_conv, flags, seq, ack, 0, 0);
