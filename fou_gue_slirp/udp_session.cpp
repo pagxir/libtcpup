@@ -79,6 +79,9 @@ static time_t _session_gc_time = 0;
 static int conngc_session(time_t now, nat_conntrack_t *skip)
 {
 	int timeout = 30;
+	int free_count = 0;
+	void *free_memptr = NULL;
+
 	if (now < _session_gc_time || now > _session_gc_time + 30) {
 		nat_conntrack_t *item, *next;
 
@@ -90,7 +93,6 @@ static int conngc_session(time_t now, nat_conntrack_t *skip)
 
 			if ((item->last_alive > now) ||
 					(item->last_alive + timeout < now)) {
-				LOG_INFO("free datagram connection: %p, %d\n", skip, 0);
 				int hash_idx = item->hash_idx;
 
 				if (item == _session_last[hash_idx]) {
@@ -103,9 +105,15 @@ static int conngc_session(time_t now, nat_conntrack_t *skip)
 
 				LIST_REMOVE(item, entry);
 				free(item);
+
+				free_memptr = item;
+				free_count++;
 			}
 		}
 	}
+
+	if (free_memptr != NULL)
+		LOG_INFO("free datagram connection: %p, %p, %d\n", skip, free_count);
 
 	return 0;
 }

@@ -59,8 +59,8 @@ static void do_tun_exchange_back(void *upp)
 	tx_aincb_update(&up->file, count);
 
 	while (count > 0) {
-		tcp_packet_receive(buffer + 60, count, buffer);  
-		count = read(up->tunfd, buffer + 4, sizeof(buffer) - 4);
+		tcp_packet_receive(buffer + 60, count, buffer); 
+		count = read(up->tunfd, buffer + 60, sizeof(buffer) - 60);
 		tx_aincb_update(&up->file, count);
 	}
 
@@ -68,7 +68,7 @@ static void do_tun_exchange_back(void *upp)
 	return ;
 }
 
-static int tun_alloc(char *name)
+static int tun_alloc(const char *name)
 {
 	int fd, err = -1;
 	struct ifreq ifr;
@@ -119,7 +119,7 @@ int tcptun_write(void *head, size_t hlen, void *payload, size_t len)
 
 void tcptun_init(tx_loop_t *loop, f_tcp_packet_receive *func)
 {
-    g->tunfd = tun_alloc(NULL);
+    g->tunfd = tun_alloc(getenv("TUNDEV"));
     assert(g->tunfd != -1);
 
     tx_setblockopt(g->tunfd, 0);

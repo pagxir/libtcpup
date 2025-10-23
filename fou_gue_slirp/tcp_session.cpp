@@ -539,7 +539,7 @@ void tcp_session_forward(void *session, struct in6_addr *src, struct in6_addr *d
 	ip.dst = PICK_UINT32(dst, 12);
 
 	inet_pton(AF_INET, "10.0.0.0", &ip.src);
-	assert (up->sockfd < 63336);
+	assert (up->sockfd < 65536);
 
 	uint32_t sum = 0;
 	uint16_t *shortp = (uint16_t*)src;
@@ -575,9 +575,9 @@ void tcp_packet_receive(void *frame, size_t len, void *buf)
 	struct ip_hdr * ip = (struct ip_hdr *)packet;
 	struct tcp_hdr * tcp = (struct tcp_hdr *)(ip + 1);
 	LOG_VERBOSE("mainfd = %x\n", htonl(ip->dst));
-	nat_conntrack_t * up = lookup_session_by_id(tcp->sport);
+	nat_conntrack_t * up = lookup_session_by_id(tcp->dport);
 
-	LOG_VERBOSE("TCP receive check=%x %d\n", 
+	LOG_VERBOSE("TCP %p receive check=%x %d\n", up,
 			csum_fold(checksum(tcp, len - 20) + htons(IPPROTO_TCP) + htons(len - 20) + csum_fold(ip->src) + csum_fold(ip->dst)), len);
 
 	if (up != NULL) {
